@@ -11,11 +11,32 @@ const expectedRepository =
 const expectedHomepage = "https://github.com/clearideas/agent-runtime#readme";
 const expectedIssues = "https://github.com/clearideas/agent-runtime/issues";
 const expectedRegistry = "https://registry.npmjs.org/";
+const expectedPrerelease = /^0\.1\.0-alpha\.\d+$/u;
 const entries = await readdir(packagesDirectory, { withFileTypes: true });
 const failures = [];
 const names = new Set();
 const versions = new Set();
 const npmConfig = await readFile(path.join(root, ".npmrc"), "utf8");
+const rootManifest = JSON.parse(
+  await readFile(path.join(root, "package.json"), "utf8"),
+);
+
+if (rootManifest.private !== true) {
+  failures.push("the workspace root must remain private:true");
+}
+for (const relativeManifest of [
+  path.join("docs", "package.json"),
+  path.join("examples", "interactive-web", "package.json"),
+]) {
+  const manifest = JSON.parse(
+    await readFile(path.join(root, relativeManifest), "utf8"),
+  );
+  if (manifest.private !== true) {
+    failures.push(
+      `${relativeManifest}: non-package workspace must be private:true`,
+    );
+  }
+}
 
 if (
   !npmConfig
@@ -57,9 +78,12 @@ for (const entry of entries.filter((value) => value.isDirectory())) {
   names.add(manifest.name);
   versions.add(manifest.version);
 
-  if (manifest.private !== true) {
+  if (manifest.private === true) {
+    fail("publishable private-alpha package must not have private:true");
+  }
+  if (!expectedPrerelease.test(manifest.version)) {
     fail(
-      "private:true safety lock is required until the public release is approved",
+      `version must be a 0.1.0-alpha prerelease; found ${JSON.stringify(manifest.version)}`,
     );
   }
   if (manifest.license !== "Apache-2.0") fail("license must be Apache-2.0");
@@ -84,13 +108,13 @@ for (const entry of entries.filter((value) => value.isDirectory())) {
   ) {
     fail("keywords must identify AI agents, Agent Runtime, and workflows");
   }
-  if (manifest.publishConfig?.access !== "public") {
-    fail(
-      "publishConfig.access must be public for the future scoped OSS release",
-    );
+  if (manifest.publishConfig?.access !== "restricted") {
+    fail("publishConfig.access must be restricted for the private alpha");
   }
-  if (manifest.publishConfig?.provenance !== true) {
-    fail("publishConfig.provenance must be true");
+  if (manifest.publishConfig?.provenance !== false) {
+    fail(
+      "publishConfig.provenance must be false while the repository is private",
+    );
   }
   if (manifest.publishConfig?.registry !== expectedRegistry) {
     fail(`publishConfig.registry must be ${expectedRegistry}`);
@@ -111,16 +135,16 @@ for (const entry of entries.filter((value) => value.isDirectory())) {
     ...manifest.dependencies,
     ...manifest.optionalDependencies,
     ...manifest.peerDependencies,
+    ...manifest.devDependencies,
   };
   for (const [dependency, range] of Object.entries(runtimeDependencies)) {
     if (
       (dependency === "@clearideas/agent-runtime" ||
         dependency.startsWith("@clearideas/agent-runtime-")) &&
-      typeof range === "string" &&
-      !/^(\^|~)?\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/u.test(range)
+      range !== manifest.version
     ) {
       fail(
-        `internal dependency ${dependency} has non-publishable range ${range}`,
+        `internal dependency ${dependency} must match ${manifest.version}; found ${range}`,
       );
     }
   }
@@ -143,6 +167,6 @@ if (failures.length > 0) {
   process.exitCode = 1;
 } else {
   process.stdout.write(
-    `Package metadata is release-safe (${names.size} packages, private:true locks present).\n`,
+    `Package metadata is private-alpha ready (${names.size} restricted packages).\n`,
   );
 }

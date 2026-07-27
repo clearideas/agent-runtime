@@ -5,9 +5,9 @@ name: Release packages
 # 2. repository variable NPM_RELEASES_ENABLED=true;
 # 3. approval of the npm-production GitHub environment;
 # 4. npm trusted-publisher configuration for this exact workflow; and
-# 5. removal of private:true only from packages approved for release.
-# Packages are scoped as @clearideas/* and publish only to the public npm
-# registry configured below and in each package's publishConfig.
+# 5. a read-only NPM_READ_TOKEN secret for private-package metadata requests.
+# Packages are scoped as @clearideas/*, remain private during the alpha, and
+# publish only to the npm registry configured below and in publishConfig.
 on:
   workflow_dispatch:
     inputs:
@@ -45,11 +45,16 @@ jobs:
         uses: actions/setup-node@v7
         with:
           node-version: 24
-          cache: npm
           registry-url: https://registry.npmjs.org
+          package-manager-cache: false
+
+      - name: Install the pinned npm release client
+        run: npm install --global npm@12.0.1
 
       - name: Install locked dependencies
         run: npm ci
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_READ_TOKEN }}
 
       - name: Validate release candidate
         run: npm run validate
@@ -57,10 +62,11 @@ jobs:
       - name: Create version pull request or publish approved packages
         uses: changesets/action@v1
         with:
-          publish: npm run release:packages
+          publish: npm run release:packages:alpha
           version: npm run version-packages
           commit: "chore: version packages"
           title: "chore: version packages"
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          NPM_CONFIG_PROVENANCE: "true"
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_READ_TOKEN }}
+          NPM_CONFIG_PROVENANCE: "false"
