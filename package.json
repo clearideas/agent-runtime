@@ -31,7 +31,7 @@
     "release:bootstrap:check": "npm run validate && node scripts/publish-private-alpha.mjs",
     "release:bootstrap:private": "npm run validate && node scripts/publish-private-alpha.mjs --publish",
     "release:packages": "changeset publish",
-    "release:packages:alpha": "changeset publish --tag alpha"
+    "release:packages:alpha": "changeset publish"
   },
   "engines": {
     "node": ">=24"
