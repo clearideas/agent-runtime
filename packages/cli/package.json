@@ -1,6 +1,6 @@
 {
   "name": "@clearideas/agent-runtime-cli",
-  "version": "0.1.0-alpha.1",
+  "version": "0.1.0-alpha.2",
   "description": "Command-line utilities for agent manifests, agent run manifests, and run state.",
   "license": "Apache-2.0",
   "author": "Clear Ideas Incorporated",
@@ -40,16 +40,16 @@
     "postpack": "node ../../scripts/cleanup-package-license.mjs"
   },
   "dependencies": {
-    "@clearideas/agent-runtime-condition-jexl": "0.1.0-alpha.1",
-    "@clearideas/agent-runtime-config": "0.1.0-alpha.1",
-    "@clearideas/agent-runtime-contracts": "0.1.0-alpha.1",
-    "@clearideas/agent-runtime-core": "0.1.0-alpha.1",
-    "@clearideas/agent-runtime-execution": "0.1.0-alpha.1",
-    "@clearideas/agent-runtime-step-loop": "0.1.0-alpha.1",
-    "@clearideas/agent-runtime-step-prompt": "0.1.0-alpha.1",
-    "@clearideas/agent-runtime-step-standard": "0.1.0-alpha.1",
-    "@clearideas/agent-runtime-store-local": "0.1.0-alpha.1",
-    "@clearideas/agent-runtime-store-sqlite": "0.1.0-alpha.1"
+    "@clearideas/agent-runtime-condition-jexl": "0.1.0-alpha.2",
+    "@clearideas/agent-runtime-config": "0.1.0-alpha.2",
+    "@clearideas/agent-runtime-contracts": "0.1.0-alpha.2",
+    "@clearideas/agent-runtime-core": "0.1.0-alpha.2",
+    "@clearideas/agent-runtime-execution": "0.1.0-alpha.2",
+    "@clearideas/agent-runtime-step-loop": "0.1.0-alpha.2",
+    "@clearideas/agent-runtime-step-prompt": "0.1.0-alpha.2",
+    "@clearideas/agent-runtime-step-standard": "0.1.0-alpha.2",
+    "@clearideas/agent-runtime-store-local": "0.1.0-alpha.2",
+    "@clearideas/agent-runtime-store-sqlite": "0.1.0-alpha.2"
   },
   "devDependencies": {
     "@types/node": "^25.6.0",

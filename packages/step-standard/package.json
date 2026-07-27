@@ -1,6 +1,6 @@
 {
   "name": "@clearideas/agent-runtime-step-standard",
-  "version": "0.1.0-alpha.1",
+  "version": "0.1.0-alpha.2",
   "description": "Approval, webhook, and sandboxed code executors for Clear Ideas Agent Runtime.",
   "license": "Apache-2.0",
   "author": "Clear Ideas Incorporated",
@@ -36,8 +36,8 @@
     "postpack": "node ../../scripts/cleanup-package-license.mjs"
   },
   "dependencies": {
-    "@clearideas/agent-runtime-contracts": "0.1.0-alpha.1",
-    "@clearideas/agent-runtime-core": "0.1.0-alpha.1"
+    "@clearideas/agent-runtime-contracts": "0.1.0-alpha.2",
+    "@clearideas/agent-runtime-core": "0.1.0-alpha.2"
   },
   "devDependencies": {
     "typescript": "^6.0.3",
