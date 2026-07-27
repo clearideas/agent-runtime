@@ -8,6 +8,12 @@ import process from "node:process";
 
 const root = process.cwd();
 const packagesDirectory = path.join(root, "packages");
+const npmCommand = process.env.npm_execpath
+  ? process.execPath
+  : process.platform === "win32"
+    ? "npm.cmd"
+    : "npm";
+const npmArguments = process.env.npm_execpath ? [process.env.npm_execpath] : [];
 const packageLicenseCleanup = path.join(
   root,
   "scripts",
@@ -27,9 +33,27 @@ for (const entry of entries) {
   const manifest = JSON.parse(
     await readFile(path.join(packageRoot, "package.json"), "utf8"),
   );
+  const prepack = spawnSync(npmCommand, [...npmArguments, "run", "prepack"], {
+    cwd: packageRoot,
+    encoding: "utf8",
+    env: {
+      ...process.env,
+      npm_config_audit: "false",
+      npm_config_cache: npmCache,
+      npm_config_fund: "false",
+      npm_config_loglevel: "error",
+    },
+  });
+  if (prepack.status !== 0) {
+    failures.push(
+      `${manifest.name}: prepack failed: ${(
+        prepack.stderr || prepack.stdout
+      ).trim()}`,
+    );
+  }
   const result = spawnSync(
-    process.platform === "win32" ? "npm.cmd" : "npm",
-    ["pack", "--dry-run", "--json"],
+    npmCommand,
+    [...npmArguments, "pack", "--dry-run", "--json", "--ignore-scripts"],
     {
       cwd: packageRoot,
       encoding: "utf8",
@@ -54,6 +78,7 @@ for (const entry of entries) {
     );
   }
 
+  if (prepack.status !== 0) continue;
   if (result.status !== 0) {
     failures.push(
       `${manifest.name}: npm pack failed: ${(
@@ -65,7 +90,11 @@ for (const entry of entries) {
 
   let pack;
   try {
-    [pack] = JSON.parse(result.stdout);
+    const parsed = JSON.parse(result.stdout);
+    pack = Array.isArray(parsed)
+      ? parsed[0]
+      : (parsed[manifest.name] ?? Object.values(parsed)[0]);
+    if (!pack || typeof pack !== "object") throw new Error("missing package");
   } catch {
     failures.push(`${manifest.name}: npm pack returned invalid JSON`);
     continue;
