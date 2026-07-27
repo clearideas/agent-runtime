@@ -146,7 +146,8 @@ if (identity.status !== 0) {
 }
 process.stdout.write(`\nPublishing as npm user ${identity.stdout.trim()}.\n`);
 
-for (const { directory, manifest } of ordered) {
+const pending = [];
+for (const { manifest } of ordered) {
   const specifier = `${manifest.name}@${manifest.version}`;
   const existing = run(["view", specifier, "version", "--json"]);
   if (existing.status === 0) {
@@ -160,25 +161,48 @@ for (const { directory, manifest } of ordered) {
     );
     process.exit(existing.status ?? 1);
   }
+  pending.push({ manifest });
+}
 
-  process.stdout.write(`Publishing ${specifier}...\n`);
-  const result = run(
-    [
-      "publish",
-      directory,
-      "--access",
-      "restricted",
-      "--tag",
-      "alpha",
-      "--provenance=false",
-    ],
-    { stdio: "inherit", encoding: undefined },
+if (pending.length === 0) {
+  process.stdout.write("\nEvery private-alpha package is already published.\n");
+  process.exit(0);
+}
+
+process.stdout.write(
+  `Publishing ${pending.length} package${pending.length === 1 ? "" : "s"} in one authenticated npm operation...\n`,
+);
+const workspaceArguments = pending.flatMap(({ manifest }) => [
+  "--workspace",
+  manifest.name,
+]);
+const result = run(
+  [
+    "publish",
+    ...workspaceArguments,
+    "--access",
+    "restricted",
+    "--tag",
+    "alpha",
+    "--provenance=false",
+  ],
+  { stdio: "inherit", encoding: undefined },
+);
+if (result.status !== 0) {
+  process.stderr.write(
+    "Publishing stopped. Re-run the command after resolving the error; versions already present in npm will be skipped.\n",
   );
-  if (result.status !== 0) {
+  process.exit(result.status ?? 1);
+}
+
+for (const { manifest } of pending) {
+  const specifier = `${manifest.name}@${manifest.version}`;
+  const verification = run(["view", specifier, "version", "--json"]);
+  if (verification.status !== 0) {
     process.stderr.write(
-      `Publishing stopped at ${specifier}. Re-run the command after resolving the error; previously published versions will be skipped.\n`,
+      `Registry verification failed for ${specifier}: ${outputFor(verification)}\n`,
     );
-    process.exit(result.status ?? 1);
+    process.exit(verification.status ?? 1);
   }
 }
 
