@@ -7,10 +7,10 @@ The runtime separates agent manifests from execution infrastructure. An agent
 can use the same contracts with in-process execution, a child process, a remote
 worker, or host-provided adapters.
 
-> **Pre-release:** this repository is an extracted release candidate. Every npm
-> package remains `private: true`, and the release workflow is disabled by
-> default. No package is ready to publish until the release checklist is
-> approved.
+> **Private alpha:** the npm packages are prepared as restricted
+> `0.1.0-alpha.1` releases. The GitHub release workflow remains disabled until
+> the initial package bootstrap and trusted-publisher configuration are
+> complete.
 
 ## Capabilities
 
@@ -99,24 +99,32 @@ npm run version-packages
 
 The checked-in release workflow is manual and additionally gated by the
 repository variable `NPM_RELEASES_ENABLED=true` and a protected GitHub
-environment. It requests an OIDC identity token for npm trusted publishing; it
-does not contain an npm token.
+environment. It requests an OIDC identity token for npm trusted publishing. A
+separate read-only `NPM_READ_TOKEN` is required while the packages are private
+so Changesets can read package metadata; it cannot publish.
 
 All publishable packages use the `@clearideas` scope and explicitly target the
-public npm registry. The repository `.npmrc`, each package's `publishConfig`,
+npm registry. The repository `.npmrc`, each package's `publishConfig`,
 Changesets, and the release workflow all resolve or publish these packages
-through `https://registry.npmjs.org/`. No Agent Runtime package is configured
-for GitHub Packages.
+through `https://registry.npmjs.org/`. The private alpha uses restricted npm
+visibility and the `alpha` distribution tag. No Agent Runtime package is
+configured for GitHub Packages.
 
 These controls do not replace review. Before the first release:
 
-1. approve the package names and public repository coordinates;
+1. approve the package names and repository coordinates;
 2. complete [license review](LICENSE_REVIEW.md);
-3. remove `private: true` only from packages intentionally being published;
-4. configure npm trusted publishers for the exact GitHub workflow and
-   environment;
-5. enable required branch and environment protection; and
-6. set `NPM_RELEASES_ENABLED=true`.
+3. authenticate to npm and run `npm run release:bootstrap:private`;
+4. configure an npm trusted publisher on every package for the exact workflow,
+   repository, and `npm-production` environment;
+5. create a project-specific, read-only npm token as the `NPM_READ_TOKEN`
+   repository or environment secret;
+6. configure required branch and environment protection; and
+7. set `NPM_RELEASES_ENABLED=true`.
+
+Run `npm run release:bootstrap:check` at any time to validate the package set
+without contacting npm or publishing anything. The bootstrap publish is
+resumable: package versions already present on npm are skipped.
 
 ## Project policies
 

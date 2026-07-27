@@ -1,8 +1,7 @@
 {
   "name": "@clearideas/agent-runtime-execution",
-  "version": "0.1.0",
+  "version": "0.1.0-alpha.1",
   "description": "Provider-neutral local and remote execution engine contracts for Clear Ideas Agent Runtime.",
-  "private": true,
   "license": "Apache-2.0",
   "author": "Clear Ideas Incorporated",
   "repository": {
@@ -11,8 +10,8 @@
     "directory": "packages/execution"
   },
   "publishConfig": {
-    "access": "public",
-    "provenance": true,
+    "access": "restricted",
+    "provenance": false,
     "registry": "https://registry.npmjs.org/"
   },
   "files": [
@@ -41,7 +40,7 @@
     "postpack": "node ../../scripts/cleanup-package-license.mjs"
   },
   "dependencies": {
-    "@clearideas/agent-runtime-contracts": "0.1.0"
+    "@clearideas/agent-runtime-contracts": "0.1.0-alpha.1"
   },
   "devDependencies": {
     "@types/node": "^25.6.0",
