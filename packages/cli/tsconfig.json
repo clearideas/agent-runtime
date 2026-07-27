@@ -1,0 +1,43 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "ignoreDeprecations": "6.0",
+    "declaration": true,
+    "composite": true,
+    "outDir": "dist",
+    "rootDir": "src",
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "noUncheckedIndexedAccess": true,
+    "exactOptionalPropertyTypes": true,
+    "types": ["node"],
+    "baseUrl": ".",
+    "paths": {
+      "@clearideas/agent-runtime-contracts": ["../contracts/dist/index.d.ts"],
+      "@clearideas/agent-runtime-core": ["../core/dist/index.d.ts"],
+      "@clearideas/agent-runtime-execution": ["../execution/dist/index.d.ts"],
+      "@clearideas/agent-runtime-config": ["../runtime/dist/index.d.ts"],
+      "@clearideas/agent-runtime-condition-jexl": [
+        "../condition-jexl/dist/index.d.ts"
+      ],
+      "@clearideas/agent-runtime-step-loop": ["../step-loop/dist/index.d.ts"],
+      "@clearideas/agent-runtime-step-prompt": [
+        "../step-prompt/dist/index.d.ts"
+      ],
+      "@clearideas/agent-runtime-step-standard": [
+        "../step-standard/dist/index.d.ts"
+      ],
+      "@clearideas/agent-runtime-store-local": [
+        "../store-local/dist/index.d.ts"
+      ],
+      "@clearideas/agent-runtime-store-sqlite": [
+        "../store-sqlite/dist/index.d.ts"
+      ]
+    }
+  },
+  "include": ["src/**/*.ts"],
+  "exclude": ["src/**/*.test.ts"]
+}

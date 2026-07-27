@@ -1,0 +1,33 @@
+schemaVersion: '1.0'
+id: example-loops
+name: Collection loop
+model:
+  ref: fast
+variables:
+  items:
+    - name: Alpha
+      enabled: true
+    - name: Beta
+      enabled: false
+    - name: Gamma
+      enabled: true
+steps:
+  - id: summarize-items
+    type: loop
+    loop:
+      source: items
+      itemVariable: item
+      indexVariable: itemIndex
+      condition: item.enabled == true
+      outputMode: array
+      resultVariable: itemSummary
+    outputVariable: summaries
+    steps:
+      - id: summarize-item
+        type: prompt
+        systemPrompt: >-
+          You are processing item {{ itemIndex }} named {{ item.name }}.
+          Return only the requested token.
+        prompt: Return exactly {{ item.name }}_DONE
+        outputVariable: itemSummary
+    includeInFinalOutput: true

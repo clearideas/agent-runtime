@@ -1,0 +1,26 @@
+schemaVersion: '1.0'
+id: example-conditions
+name: Conditional execution
+model:
+  ref: fast
+variables:
+  review:
+    enabled: true
+steps:
+  - id: score
+    type: prompt
+    systemPrompt: Return only the requested integer.
+    prompt: Return exactly 9
+    outputVariable: score
+  - id: accepted
+    type: prompt
+    when: review.enabled == true && score == "9"
+    systemPrompt: The score {{ score }} was accepted. Return only the requested token.
+    prompt: Return exactly ACCEPTED
+    outputVariable: final
+    includeInFinalOutput: true
+  - id: rejected
+    type: prompt
+    when: score != "9"
+    prompt: Return exactly REJECTED
+    outputVariable: rejected

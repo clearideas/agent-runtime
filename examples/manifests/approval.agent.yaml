@@ -1,0 +1,32 @@
+schemaVersion: '1.0'
+id: approval
+name: Approval flow
+
+model:
+  provider: openai
+  model: gpt-5.6
+
+variables:
+  - key: request
+    type: string
+    value: Explain the planned release to customers.
+
+steps:
+  - id: prepare
+    type: prompt
+    prompt: Prepare the proposed response to {{ request }}.
+    outputVariable: proposal
+
+  - id: approve
+    type: approval
+    prompt: Approve the proposed response?
+    action: pause
+
+  - id: finalize
+    type: prompt
+    prompt: |-
+      Return the approved proposal:
+
+      {{ proposal }}
+    outputVariable: response
+    includeInFinalOutput: true

@@ -1,0 +1,364 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      name="description"
+      content="Run an agent locally or remotely and inspect its variables, outputs, and events."
+    />
+    <title>Interactive agent execution</title>
+    <link rel="stylesheet" href="/styles.css" />
+    <link rel="stylesheet" href="/vendor/highlight.css" />
+  </head>
+  <body>
+    <main class="shell">
+      <header class="hero">
+        <div>
+          <h1>Interactive agent execution</h1>
+          <p class="lede">
+            Supply run variables, execute a reusable agent, and inspect its
+            outputs and events.
+          </p>
+        </div>
+        <div class="runtime-card" aria-label="Runtime configuration">
+          <div class="runtime-status">
+            <span id="runtime-label">Connecting to example server</span>
+          </div>
+          <dl>
+            <div>
+              <dt>Execution</dt>
+              <dd id="execution-value">Local</dd>
+            </div>
+            <div>
+              <dt>Scheduling</dt>
+              <dd id="scheduling-value">Parallel</dd>
+            </div>
+            <div>
+              <dt>Model</dt>
+              <dd id="model-value">—</dd>
+            </div>
+            <div>
+              <dt>Stream</dt>
+              <dd id="stream-value">NDJSON</dd>
+            </div>
+            <div>
+              <dt>MCP</dt>
+              <dd id="mcp-value">Context7</dd>
+            </div>
+            <div>
+              <dt>Telemetry</dt>
+              <dd id="telemetry-value">OpenTelemetry</dd>
+            </div>
+          </dl>
+        </div>
+      </header>
+
+      <section class="workspace" aria-label="Interactive agent example">
+        <form id="run-form" class="panel controls-panel">
+          <div class="panel-heading">
+            <h2>Run variables</h2>
+          </div>
+
+          <fieldset class="execution-mode">
+            <legend>Execution</legend>
+            <label>
+              <input type="radio" name="execution" value="local" checked />
+              <span>
+                <strong>Local</strong>
+                <small>Current Node.js process</small>
+              </span>
+            </label>
+            <label>
+              <input type="radio" name="execution" value="remote" />
+              <span>
+                <strong>Remote</strong>
+                <small>Worker protocol over HTTP</small>
+              </span>
+            </label>
+          </fieldset>
+
+          <fieldset class="execution-mode">
+            <legend>Step scheduling</legend>
+            <label>
+              <input type="radio" name="scheduling" value="sequential" />
+              <span>
+                <strong>Sequential</strong>
+                <small>One step at a time</small>
+              </span>
+            </label>
+            <label>
+              <input type="radio" name="scheduling" value="parallel" checked />
+              <span>
+                <strong>Parallel</strong>
+                <small>Independent steps fan out</small>
+              </span>
+            </label>
+          </fieldset>
+
+          <label class="variable-field">
+            <span class="variable-heading">
+              <span>Topic</span>
+              <code>topic · string</code>
+            </span>
+            <textarea id="topic" name="topic" rows="3" maxlength="500" required>
+Remote MCP clients in TypeScript</textarea>
+          </label>
+
+          <label class="variable-field">
+            <span class="variable-heading">
+              <span>Audience</span>
+              <code>audience · string</code>
+            </span>
+            <input
+              id="audience"
+              name="audience"
+              type="text"
+              value="software teams"
+              maxlength="120"
+              required
+            />
+          </label>
+
+          <fieldset class="source-fields">
+            <legend>Documentation variables</legend>
+            <div class="source-heading">
+              <p>
+                Two string variables used by the first step to query
+                <a
+                  href="https://github.com/upstash/context7"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  Context7
+                </a>
+                through a read-only MCP connection.
+              </p>
+            </div>
+            <label>
+              <span class="variable-heading">
+                <span>Context7 library ID</span>
+                <code>libraryId · string</code>
+              </span>
+              <input
+                id="library-id"
+                name="libraryId"
+                type="text"
+                value="/modelcontextprotocol/typescript-sdk"
+                maxlength="180"
+                pattern="/[^/\s]+/[^/\s]+(?:/[^/\s]+)?"
+                required
+              />
+            </label>
+            <label>
+              <span class="variable-heading">
+                <span>Documentation question</span>
+                <code>documentationQuestion · string</code>
+              </span>
+              <textarea
+                id="documentation-question"
+                name="documentationQuestion"
+                rows="3"
+                maxlength="500"
+                required
+              >
+How should a TypeScript client connect to a remote MCP server with Streamable HTTP?</textarea>
+            </label>
+            <small> The library ID and question are sent to Context7. </small>
+          </fieldset>
+
+          <fieldset class="variable-group">
+            <legend>
+              <span>Style</span>
+              <code>style · object</code>
+            </legend>
+            <p>
+              The run sends one <code>style</code> object containing both
+              properties below.
+            </p>
+            <div class="field-grid">
+              <label>
+                <span class="variable-heading">
+                  <span>Tone</span>
+                  <code>tone · string property</code>
+                </span>
+                <select id="tone" name="tone">
+                  <option value="practical" selected>Practical</option>
+                  <option value="direct">Direct</option>
+                  <option value="technical">Technical</option>
+                  <option value="conversational">Conversational</option>
+                </select>
+              </label>
+              <label>
+                <span class="variable-heading">
+                  <span>Maximum words</span>
+                  <code>maxWords · number property</code>
+                </span>
+                <span class="range-control">
+                  <input
+                    id="max-words"
+                    name="maxWords"
+                    type="range"
+                    min="80"
+                    max="500"
+                    step="20"
+                    value="220"
+                  />
+                  <output id="max-words-value" for="max-words">220</output>
+                </span>
+              </label>
+            </div>
+          </fieldset>
+
+          <label class="check-row">
+            <input
+              id="include-risks"
+              name="includeRisks"
+              type="checkbox"
+              checked
+            />
+            <span>
+              <strong>Include a risk review</strong>
+              <small
+                ><code>includeRisks · boolean</code> controls a conditional
+                step.</small
+              >
+            </span>
+          </label>
+
+          <div class="actions">
+            <button id="run-button" class="primary-button" type="submit">
+              Run agent
+            </button>
+            <button
+              id="cancel-button"
+              class="secondary-button"
+              type="button"
+              disabled
+            >
+              Cancel
+            </button>
+          </div>
+        </form>
+
+        <section class="panel output-panel" aria-labelledby="output-heading">
+          <div class="panel-heading output-heading">
+            <h2 id="output-heading">Outputs</h2>
+            <span id="run-status" class="status-chip" data-state="idle"
+              >Ready</span
+            >
+          </div>
+
+          <div class="active-step">
+            <span>Active step</span>
+            <strong id="active-step">Waiting to start</strong>
+          </div>
+
+          <p id="run-error" class="run-error" role="alert" hidden></p>
+
+          <section
+            class="step-outputs-section"
+            aria-labelledby="step-outputs-heading"
+          >
+            <div class="output-section-heading">
+              <div>
+                <h3 id="step-outputs-heading">Step outputs</h3>
+              </div>
+            </div>
+            <div
+              id="step-output-list"
+              class="step-output-list"
+              aria-live="polite"
+            >
+              <p class="empty-output">
+                Step outputs will appear here as the agent runs.
+              </p>
+            </div>
+          </section>
+
+          <section
+            id="final-output-section"
+            class="final-output-section"
+            aria-labelledby="final-output-heading"
+            hidden
+          >
+            <div class="output-section-heading">
+              <div>
+                <h3 id="final-output-heading">Final output</h3>
+              </div>
+              <div class="output-heading-meta">
+                <code id="final-output-variable">finalBrief</code>
+                <span
+                  id="final-output-status"
+                  class="output-status"
+                  data-state="complete"
+                >
+                  Complete
+                </span>
+              </div>
+            </div>
+            <div
+              id="response-output"
+              class="response-output markdown-output"
+              aria-live="polite"
+            ></div>
+          </section>
+
+          <div class="result-meta">
+            <span id="run-id">No run yet</span>
+            <span id="token-usage">— tokens</span>
+          </div>
+        </section>
+      </section>
+
+      <section class="details-grid">
+        <section
+          class="panel contract-panel"
+          aria-labelledby="contract-heading"
+        >
+          <div class="panel-heading">
+            <h2 id="contract-heading">Manifests</h2>
+          </div>
+          <div class="tabs" role="tablist" aria-label="Manifest view">
+            <button
+              id="agent-tab"
+              type="button"
+              role="tab"
+              aria-selected="true"
+              aria-controls="contract-output"
+              data-contract="agent"
+            >
+              AgentManifest
+            </button>
+            <button
+              id="run-tab"
+              type="button"
+              role="tab"
+              aria-selected="false"
+              aria-controls="contract-output"
+              data-contract="run"
+            >
+              AgentRunManifest
+            </button>
+          </div>
+          <pre id="contract-output" class="contract-output">
+Loading agent manifest…</pre>
+        </section>
+
+        <section class="panel events-panel" aria-labelledby="events-heading">
+          <div class="panel-heading">
+            <h2 id="events-heading">Events</h2>
+            <span id="event-count" class="event-count">0 events</span>
+          </div>
+          <ol id="event-list" class="event-list" aria-live="polite">
+            <li class="empty-event">Events will appear in sequence.</li>
+          </ol>
+        </section>
+      </section>
+    </main>
+    <script src="/vendor/marked.js"></script>
+    <script src="/vendor/purify.js"></script>
+    <script src="/vendor/highlight.js"></script>
+    <script src="/app.js" type="module"></script>
+  </body>
+</html>

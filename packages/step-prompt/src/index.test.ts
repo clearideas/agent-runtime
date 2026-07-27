@@ -1,0 +1,303 @@
+import type {
+  PromptStep,
+  RunEvent,
+  AgentManifest,
+} from "@clearideas/agent-runtime-contracts";
+import type {
+  ModelAdapter,
+  ModelRequest,
+  ToolAdapter,
+} from "@clearideas/agent-runtime-core/ports";
+import { describe, expect, it } from "vitest";
+
+import { ModelCompletionError, PromptStepExecutor } from "./index.js";
+
+const step: PromptStep = {
+  id: "prompt-1",
+  type: "prompt",
+  prompt: "Review {{ Item.Name }}",
+  systemPrompt: "Audience: {{ audience }}",
+  model: { provider: "openai", model: "gpt-test" },
+  tools: ["lookup"],
+  outputVariable: "answer",
+  maxOutputTokens: 200,
+};
+
+const manifest: AgentManifest = {
+  schemaVersion: "1.0",
+  steps: [step],
+  limits: { maxToolCallsPerIteration: 3 },
+};
+
+describe("PromptStepExecutor", () => {
+  it("streams deltas and executes tool calls sequentially before continuing", async () => {
+    const requests: ModelRequest[] = [];
+    const executionOrder: string[] = [];
+    const model: ModelAdapter = {
+      generate: async () => {
+        throw new Error("stream should be used");
+      },
+      stream: async function* (request) {
+        requests.push(structuredClone(request));
+        if (requests.length === 1) {
+          yield { type: "text-delta", delta: "Checking" };
+          yield {
+            type: "completed",
+            result: {
+              output: "",
+              transcript: [
+                {
+                  id: "assistant-1",
+                  type: "message",
+                  role: "assistant",
+                  content: [
+                    {
+                      type: "tool-call",
+                      call: { id: "call-1", name: "lookup", input: { id: 1 } },
+                    },
+                  ],
+                  createdAt: "2026-07-22T00:00:00.000Z",
+                },
+              ],
+              toolCalls: [{ id: "call-1", name: "lookup", input: { id: 1 } }],
+              finishReason: "tool-calls",
+            },
+          };
+          return;
+        }
+        yield { type: "text-delta", delta: "Approved" };
+        yield {
+          type: "completed",
+          result: {
+            output: "Approved",
+            transcript: [
+              {
+                id: "assistant-2",
+                type: "message",
+                role: "assistant",
+                content: [{ type: "text", text: "Approved" }],
+                createdAt: "2026-07-22T00:00:01.000Z",
+              },
+            ],
+            finishReason: "stop",
+          },
+        };
+      },
+    };
+    const tools: ToolAdapter = {
+      listTools: async () => [
+        {
+          name: "lookup",
+          inputSchema: { type: "object" },
+        },
+      ],
+      executeTool: async (call) => {
+        executionOrder.push(call.id);
+        return { callId: call.id, name: call.name, output: { found: true } };
+      },
+    };
+    const events: RunEvent[] = [];
+    let eventSequence = 0;
+    const result = await new PromptStepExecutor({
+      now: () => new Date("2026-07-22T00:00:02.000Z"),
+      generateTranscriptId: () => "tool-result-1",
+    }).execute({
+      runId: "run-1",
+      manifest,
+      step,
+      stepIndex: 0,
+      variables: { Item: { Name: "Proposal" }, audience: "board" },
+      model,
+      tools,
+      emit: async (type, data) => {
+        const event: RunEvent = {
+          id: `event-${++eventSequence}`,
+          runId: "run-1",
+          sequence: eventSequence,
+          timestamp: "2026-07-22T00:00:00.000Z",
+          type,
+          ...(data ? { data } : {}),
+        };
+        events.push(event);
+        return event;
+      },
+    });
+
+    expect(executionOrder).toEqual(["call-1"]);
+    expect(requests).toHaveLength(2);
+    expect(requests[0]).toMatchObject({
+      model: "openai/gpt-test",
+      maxOutputTokens: 200,
+      messages: [
+        {
+          role: "system",
+          content: [{ type: "text", text: "Audience: board" }],
+        },
+        { role: "user", content: [{ type: "text", text: "Review Proposal" }] },
+      ],
+    });
+    expect(requests[1]?.messages.at(-1)).toMatchObject({
+      role: "tool",
+      content: [
+        {
+          type: "tool-result",
+          result: { callId: "call-1", output: { found: true } },
+        },
+      ],
+    });
+    expect(result.output).toBe("Approved");
+    expect(result.statePatch).toEqual({ set: { answer: "Approved" } });
+    expect(
+      events.filter((event) => event.type === "model.text.delta"),
+    ).toHaveLength(2);
+    expect(events.map((event) => event.type)).toContain("model.tool.completed");
+  });
+
+  it("uses non-streaming generation when stream is unavailable", async () => {
+    const model: ModelAdapter = {
+      generate: async (request) => ({
+        output:
+          request.messages[0]?.content[0]?.type === "text" ? "done" : "bad",
+        transcript: [],
+      }),
+    };
+    const noToolStep: PromptStep = {
+      ...step,
+      tools: undefined,
+      systemPrompt: undefined,
+    };
+    const result = await new PromptStepExecutor().execute({
+      runId: "run-2",
+      manifest: { ...manifest, steps: [noToolStep] },
+      step: noToolStep,
+      stepIndex: 0,
+      variables: { Item: { Name: "Proposal" } },
+      model,
+      emit: async (type) => ({
+        id: type,
+        runId: "run-2",
+        sequence: 1,
+        timestamp: "2026-07-22T00:00:00.000Z",
+        type,
+      }),
+    });
+    expect(result.output).toBe("done");
+  });
+
+  it("enforces provider timeout when an adapter ignores abort", async () => {
+    const noToolStep: PromptStep = {
+      ...step,
+      tools: undefined,
+      systemPrompt: undefined,
+    };
+    const never = new Promise<never>(() => undefined);
+
+    await expect(
+      new PromptStepExecutor().execute({
+        runId: "run-timeout",
+        manifest: {
+          ...manifest,
+          steps: [noToolStep],
+          limits: { providerTimeoutMs: 5 },
+        },
+        step: noToolStep,
+        stepIndex: 0,
+        variables: {},
+        model: { generate: async () => never },
+        emit: async (type) => ({
+          id: type,
+          runId: "run-timeout",
+          sequence: 1,
+          timestamp: "2026-07-22T00:00:00.000Z",
+          type,
+        }),
+      }),
+    ).rejects.toMatchObject({ name: "ModelTimeoutError", timeoutMs: 5 });
+  });
+
+  it("fails truncated output by default and allows an explicit partial-output policy", async () => {
+    const truncatedModel: ModelAdapter = {
+      generate: async () => ({
+        output: "",
+        transcript: [],
+        finishReason: "length",
+      }),
+    };
+    const truncatedStep: PromptStep = {
+      id: "truncated",
+      type: "prompt",
+      prompt: "Answer.",
+      model: { provider: "local", model: "reasoning-model" },
+    };
+    const context = {
+      runId: "run-truncated",
+      manifest: {
+        schemaVersion: "1.0",
+        steps: [truncatedStep],
+      } satisfies AgentManifest,
+      step: truncatedStep,
+      stepIndex: 0,
+      variables: {},
+      model: truncatedModel,
+      emit: async (type: string) => ({
+        id: type,
+        runId: "run-truncated",
+        sequence: 1,
+        timestamp: "2026-07-22T00:00:00.000Z",
+        type,
+      }),
+    };
+
+    await expect(
+      new PromptStepExecutor().execute(context),
+    ).rejects.toMatchObject<Partial<ModelCompletionError>>({
+      name: "ModelCompletionError",
+      finishReason: "length",
+    });
+
+    const acceptedStep: PromptStep = {
+      ...truncatedStep,
+      completionPolicy: { onTruncation: "accept" },
+    };
+    await expect(
+      new PromptStepExecutor().execute({
+        ...context,
+        manifest: { ...context.manifest, steps: [acceptedStep] },
+        step: acceptedStep,
+      }),
+    ).resolves.toMatchObject({ output: "" });
+  });
+
+  it("can require non-empty final output", async () => {
+    const requiredStep: PromptStep = {
+      id: "required-output",
+      type: "prompt",
+      prompt: "Answer.",
+      model: { provider: "local", model: "test" },
+      completionPolicy: { requireOutput: true },
+    };
+    await expect(
+      new PromptStepExecutor().execute({
+        runId: "run-required-output",
+        manifest: { schemaVersion: "1.0", steps: [requiredStep] },
+        step: requiredStep,
+        stepIndex: 0,
+        variables: {},
+        model: {
+          generate: async () => ({
+            output: "   ",
+            transcript: [],
+            finishReason: "stop",
+          }),
+        },
+        emit: async (type) => ({
+          id: type,
+          runId: "run-required-output",
+          sequence: 1,
+          timestamp: "2026-07-22T00:00:00.000Z",
+          type,
+        }),
+      }),
+    ).rejects.toThrow("did not contain required output");
+  });
+});

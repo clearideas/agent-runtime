@@ -1,0 +1,211 @@
+:root {
+  --vp-c-brand-1: #176b5b;
+  --vp-c-brand-2: #0f806b;
+  --vp-c-brand-3: #15957d;
+  --vp-c-brand-soft: rgba(21, 149, 125, 0.14);
+  --vp-c-bg-alt: #f7f9f8;
+  --vp-code-line-height: 1.65;
+  --vp-font-family-base:
+    Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
+    "Segoe UI", sans-serif;
+  --vp-font-family-mono:
+    "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+}
+
+.dark {
+  --vp-c-brand-1: #61d6bd;
+  --vp-c-brand-2: #3fc5a8;
+  --vp-c-brand-3: #27ae91;
+  --vp-c-brand-soft: rgba(97, 214, 189, 0.14);
+  --vp-c-bg-alt: #171b1a;
+}
+
+.VPNavBar {
+  background-color: var(--vp-nav-bg-color) !important;
+}
+
+.VPNavBar::after {
+  background-color: var(--vp-c-divider);
+  bottom: 0;
+  content: "";
+  height: 1px;
+  left: 0;
+  pointer-events: none;
+  position: absolute;
+  right: 0;
+  z-index: 10;
+}
+
+.VPNavBar .divider {
+  display: none;
+}
+
+.VPNavBarTitle.has-sidebar .title {
+  border-bottom: 0;
+}
+
+.VPNavBarTitle .title {
+  color: color-mix(in srgb, var(--vp-c-text-1) 78%, transparent);
+  font-family: var(--vp-font-family-base);
+  font-size: 1rem;
+  gap: 12px;
+  font-weight: 500;
+  letter-spacing: normal;
+  line-height: 1;
+}
+
+.VPNavBarTitle .logo {
+  height: auto;
+  margin: 0;
+  width: 154px;
+}
+
+.dark .VPNavBarTitle .logo {
+  filter: invert(1);
+}
+
+@media (min-width: 960px) {
+  .VPNavBar.has-sidebar .container {
+    align-items: center;
+    padding: 0 32px;
+  }
+
+  .VPNavBar.has-sidebar .container > .title {
+    flex: 0 0 auto;
+    padding: 0;
+    position: static;
+    width: auto;
+  }
+
+  .VPNavBar.has-sidebar .VPNavBarTitle,
+  .VPNavBar.has-sidebar .VPNavBarTitle .title {
+    width: auto;
+  }
+
+  .VPNavBar.has-sidebar .content {
+    min-width: 0;
+    padding: 0 0 0 24px;
+    position: static;
+  }
+
+  .VPNavBar.has-sidebar .content-body {
+    position: static;
+    width: 100%;
+  }
+}
+
+.VPDoc .content-container {
+  max-width: 780px;
+}
+
+.vp-doc h1 {
+  letter-spacing: -0.035em;
+  line-height: 1.12;
+}
+
+.vp-doc h2 {
+  border-top: 1px solid var(--vp-c-divider);
+  margin-top: 48px;
+  padding-top: 32px;
+}
+
+.vp-doc h3 {
+  margin-top: 32px;
+}
+
+.vp-doc table {
+  display: table;
+  width: 100%;
+}
+
+.vp-doc div[class*="language-"] {
+  border: 1px solid var(--vp-c-divider);
+  border-radius: 10px;
+}
+
+.vp-doc .custom-block {
+  border-radius: 10px;
+}
+
+.runtime-hero {
+  padding: 24px 0 12px;
+}
+
+.runtime-hero p {
+  color: var(--vp-c-text-2);
+  font-size: 20px;
+  line-height: 1.6;
+  max-width: 700px;
+}
+
+.runtime-grid {
+  display: grid;
+  gap: 14px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin: 28px 0;
+}
+
+.runtime-card {
+  border: 1px solid var(--vp-c-divider);
+  border-radius: 12px;
+  color: var(--vp-c-text-1) !important;
+  padding: 18px 20px;
+  text-decoration: none !important;
+  transition:
+    border-color 0.15s ease,
+    transform 0.15s ease;
+}
+
+.runtime-card:hover {
+  border-color: var(--vp-c-brand-1);
+  transform: translateY(-1px);
+}
+
+.runtime-card strong {
+  display: block;
+  margin-bottom: 4px;
+}
+
+.runtime-card span {
+  color: var(--vp-c-text-2);
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.runtime-flow {
+  align-items: stretch;
+  display: flex;
+  gap: 8px;
+  margin: 24px 0;
+  overflow-x: auto;
+  padding: 2px;
+}
+
+.runtime-flow > div {
+  background: var(--vp-c-bg-soft);
+  border: 1px solid var(--vp-c-divider);
+  border-radius: 10px;
+  flex: 1 0 130px;
+  padding: 14px;
+  text-align: center;
+}
+
+.runtime-flow > span {
+  align-self: center;
+  color: var(--vp-c-text-3);
+  font-size: 18px;
+}
+
+@media (max-width: 640px) {
+  .VPNavBarTitle .logo {
+    width: 132px;
+  }
+
+  .VPNavBarTitle .title > span {
+    display: none;
+  }
+
+  .runtime-grid {
+    grid-template-columns: 1fr;
+  }
+}

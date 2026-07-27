@@ -1,0 +1,39 @@
+# Dependencies
+node_modules/
+.npm-cache/
+
+# Compiled output and caches
+dist/
+coverage/
+*.tsbuildinfo
+.vitepress/cache/
+**/.vitepress/cache/
+.vitepress/dist/
+
+# Local runtime state
+.agent-runtime/
+.agent-runtime-worker/
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
+*.db
+*.jsonl
+
+# Environment and credentials
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# Package-manager and test noise
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.nyc_output/
+
+# Editors and operating systems
+.DS_Store
+.idea/
+.vscode/
+*.swp

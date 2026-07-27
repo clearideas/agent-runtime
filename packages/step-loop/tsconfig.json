@@ -1,0 +1,25 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "ignoreDeprecations": "6.0",
+    "declaration": true,
+    "composite": true,
+    "outDir": "dist",
+    "rootDir": "src",
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "noUncheckedIndexedAccess": true,
+    "exactOptionalPropertyTypes": true,
+    "baseUrl": ".",
+    "paths": {
+      "@clearideas/agent-runtime-contracts": ["../contracts/src/index.ts"],
+      "@clearideas/agent-runtime-core": ["../core/src/index.ts"]
+    }
+  },
+  "include": ["src/**/*.ts"],
+  "exclude": ["src/**/*.test.ts"],
+  "references": [{ "path": "../contracts" }, { "path": "../core" }]
+}

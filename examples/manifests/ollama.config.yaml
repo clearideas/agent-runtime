@@ -1,0 +1,11 @@
+version: '1.0'
+providers:
+  ollama:
+    driver: openai-compatible
+    baseURL: http://127.0.0.1:11434/v1
+models:
+  local:
+    provider: ollama
+    model: gemma4
+    capabilities:
+      streaming: true

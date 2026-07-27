@@ -1,0 +1,42 @@
+name: Bug report
+description: Report a reproducible Agent Runtime problem
+title: "bug: "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: Do not include secrets, private data, or security vulnerabilities.
+  - type: input
+    id: package
+    attributes:
+      label: Package and version
+      placeholder: "@clearideas/agent-runtime-core 0.1.0"
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Minimal reproduction
+      description: Include the manifest, code, and exact commands needed.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: Environment
+      placeholder: Node.js version, operating system, execution adapter
+    validations:
+      required: true

@@ -1,0 +1,50 @@
+schemaVersion: '1.0'
+id: evaluator-optimizer
+name: Evaluator optimizer
+
+model:
+  provider: openai
+  model: gpt-5.6
+
+variables:
+  - key: topic
+    type: string
+    value: attempt fencing
+  - key: review
+    type: object
+    value:
+      feedback: No prior review.
+
+steps:
+  - id: refine
+    type: loop
+    includeInFinalOutput: true
+    loop:
+      goal: review.approved == true
+      maxIterations: 4
+      outputMode: final
+      resultVariable: candidate
+    steps:
+      - id: improve
+        type: prompt
+        prompt: >-
+          Produce the best concise explanation of {{ topic }}.
+          Address this prior review: {{ review.feedback }}
+        outputVariable: candidate
+
+      - id: evaluate
+        type: prompt
+        prompt: |-
+          Evaluate this explanation:
+
+          {{ candidate }}
+        outputSchema:
+          type: object
+          additionalProperties: false
+          required: [approved, feedback]
+          properties:
+            approved:
+              type: boolean
+            feedback:
+              type: string
+        outputVariable: review

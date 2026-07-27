@@ -1,0 +1,73 @@
+{
+  "name": "@clearideas/agent-runtime-cli",
+  "version": "0.1.0",
+  "description": "Command-line utilities for agent manifests, agent run manifests, and run state.",
+  "private": true,
+  "license": "Apache-2.0",
+  "author": "Clear Ideas Incorporated",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/clearideas/agent-runtime.git",
+    "directory": "packages/cli"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true,
+    "registry": "https://registry.npmjs.org/"
+  },
+  "files": [
+    "dist",
+    "NOTICE",
+    "examples",
+    "README.md"
+  ],
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "bin": {
+    "agent-runtime": "dist/bin.js"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -b tsconfig.json --force",
+    "type-check": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "prepack": "npm run build && node ../../scripts/prepare-package-license.mjs",
+    "postpack": "node ../../scripts/cleanup-package-license.mjs"
+  },
+  "dependencies": {
+    "@clearideas/agent-runtime-condition-jexl": "0.1.0",
+    "@clearideas/agent-runtime-config": "0.1.0",
+    "@clearideas/agent-runtime-contracts": "0.1.0",
+    "@clearideas/agent-runtime-core": "0.1.0",
+    "@clearideas/agent-runtime-execution": "0.1.0",
+    "@clearideas/agent-runtime-step-loop": "0.1.0",
+    "@clearideas/agent-runtime-step-prompt": "0.1.0",
+    "@clearideas/agent-runtime-step-standard": "0.1.0",
+    "@clearideas/agent-runtime-store-local": "0.1.0",
+    "@clearideas/agent-runtime-store-sqlite": "0.1.0"
+  },
+  "devDependencies": {
+    "@types/node": "^25.6.0",
+    "typescript": "^6.0.3",
+    "vitest": "^4.0.18"
+  },
+  "engines": {
+    "node": ">=24"
+  },
+  "homepage": "https://github.com/clearideas/agent-runtime#readme",
+  "bugs": {
+    "url": "https://github.com/clearideas/agent-runtime/issues"
+  },
+  "keywords": [
+    "ai",
+    "agents",
+    "agent-runtime",
+    "workflows"
+  ]
+}

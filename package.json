@@ -1,0 +1,53 @@
+{
+  "name": "agent-runtime-workspace",
+  "version": "0.1.0",
+  "description": "Open-source workspace for the Clear Ideas Agent Runtime.",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "packages/*",
+    "docs",
+    "examples/interactive-web"
+  ],
+  "scripts": {
+    "build": "tsc -b tsconfig.json --force",
+    "type-check": "tsc -b tsconfig.json --pretty false",
+    "test": "npm run test --workspaces --if-present",
+    "check:boundaries": "node scripts/check-package-boundaries.mjs",
+    "check:docs": "node scripts/check-docs.mjs",
+    "check:metadata": "node scripts/check-package-metadata.mjs",
+    "check:tarballs": "node scripts/check-tarballs.mjs",
+    "audit:production": "npm audit --omit=dev --audit-level=high",
+    "format": "prettier --write \"package.json\" \"tsconfig.json\" \"*.md\" \".changeset/**/*.{json,md}\" \".github/**/*.{yml,yaml,md}\" \"docs/**/*.{json,md}\" \"docs/.vitepress/**/*.{ts,js,css}\" \"examples/**/*.{json,md,ts,js,mjs,css,html}\" \"packages/**/*.{json,md,ts,js,mjs,cjs}\" \"scripts/*.mjs\"",
+    "format:check": "prettier --check \"package.json\" \"tsconfig.json\" \"*.md\" \".changeset/**/*.{json,md}\" \".github/**/*.{yml,yaml,md}\" \"docs/**/*.{json,md}\" \"docs/.vitepress/**/*.{ts,js,css}\" \"examples/**/*.{json,md,ts,js,mjs,css,html}\" \"packages/**/*.{json,md,ts,js,mjs,cjs}\" \"scripts/*.mjs\"",
+    "docs:dev": "npm run dev --workspace @clearideas/agent-runtime-docs",
+    "docs:build": "npm run build --workspace @clearideas/agent-runtime-docs",
+    "docs:check": "npm run check:docs",
+    "example:web": "npm run start --workspace @clearideas/agent-runtime-example-interactive-web",
+    "validate": "npm run format:check && npm run check:metadata && npm run check:boundaries && npm run build && npm test && npm run check:docs && npm run check:tarballs",
+    "changeset": "changeset",
+    "version-packages": "changeset version",
+    "release:dry-run": "npm run validate",
+    "release:packages": "changeset publish"
+  },
+  "engines": {
+    "node": ">=24"
+  },
+  "packageManager": "npm@11.8.0",
+  "license": "Apache-2.0",
+  "author": "Clear Ideas Incorporated",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/clearideas/agent-runtime.git"
+  },
+  "bugs": {
+    "url": "https://github.com/clearideas/agent-runtime/issues"
+  },
+  "homepage": "https://github.com/clearideas/agent-runtime#readme",
+  "devDependencies": {
+    "@changesets/cli": "^2.29.7",
+    "esbuild": "^0.28.0",
+    "prettier": "^3.8.3",
+    "typescript": "^6.0.3"
+  }
+}

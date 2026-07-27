@@ -1,0 +1,56 @@
+schemaVersion: '1.0'
+id: conditional-routing
+name: Conditional routing
+
+model:
+  provider: openai
+  model: gpt-5.6
+
+variables:
+  - key: input
+    type: string
+    value: How does checkpoint recovery prevent duplicate execution?
+
+steps:
+  - id: classify
+    type: prompt
+    prompt: |-
+      Classify this input:
+
+      {{ input }}
+    outputSchema:
+      type: object
+      additionalProperties: false
+      required: [route]
+      properties:
+        route:
+          type: string
+          enum: [question, request, feedback]
+    outputVariable: classification
+
+  - id: answer-question
+    type: prompt
+    when: classification.route == "question"
+    prompt: |-
+      Answer the question accurately:
+
+      {{ input }}
+    includeInFinalOutput: true
+
+  - id: handle-request
+    type: prompt
+    when: classification.route == "request"
+    prompt: |-
+      Respond to this request with clear next steps:
+
+      {{ input }}
+    includeInFinalOutput: true
+
+  - id: acknowledge-feedback
+    type: prompt
+    when: classification.route == "feedback"
+    prompt: |-
+      Acknowledge this feedback and summarize it:
+
+      {{ input }}
+    includeInFinalOutput: true

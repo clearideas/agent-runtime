@@ -1,0 +1,49 @@
+schemaVersion: '1.0'
+id: release-brief
+name: Release brief
+description: Produce a concise brief for a supplied audience.
+
+model:
+  provider: openai
+  model: gpt-5.6
+
+variables:
+  - key: release
+    type: object
+    value:
+      name: Agent Runtime 1.0
+    description: Name of the release to describe.
+  - key: audience
+    type: string
+    requiresOverride: true
+    description: Intended readers for the brief.
+  - key: style
+    type: object
+    value:
+      tone: direct
+      maxWords: 180
+
+limits:
+  maxSteps: 8
+  maxOutputBytes: 65536
+  maxToolCallsPerIteration: 6
+  providerTimeoutMs: 60000
+
+steps:
+  - id: draft
+    type: prompt
+    systemPrompt: >-
+      You write {{ style.tone }} release briefs for {{ audience }}.
+      Stay below {{ style.maxWords }} words.
+    prompt: Draft a brief for {{ release.name }}.
+    outputVariable: briefDraft
+
+  - id: polish
+    type: prompt
+    when: briefDraft != null
+    prompt: |-
+      Improve this brief without adding claims:
+
+      {{ briefDraft }}
+    outputVariable: briefFinal
+    includeInFinalOutput: true

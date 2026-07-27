@@ -1,0 +1,10 @@
+node_modules/
+dist/
+coverage/
+.npm-cache/
+**/.vitepress/cache/
+**/.vitepress/dist/
+examples/**/.data/
+package-lock.json
+LICENSE
+docs/public/

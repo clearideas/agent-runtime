@@ -1,0 +1,23 @@
+{
+  "files": [],
+  "references": [
+    { "path": "./packages/contracts" },
+    { "path": "./packages/core" },
+    { "path": "./packages/condition-jexl" },
+    { "path": "./packages/model-ai-sdk" },
+    { "path": "./packages/execution" },
+    { "path": "./packages/execution-modal" },
+    { "path": "./packages/runtime" },
+    { "path": "./packages/sandbox" },
+    { "path": "./packages/sandbox-modal" },
+    { "path": "./packages/artifacts" },
+    { "path": "./packages/step-loop" },
+    { "path": "./packages/step-prompt" },
+    { "path": "./packages/step-standard" },
+    { "path": "./packages/store-local" },
+    { "path": "./packages/store-sqlite" },
+    { "path": "./packages/telemetry-otel" },
+    { "path": "./packages/agent-runtime" },
+    { "path": "./packages/cli" }
+  ]
+}

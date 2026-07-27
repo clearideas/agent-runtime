@@ -1,0 +1,60 @@
+{
+  "name": "@clearideas/agent-runtime-step-prompt",
+  "version": "0.1.0",
+  "description": "Streaming prompt and ordered tool-call executor for Clear Ideas Agent Runtime.",
+  "private": true,
+  "license": "Apache-2.0",
+  "author": "Clear Ideas Incorporated",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/clearideas/agent-runtime.git",
+    "directory": "packages/step-prompt"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true,
+    "registry": "https://registry.npmjs.org/"
+  },
+  "files": [
+    "dist",
+    "NOTICE",
+    "README.md"
+  ],
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -b tsconfig.json --force",
+    "type-check": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "prepack": "npm run build && node ../../scripts/prepare-package-license.mjs",
+    "postpack": "node ../../scripts/cleanup-package-license.mjs"
+  },
+  "dependencies": {
+    "@clearideas/agent-runtime-contracts": "0.1.0",
+    "@clearideas/agent-runtime-core": "0.1.0"
+  },
+  "devDependencies": {
+    "typescript": "^6.0.3",
+    "vitest": "^4.0.18"
+  },
+  "engines": {
+    "node": ">=24"
+  },
+  "homepage": "https://github.com/clearideas/agent-runtime#readme",
+  "bugs": {
+    "url": "https://github.com/clearideas/agent-runtime/issues"
+  },
+  "keywords": [
+    "ai",
+    "agents",
+    "agent-runtime",
+    "workflows"
+  ]
+}

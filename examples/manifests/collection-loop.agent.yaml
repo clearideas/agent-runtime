@@ -1,0 +1,34 @@
+schemaVersion: '1.0'
+id: collection-loop
+name: Collection loop
+
+model:
+  provider: openai
+  model: gpt-5.6
+
+variables:
+  - key: items
+    type: array
+    value:
+      - Checkpoint after every committed step
+      - Fence stale resume attempts
+      - Stream ordered lifecycle events
+
+steps:
+  - id: summarize-items
+    type: loop
+    outputVariable: summaries
+    includeInFinalOutput: true
+    loop:
+      source: items
+      itemVariable: current
+      indexVariable: index
+      outputMode: array
+      maxIterations: 20
+    steps:
+      - id: summarize
+        type: prompt
+        prompt: |-
+          Summarize item {{ index }} in one sentence:
+
+          {{ current }}

@@ -1,0 +1,31 @@
+schemaVersion: '1.0'
+id: example-variables
+name: Variables and system prompts
+model:
+  ref: fast
+variables:
+  - key: organization
+    type: string
+    value: Example Company
+  - key: audience
+    type: string
+    value: Product leaders
+  - key: style
+    type: object
+    value:
+      tone: concise
+steps:
+  - id: create-topic
+    type: prompt
+    systemPrompt: >-
+      You write for {{ organization }} and the audience is {{ audience }}.
+      Use a {{ style.tone }} tone. Return only the requested token.
+    prompt: Return exactly PORTABLE_AGENT
+    outputVariable: topic
+  - id: reuse-topic
+    type: prompt
+    systemPrompt: >-
+      The prior step produced {{ topic }}. Return only the requested sentence.
+    prompt: Return exactly "{{ topic }} is ready."
+    outputVariable: final
+    includeInFinalOutput: true

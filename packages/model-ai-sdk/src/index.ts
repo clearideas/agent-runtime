@@ -1,0 +1,16 @@
+export {
+  type AiSdkCallOptions,
+  type AiSdkGenerateResult,
+  AiSdkModelAdapter,
+  type AiSdkModelAdapterOptions,
+  type AiSdkStreamPart,
+  type AiSdkStreamResult,
+  createProviderRegistryModelResolver,
+  type GenerateTextFunction,
+  type ModelResolver,
+  type ParsedModelKey,
+  parseModelKey,
+  type ProviderModelFactory,
+  type ProviderRegistryOptions,
+  type StreamTextFunction,
+} from "./model-adapter.js";

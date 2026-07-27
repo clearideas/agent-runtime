@@ -1,0 +1,11 @@
+version: "1.0"
+providers:
+  openai-default:
+    driver: openai
+models:
+  fast:
+    provider: openai-default
+    model: gpt-5.4-mini
+    capabilities:
+      streaming: true
+      maxOutputTokens: 4096

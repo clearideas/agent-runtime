@@ -1,0 +1,21 @@
+schemaVersion: '1.0'
+id: hello
+name: Hello
+
+model:
+  provider: openai
+  model: gpt-5.6
+
+variables:
+  - key: topic
+    type: string
+    value: durable agent checkpoints
+    description: Subject to explain.
+
+steps:
+  - id: explain
+    type: prompt
+    systemPrompt: You explain technical topics clearly and concisely.
+    prompt: Explain {{ topic }} in three sentences.
+    outputVariable: answer
+    includeInFinalOutput: true

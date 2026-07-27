@@ -1,0 +1,29 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "ignoreDeprecations": "6.0",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "declaration": true,
+    "composite": true,
+    "outDir": "dist",
+    "rootDir": "src",
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "noUncheckedIndexedAccess": true,
+    "exactOptionalPropertyTypes": true,
+    "types": ["node"],
+    "baseUrl": ".",
+    "paths": {
+      "@clearideas/agent-runtime-contracts": ["../contracts/dist/index.d.ts"],
+      "@clearideas/agent-runtime-core": ["../core/dist/index.d.ts"],
+      "@clearideas/agent-runtime-core/ports": ["../core/dist/ports/index.d.ts"],
+      "@clearideas/agent-runtime-model-ai-sdk": [
+        "../model-ai-sdk/dist/index.d.ts"
+      ]
+    }
+  },
+  "include": ["src/**/*.ts"],
+  "exclude": ["src/**/*.test.ts"]
+}

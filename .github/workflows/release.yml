@@ -1,0 +1,66 @@
+name: Release packages
+
+# This workflow is intentionally inert by default. Publishing requires:
+# 1. a manual dispatch with release_enabled=true;
+# 2. repository variable NPM_RELEASES_ENABLED=true;
+# 3. approval of the npm-production GitHub environment;
+# 4. npm trusted-publisher configuration for this exact workflow; and
+# 5. removal of private:true only from packages approved for release.
+# Packages are scoped as @clearideas/* and publish only to the public npm
+# registry configured below and in each package's publishConfig.
+on:
+  workflow_dispatch:
+    inputs:
+      release_enabled:
+        description: Confirm that the reviewed npm release controls are enabled
+        required: true
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: npm-release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    if: ${{ inputs.release_enabled && vars.NPM_RELEASES_ENABLED == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment: npm-production
+    permissions:
+      contents: write
+      id-token: write
+      pull-requests: write
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Set up Node.js for npm trusted publishing
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+          registry-url: https://registry.npmjs.org
+
+      - name: Install locked dependencies
+        run: npm ci
+
+      - name: Validate release candidate
+        run: npm run validate
+
+      - name: Create version pull request or publish approved packages
+        uses: changesets/action@v1
+        with:
+          publish: npm run release:packages
+          version: npm run version-packages
+          commit: "chore: version packages"
+          title: "chore: version packages"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NPM_CONFIG_PROVENANCE: "true"

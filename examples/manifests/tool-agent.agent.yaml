@@ -1,0 +1,27 @@
+schemaVersion: '1.0'
+id: tool-agent
+name: Tool-using agent
+
+model:
+  provider: openai
+  model: gpt-5.6
+
+variables:
+  - key: question
+    type: string
+    value: Which documents describe checkpoint recovery?
+
+connections:
+  - ref: documents
+    alias: docs
+    mode: read
+    tools: [search, read]
+
+steps:
+  - id: answer
+    type: prompt
+    systemPrompt: Use connected documents. Do not invent missing facts.
+    prompt: Answer {{ question }}.
+    tools: [docs__search, docs__read]
+    outputVariable: answer
+    includeInFinalOutput: true

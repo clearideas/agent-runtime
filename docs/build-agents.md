@@ -1,0 +1,185 @@
+---
+title: Build agents
+description: Build prompt chains, conditional routes, loops, tool-using agents, and approval flows with declarative manifests.
+---
+
+# Build agents
+
+Agent manifests support prompt chains, conditions, loops, tools, approvals,
+webhooks, code steps, and sub-runs. The examples use the same manifest format
+for CLI, embedded, and remote execution.
+
+## Setup
+
+From the repository root:
+
+```sh
+npm run build
+alias agent-runtime='node ./packages/cli/dist/bin.js'
+export OPENAI_API_KEY="..."
+```
+
+Use this model reference in the examples:
+
+```yaml
+model:
+  provider: openai
+  model: gpt-5.6
+```
+
+Replace this model with a
+[model profile](./models-and-providers.md#model-profiles) or
+[local model](./quickstart.md#use-a-local-model) as needed.
+
+## Agent building blocks
+
+Agent manifests combine these building blocks:
+
+| Building block        | Manifest feature                               |
+| --------------------- | ---------------------------------------------- |
+| Model calls           | `prompt` steps                                 |
+| Run state             | variables and `outputVariable`                 |
+| Decisions             | `when` conditions                              |
+| Repetition            | collection and goal `loop` steps               |
+| External capabilities | tools, approvals, webhooks, code, and sub-runs |
+
+::: tip Variables store run state
+Variables are available to later steps, included in checkpoints, and restored
+when a run resumes.
+:::
+
+## Prompt chaining
+
+Prompt chains pass one step's output to a later model call.
+
+<div class="runtime-flow">
+  <div><strong>Draft</strong><br/><small>Create</small></div>
+  <span>→</span>
+  <div><strong>Review</strong><br/><small>Evaluate</small></div>
+  <span>→</span>
+  <div><strong>Revise</strong><br/><small>Finalize</small></div>
+</div>
+
+<<< ../examples/manifests/prompt-chain.agent.yaml
+
+Run the example:
+
+```sh
+agent-runtime run \
+  ./examples/manifests/prompt-chain.agent.yaml \
+  --stream
+```
+
+Each completed step updates state and creates a checkpoint.
+
+## Conditional routing
+
+Conditions select steps using the current variable state.
+
+<div class="runtime-flow">
+  <div><strong>Classify</strong></div>
+  <span>→</span>
+  <div><strong>Question</strong><br/><small>or request or feedback</small></div>
+  <span>→</span>
+  <div><strong>Result</strong></div>
+</div>
+
+<<< ../examples/manifests/routing.agent.yaml
+
+Skipped branches still advance the checkpoint. Completed steps marked
+`includeInFinalOutput` contribute to the final output.
+
+## Collection loops
+
+Collection loops apply the same child steps to each item in an array or
+delimited string.
+
+<div class="runtime-flow">
+  <div><strong>Items</strong></div>
+  <span>→</span>
+  <div><strong>One item</strong><br/><small>Sequential child steps</small></div>
+  <span>→</span>
+  <div><strong>Results</strong></div>
+</div>
+
+<<< ../examples/manifests/collection-loop.agent.yaml
+
+Nested progress is checkpointed. Recovery resumes after the last committed
+child instead of repeating the full loop.
+
+## Evaluator-optimizer loops
+
+An evaluator-optimizer loop generates a candidate, evaluates it as structured
+data, and stops when the goal expression becomes true.
+
+<div class="runtime-flow">
+  <div><strong>Generate</strong></div>
+  <span>→</span>
+  <div><strong>Evaluate</strong></div>
+  <span>↺</span>
+  <div><strong>Goal met</strong></div>
+</div>
+
+<<< ../examples/manifests/evaluator-loop.agent.yaml
+
+Set `maxIterations` to bound the loop when the goal condition is not reached.
+
+## Tool-using agents
+
+Tools let a model retrieve data or perform host-authorized actions.
+
+<div class="runtime-flow">
+  <div><strong>Model</strong></div>
+  <span>→</span>
+  <div><strong>Tool call</strong></div>
+  <span>→</span>
+  <div><strong>Tool result</strong></div>
+  <span>→</span>
+  <div><strong>Model</strong></div>
+</div>
+
+Bind a host connection and declare the question used by the prompt:
+
+<<< ../examples/manifests/tool-agent.agent.yaml
+
+The agent manifest can narrow a connection but cannot add tools or elevate its
+configured access. Tool calls execute in model order. See
+[Connections and tools](./connections-and-tools.md).
+
+## Human approval
+
+An approval step delegates the decision to the host's `ApprovalAdapter`.
+
+<<< ../examples/manifests/approval.agent.yaml
+
+The adapter can resolve immediately or suspend the run and release compute.
+Resume continues from the durable checkpoint.
+
+## Step scheduling
+
+Agent runs are sequential by default. Set `execution.mode: parallel` in the
+agent run manifest to fan out adjacent prompt steps that do not depend on one
+another:
+
+```yaml
+execution:
+  mode: parallel
+  maxConcurrency: 4
+```
+
+Dependencies come from `outputVariable` writes and variable references in
+prompt templates, system prompts, and `when` conditions. A consumer waits for
+its producer, while independent prompts can share one execution wave. Results,
+state patches, transcript items, artifacts, and final outputs commit in
+manifest order.
+
+Tool-enabled prompts and stateful step types are execution barriers. Loops and
+tool calls remain sequential.
+
+## Next steps
+
+- Learn manifest behavior in the [Manifest guide](./manifests.md).
+- See every supported field in the [Contract reference](./reference.md).
+- Configure hosted and local models in [Models and providers](./models-and-providers.md).
+- Stream updates to an interface with [Events and streaming](./events-and-streaming.md).
+- Add Agent Runtime to an application with [Embed Agent Runtime](./embedding.md).

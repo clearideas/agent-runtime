@@ -1,0 +1,23 @@
+{
+  "name": "@clearideas/agent-runtime-docs",
+  "version": "0.1.0",
+  "private": true,
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/clearideas/agent-runtime.git",
+    "directory": "docs"
+  },
+  "type": "module",
+  "scripts": {
+    "dev": "vitepress dev . --host 127.0.0.1",
+    "build": "vitepress build .",
+    "preview": "vitepress preview . --host 127.0.0.1"
+  },
+  "devDependencies": {
+    "vitepress": "1.6.4"
+  },
+  "engines": {
+    "node": ">=24"
+  }
+}
