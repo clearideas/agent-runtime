@@ -1,6 +1,6 @@
 {
   "name": "@clearideas/agent-runtime-sandbox",
-  "version": "0.1.0-alpha.1",
+  "version": "0.1.0-alpha.2",
   "description": "Provider-neutral sandbox lifecycle and code execution adapters for Clear Ideas Agent Runtime.",
   "license": "Apache-2.0",
   "author": "Clear Ideas Incorporated",
@@ -36,8 +36,8 @@
     "postpack": "node ../../scripts/cleanup-package-license.mjs"
   },
   "dependencies": {
-    "@clearideas/agent-runtime-contracts": "0.1.0-alpha.1",
-    "@clearideas/agent-runtime-core": "0.1.0-alpha.1"
+    "@clearideas/agent-runtime-contracts": "0.1.0-alpha.2",
+    "@clearideas/agent-runtime-core": "0.1.0-alpha.2"
   },
   "devDependencies": {
     "@types/node": "^25.6.0",
