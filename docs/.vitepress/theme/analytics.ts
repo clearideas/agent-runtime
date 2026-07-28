@@ -24,6 +24,7 @@ type AnalyticsAdapter = {
   getRouter: () => Router;
 };
 
+// Keep the versioned browser asset and its bundled MIT license in sync.
 const analyticsModuleUrl = "/assets/analytics/clearideas-analytics-1.16.11.js";
 const productionHostname = "agent-runtime.clearideas.com";
 
