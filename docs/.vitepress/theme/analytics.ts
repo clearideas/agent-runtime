@@ -91,7 +91,7 @@ export const initializeDocumentationAnalytics = async (
     const config = {
       ...analyticsModule.DEFAULT_CONFIG,
       apiBaseUrl: "https://api.clearideas.com",
-      eventSiteName: "ci-agent-runtime-docs",
+      eventSiteName: "ci-docs",
       websiteBaseUrl: "https://clearideas.com/",
       chatEnabled: false,
       debug: false,
