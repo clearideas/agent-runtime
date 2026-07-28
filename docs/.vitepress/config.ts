@@ -1,7 +1,6 @@
 import { defineConfig } from "vitepress";
 
-const configuredBasePath = process.env.DOCS_BASE_PATH?.replace(/\/+$/, "");
-const base = configuredBasePath ? `${configuredBasePath}/` : "/";
+const base = "/";
 
 export default defineConfig({
   base,
@@ -15,6 +14,40 @@ export default defineConfig({
   head: [
     ["meta", { name: "theme-color", content: "#ffffff" }],
     ["meta", { name: "color-scheme", content: "light dark" }],
+    [
+      "link",
+      {
+        rel: "icon",
+        type: "image/x-icon",
+        href: `${base}assets/icons/favicon.ico`,
+      },
+    ],
+    [
+      "link",
+      {
+        rel: "apple-touch-icon",
+        sizes: "180x180",
+        href: `${base}assets/icons/apple-touch-icon.png`,
+      },
+    ],
+    [
+      "link",
+      {
+        rel: "icon",
+        type: "image/png",
+        sizes: "32x32",
+        href: `${base}assets/icons/favicon-32x32.png`,
+      },
+    ],
+    [
+      "link",
+      {
+        rel: "icon",
+        type: "image/png",
+        sizes: "16x16",
+        href: `${base}assets/icons/favicon-16x16.png`,
+      },
+    ],
     [
       "link",
       {
@@ -59,6 +92,7 @@ export default defineConfig({
         items: [
           { text: "Overview", link: "/" },
           { text: "Quick start", link: "/quickstart" },
+          { text: "Interactive example", link: "/interactive-example" },
           { text: "Core concepts", link: "/concepts" },
           { text: "Build agents", link: "/build-agents" },
         ],

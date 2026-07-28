@@ -20,6 +20,7 @@ const requiredPages = [
   "README.md",
   "index.md",
   "quickstart.md",
+  "interactive-example.md",
   "concepts.md",
   "build-agents.md",
   "manifests.md",

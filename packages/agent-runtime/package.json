@@ -55,7 +55,7 @@
   "engines": {
     "node": ">=24"
   },
-  "homepage": "https://github.com/clearideas/agent-runtime#readme",
+  "homepage": "https://agent-runtime.clearideas.com/",
   "bugs": {
     "url": "https://github.com/clearideas/agent-runtime/issues"
   },

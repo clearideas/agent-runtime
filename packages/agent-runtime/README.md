@@ -5,6 +5,9 @@ The standalone TypeScript runtime for portable, declarative agents.
 Clear Ideas Agent Runtime runs locally, inside your application, or through a
 remote execution engine. It does not require a hosted Clear Ideas service.
 
+[Documentation](https://agent-runtime.clearideas.com/) ·
+[GitHub repository](https://github.com/clearideas/agent-runtime)
+
 ## Install
 
 ```sh
@@ -48,10 +51,15 @@ to a Clear Ideas service.
 
 ## Documentation
 
-- [Quickstart](https://github.com/clearideas/agent-runtime/blob/main/docs/quickstart.md)
-- [Embed Agent Runtime](https://github.com/clearideas/agent-runtime/blob/main/docs/embedding.md)
-- [Connections and tools](https://github.com/clearideas/agent-runtime/blob/main/docs/connections-and-tools.md)
-- [Adapter catalog](https://github.com/clearideas/agent-runtime/blob/main/docs/adapters.md)
-- [Production guide](https://github.com/clearideas/agent-runtime/blob/main/docs/production.md)
+The complete guides and reference are available at
+[agent-runtime.clearideas.com](https://agent-runtime.clearideas.com/).
+
+- [Quickstart](https://agent-runtime.clearideas.com/quickstart)
+- [Build agents](https://agent-runtime.clearideas.com/build-agents)
+- [Embed Agent Runtime](https://agent-runtime.clearideas.com/embedding)
+- [Connections and tools](https://agent-runtime.clearideas.com/connections-and-tools)
+- [Adapter catalog](https://agent-runtime.clearideas.com/adapters)
+- [Contract reference](https://agent-runtime.clearideas.com/reference)
+- [Production guide](https://agent-runtime.clearideas.com/production)
 
 Licensed under the Apache License 2.0.

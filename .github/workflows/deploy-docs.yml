@@ -1,0 +1,75 @@
+name: Deploy documentation
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/deploy-docs.yml"
+      - "docs/**"
+      - "infrastructure/docs-hosting.yml"
+      - "package-lock.json"
+      - "package.json"
+      - "scripts/check-docs.mjs"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: agent-runtime-documentation
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    name: Build and deploy documentation
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment:
+      name: documentation
+      url: https://agent-runtime.clearideas.com
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install locked dependencies
+        run: npm ci
+
+      - name: Build documentation site
+        run: npm run docs:build
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@e7f100cf4c008499ea8adda475de1042d6975c7b # v6.2.0
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          role-session-name: agent-runtime-documentation
+          aws-region: us-east-1
+
+      - name: Upload documentation
+        run: >-
+          aws s3 sync docs/.vitepress/dist s3://${{ vars.DOCS_S3_BUCKET }}
+          --delete
+          --cache-control "no-cache,no-store,must-revalidate"
+
+      - name: Apply immutable cache headers to assets
+        run: >-
+          aws s3 cp docs/.vitepress/dist s3://${{ vars.DOCS_S3_BUCKET }}
+          --recursive
+          --exclude "*.html"
+          --cache-control "public,max-age=31536000,immutable"
+
+      - name: Invalidate CloudFront
+        run: >-
+          aws cloudfront create-invalidation
+          --distribution-id ${{ vars.CLOUDFRONT_DISTRIBUTION_ID }}
+          --paths "/*"

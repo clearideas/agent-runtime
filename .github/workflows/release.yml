@@ -9,8 +9,8 @@ name: Release packages
 # 5. a read-only NPM_READ_TOKEN environment secret for private-package metadata
 #    requests.
 # Packages are scoped as @clearideas/* and publish only to the npm registry
-# configured below and in publishConfig. Documentation deploys to GitHub Pages
-# only when Changesets confirms that package publishing occurred.
+# configured below and in publishConfig. Documentation deploys to S3 and
+# CloudFront when requested or when Changesets confirms that packages published.
 on:
   workflow_dispatch:
     inputs:
@@ -121,14 +121,17 @@ jobs:
           NPM_CONFIG_PROVENANCE: "false"
 
   documentation:
-    name: Build documentation for GitHub Pages
+    name: Build and deploy documentation
     if: ${{ always() && !cancelled() && (needs.release.outputs.published == 'true' || inputs.deploy_documentation) }}
     needs: release
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
     permissions:
       contents: read
-      pages: read
+      id-token: write
+    environment:
+      name: documentation
+      url: https://agent-runtime.clearideas.com
 
     steps:
       - name: Check out published source
@@ -146,36 +149,31 @@ jobs:
       - name: Install locked dependencies
         run: npm ci
 
-      - name: Configure GitHub Pages
-        id: pages
-        uses: actions/configure-pages@983d7736d9b0ae728b81ab479565c72886d7745b # v5
-        with:
-          enablement: true
-
       - name: Build documentation site
         run: npm run docs:build
-        env:
-          DOCS_BASE_PATH: ${{ steps.pages.outputs.base_path }}
 
-      - name: Upload GitHub Pages artifact
-        uses: actions/upload-pages-artifact@7b1f4a764d45c48632c6b24a0339c27f5614fb0b # v4
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@e7f100cf4c008499ea8adda475de1042d6975c7b # v6.2.0
         with:
-          path: docs/.vitepress/dist
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          role-session-name: agent-runtime-documentation
+          aws-region: us-east-1
 
-  documentation-deploy:
-    name: Deploy documentation to GitHub Pages
-    if: ${{ always() && needs.documentation.result == 'success' }}
-    needs: documentation
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    permissions:
-      pages: write
-      id-token: write
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
+      - name: Upload documentation
+        run: >-
+          aws s3 sync docs/.vitepress/dist s3://${{ vars.DOCS_S3_BUCKET }}
+          --delete
+          --cache-control "no-cache,no-store,must-revalidate"
 
-    steps:
-      - name: Deploy documentation
-        id: deployment
-        uses: actions/deploy-pages@d6db90164ac5ed86f2b6aed7e0febac5b3c0c03e # v4
+      - name: Apply immutable cache headers to assets
+        run: >-
+          aws s3 cp docs/.vitepress/dist s3://${{ vars.DOCS_S3_BUCKET }}
+          --recursive
+          --exclude "*.html"
+          --cache-control "public,max-age=31536000,immutable"
+
+      - name: Invalidate CloudFront
+        run: >-
+          aws cloudfront create-invalidation
+          --distribution-id ${{ vars.CLOUDFRONT_DISTRIBUTION_ID }}
+          --paths "/*"

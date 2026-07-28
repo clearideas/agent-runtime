@@ -28,7 +28,19 @@ npx agent-runtime examples list
 ```
 
 These install commands will become available when the npm packages are made
-public. See the [quickstart](docs/quickstart.md) for a complete first run.
+public.
+
+## Documentation
+
+The complete documentation is available at
+[agent-runtime.clearideas.com](https://agent-runtime.clearideas.com/).
+
+- [Quickstart](https://agent-runtime.clearideas.com/quickstart)
+- [Build agents](https://agent-runtime.clearideas.com/build-agents)
+- [Embed Agent Runtime](https://agent-runtime.clearideas.com/embedding)
+- [Connections and tools](https://agent-runtime.clearideas.com/connections-and-tools)
+- [Contract reference](https://agent-runtime.clearideas.com/reference)
+- [Production guide](https://agent-runtime.clearideas.com/production)
 
 ## Capabilities
 
@@ -88,9 +100,11 @@ npm run check:tarballs
 ```
 
 These commands are for contributors developing Agent Runtime itself. Users of
-the public packages can start with the [quickstart](docs/quickstart.md), then
-see [concepts](docs/concepts.md), [embedding](docs/embedding.md), and
-[production guidance](docs/production.md).
+the public packages can start with the
+[quickstart](https://agent-runtime.clearideas.com/quickstart), then see
+[concepts](https://agent-runtime.clearideas.com/concepts),
+[embedding](https://agent-runtime.clearideas.com/embedding), and
+[production guidance](https://agent-runtime.clearideas.com/production).
 
 ## Included adapters
 
@@ -107,8 +121,8 @@ only the integrations used by the host application.
 | Sandboxes      | Docker and Modal          |
 | Telemetry      | OpenTelemetry             |
 
-See the [adapter catalog](docs/adapters.md) for package names and integration
-guidance.
+See the [adapter catalog](https://agent-runtime.clearideas.com/adapters) for
+package names and integration guidance.
 
 ## Versioning and release safety
 
@@ -133,10 +147,12 @@ npm visibility and the `alpha` distribution tag until the public release is
 enabled. No Agent Runtime package is configured for GitHub Packages.
 
 The same workflow builds the VitePress documentation before publishing and
-deploys it to GitHub Pages only after Changesets reports a successful npm
-publish. Documentation build and deployment run in separate jobs: the build
-job has read-only repository access and no npm secret, while the deployment job
-receives only `pages: write` and `id-token: write`.
+deploys it to a private S3 origin behind CloudFront at
+[agent-runtime.clearideas.com](https://agent-runtime.clearideas.com/) only
+after Changesets reports a successful npm publish or when documentation
+deployment is explicitly requested. The deployment job uses GitHub OIDC to
+assume a repository-scoped AWS role. It does not store long-lived AWS
+credentials in GitHub.
 
 These controls do not replace review. Before the first release:
 

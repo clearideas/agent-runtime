@@ -132,9 +132,8 @@ lifecycle events to a browser. It uses OpenAI's `gpt-5.6-luna` model, the public
 Context7 MCP endpoint, and an OpenTelemetry event sink. Set `OPENAI_API_KEY`
 before starting it. A Context7 key is optional.
 
-See
-`examples/interactive-web/README.md` in the repository for hosted-provider and
-Ollama configuration.
+See the [interactive web example](./interactive-example.md) for execution
+modes, parallel scheduling, MCP tools, streaming, persistence, and telemetry.
 
 ## Use a local model
 
