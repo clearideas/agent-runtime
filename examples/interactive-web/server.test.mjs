@@ -82,10 +82,11 @@ test("rejects missing, weak, or shared remote credentials", () => {
 
 test("serves the agent contracts without exposing credentials", async (testContext) => {
   const { baseURL } = await startApp(testContext);
-  const [config, agent, page] = await Promise.all([
+  const [config, agent, page, visualizerPage] = await Promise.all([
     fetch(`${baseURL}/api/config`).then((response) => response.json()),
     fetch(`${baseURL}/api/agent`).then((response) => response.json()),
     fetch(baseURL).then((response) => response.text()),
+    fetch(`${baseURL}/visualizer`).then((response) => response.text()),
   ]);
 
   assert.deepEqual(config, {
@@ -106,6 +107,14 @@ test("serves the agent contracts without exposing credentials", async (testConte
   assert.deepEqual(agent.steps[0].tools, ["context7__query-docs"]);
   assert.equal(agent.steps.at(-1).outputVariable, "finalBrief");
   assert.match(page, /id="step-output-list"/);
+  assert.doesNotMatch(page, /id="execution-stage"/);
+  assert.match(page, /id="run-button-label"/);
+  assert.doesNotMatch(page, /id="cancel-button"/);
+  assert.match(visualizerPage, /id="execution-stage"/);
+  assert.match(visualizerPage, /id="execution-connections"/);
+  assert.match(visualizerPage, /id="execution-variable-list"/);
+  assert.match(visualizerPage, /id="execution-timer"/);
+  assert.match(visualizerPage, /id="step-output-list"/);
   assert.match(page, /id="final-output-section"[\s\S]*?hidden/);
   assert.ok(
     page.indexOf('id="step-output-list"') <
@@ -128,6 +137,7 @@ test("serves local Markdown, sanitizer, and syntax-highlighting assets", async (
     "/vendor/purify.js",
     "/vendor/highlight.js",
     "/vendor/highlight.css",
+    "/clearideas-logo.svg",
   ];
   const assets = await Promise.all(
     paths.map(async (asset) => {
@@ -146,6 +156,8 @@ test("serves local Markdown, sanitizer, and syntax-highlighting assets", async (
   assert.match(assets[1].content, /DOMPurify/);
   assert.match(assets[2].content, /hljs/);
   assert.match(assets[3].content, /pre code/);
+  assert.match(assets[4].response.headers.get("content-type"), /svg/);
+  assert.match(assets[4].content, /id="ci-logo"/);
 });
 
 test("protects remote worker and callback endpoints", async (testContext) => {

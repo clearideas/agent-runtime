@@ -6,9 +6,11 @@ name: Release packages
 # 2. repository variable NPM_RELEASES_ENABLED=true;
 # 3. approval of the npm-production GitHub environment;
 # 4. npm trusted-publisher configuration for this exact workflow; and
-# 5. a read-only NPM_READ_TOKEN secret for private-package metadata requests.
-# Packages are scoped as @clearideas/*, remain private during the alpha, and
-# publish only to the npm registry configured below and in publishConfig.
+# 5. a read-only NPM_READ_TOKEN environment secret for private-package metadata
+#    requests.
+# Packages are scoped as @clearideas/* and publish only to the npm registry
+# configured below and in publishConfig. Documentation deploys to GitHub Pages
+# only when Changesets confirms that package publishing occurred.
 on:
   workflow_dispatch:
     inputs:
@@ -27,6 +29,7 @@ concurrency:
 
 jobs:
   readiness:
+    if: ${{ github.ref == 'refs/heads/main' }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     environment: npm-production
@@ -35,10 +38,10 @@ jobs:
 
     steps:
       - name: Check out source
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
 
       - name: Set up Node.js
-        uses: actions/setup-node@v7
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
           node-version: 24
           registry-url: https://registry.npmjs.org
@@ -60,8 +63,11 @@ jobs:
       - name: Validate release candidate
         run: npm run validate
 
+      - name: Build documentation site
+        run: npm run docs:build
+
   release:
-    if: ${{ inputs.release_enabled && vars.NPM_RELEASES_ENABLED == 'true' }}
+    if: ${{ github.ref == 'refs/heads/main' && inputs.release_enabled && vars.NPM_RELEASES_ENABLED == 'true' }}
     needs: readiness
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -70,15 +76,17 @@ jobs:
       contents: write
       id-token: write
       pull-requests: write
+    outputs:
+      published: ${{ steps.changesets.outputs.published }}
 
     steps:
       - name: Check out source
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           fetch-depth: 0
 
       - name: Set up Node.js for npm trusted publishing
-        uses: actions/setup-node@v7
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
           node-version: 24
           registry-url: https://registry.npmjs.org
@@ -96,7 +104,8 @@ jobs:
         run: npm run validate
 
       - name: Create version pull request or publish approved packages
-        uses: changesets/action@v1
+        id: changesets
+        uses: changesets/action@a45c4d594aa4e2c509dc14a9f2b3b67ba3780d0d # v1.9.0
         with:
           publish: npm run release:packages:alpha
           version: npm run version-packages
@@ -105,3 +114,60 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           NPM_CONFIG_PROVENANCE: "false"
+
+  documentation:
+    name: Build documentation for GitHub Pages
+    if: ${{ needs.release.outputs.published == 'true' }}
+    needs: release
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      pages: read
+
+    steps:
+      - name: Check out published source
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: 24
+          package-manager-cache: false
+
+      - name: Install locked dependencies
+        run: npm ci
+
+      - name: Configure GitHub Pages
+        id: pages
+        uses: actions/configure-pages@983d7736d9b0ae728b81ab479565c72886d7745b # v5
+
+      - name: Build documentation site
+        run: npm run docs:build
+        env:
+          DOCS_BASE_PATH: ${{ steps.pages.outputs.base_path }}
+
+      - name: Upload GitHub Pages artifact
+        uses: actions/upload-pages-artifact@7b1f4a764d45c48632c6b24a0339c27f5614fb0b # v4
+        with:
+          path: docs/.vitepress/dist
+
+  documentation-deploy:
+    name: Deploy documentation to GitHub Pages
+    needs: documentation
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+
+    steps:
+      - name: Deploy documentation
+        id: deployment
+        uses: actions/deploy-pages@d6db90164ac5ed86f2b6aed7e0febac5b3c0c03e # v4

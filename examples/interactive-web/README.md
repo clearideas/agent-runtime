@@ -20,6 +20,10 @@ OpenAI `gpt-5.6-luna` model and the public Context7 MCP endpoint; no Context7
 key is required. The MCP result is returned to the model, written to
 `contextNotes`, and consumed by the later draft and finalize steps.
 
+The main page is the minimal interactive example. Open
+[http://127.0.0.1:4178/visualizer](http://127.0.0.1:4178/visualizer) for the
+same example with the event-driven execution visualization.
+
 Choose Local or Remote before starting a run:
 
 - Local uses `InProcessExecutionEngine`.
@@ -28,6 +32,14 @@ Choose Local or Remote before starting a run:
 
 Both modes use `ExecutionClient.follow()` and produce the same browser event
 stream and final result.
+
+On the visualizer page, the execution map is generated from the agent manifest
+and updates from that event stream. It shows dependency fan-out and fan-in,
+concurrent model responses, streamed character counts, MCP tool calls,
+variable dependencies, and final completion. Run-variable pills connect to a
+step while that step reads them, then yield to the model-response path when
+streaming begins. The page-level Run agent control becomes Cancel run while an
+execution is active.
 
 Choose Sequential or Parallel step scheduling independently of the execution
 engine. Parallel mode runs the draft and evidence-extraction steps together

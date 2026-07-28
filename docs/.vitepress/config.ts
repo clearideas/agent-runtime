@@ -1,9 +1,13 @@
 import { defineConfig } from "vitepress";
 
+const configuredBasePath = process.env.DOCS_BASE_PATH?.replace(/\/+$/, "");
+const base = configuredBasePath ? `${configuredBasePath}/` : "/";
+
 export default defineConfig({
+  base,
   title: "Clear Ideas Agent Runtime",
   description:
-    "Build and run declarative AI agents with your choice of models, tools, storage, and compute.",
+    "A standalone TypeScript runtime for portable, declarative agents with native authorization, sandboxing, and durable execution.",
   cleanUrls: true,
   lastUpdated: true,
   appearance: true,
@@ -33,6 +37,17 @@ export default defineConfig({
   themeConfig: {
     siteTitle: "Agent Runtime",
     logo: "/clearideas-logo.svg",
+    socialLinks: [
+      {
+        icon: "github",
+        link: "https://github.com/clearideas/agent-runtime",
+      },
+    ],
+    editLink: {
+      pattern:
+        "https://github.com/clearideas/agent-runtime/edit/main/docs/:path",
+      text: "Edit this page on GitHub",
+    },
     nav: [
       { text: "Guide", link: "/quickstart" },
       { text: "Patterns", link: "/build-agents" },

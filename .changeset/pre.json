@@ -23,5 +23,5 @@
     "@clearideas/agent-runtime-store-sqlite": "0.1.0-alpha.1",
     "@clearideas/agent-runtime-telemetry-otel": "0.1.0-alpha.1"
   },
-  "changesets": ["trusted-alpha"]
+  "changesets": ["interactive-docs-alpha", "trusted-alpha"]
 }

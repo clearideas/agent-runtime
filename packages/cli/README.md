@@ -3,16 +3,25 @@
 The `agent-runtime` CLI validates and runs agent manifests, resumes stored
 runs, inspects events, and starts worker processes.
 
+Install it in a project and run it with `npx`:
+
 ```sh
-agent-runtime validate ./agent.yaml
-agent-runtime config validate ./agent-runtime.config.yaml
-agent-runtime run ./agent.yaml --config ./agent-runtime.config.yaml --store ./.agent-runtime
-agent-runtime resume run_123 --store ./.agent-runtime
-agent-runtime inspect run_123 --store ./.agent-runtime
-agent-runtime events ./.agent-runtime/events.jsonl --run run_123 --tail 20
-agent-runtime examples list
-agent-runtime examples run variables --stream
-agent-runtime run ./agent.yaml --store-driver sqlite --store ./.agent-runtime/runs.sqlite
+npm install --save-dev @clearideas/agent-runtime-cli
+npx agent-runtime examples list
+```
+
+No source checkout or hosted Clear Ideas service is required. The CLI stores
+run state and events locally by default.
+
+```sh
+npx agent-runtime validate ./agent.yaml
+npx agent-runtime config validate ./agent-runtime.config.yaml
+npx agent-runtime run ./agent.yaml --config ./agent-runtime.config.yaml --store ./.agent-runtime
+npx agent-runtime resume run_123 --store ./.agent-runtime
+npx agent-runtime inspect run_123 --store ./.agent-runtime
+npx agent-runtime events ./.agent-runtime/events.jsonl --run run_123 --tail 20
+npx agent-runtime examples run variables --stream
+npx agent-runtime run ./agent.yaml --store-driver sqlite --store ./.agent-runtime/runs.sqlite
 ```
 
 `--stream` shows model text on stdout and lifecycle progress on stderr. Use
@@ -25,7 +34,7 @@ configuration.
 For a local Gemma 4 model already installed in Ollama:
 
 ```sh
-agent-runtime examples run variables \
+npx agent-runtime examples run variables \
   --config ./packages/cli/examples/ollama-gemma4.config.yaml \
   --stream
 ```
@@ -124,7 +133,7 @@ variables:
 ```
 
 ```sh
-agent-runtime run-manifest ./release.run.yaml
+npx agent-runtime run-manifest ./release.run.yaml
 ```
 
 For an ad hoc run, `--variables ./overrides.json` accepts the override array

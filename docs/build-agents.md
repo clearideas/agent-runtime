@@ -11,11 +11,13 @@ for CLI, embedded, and remote execution.
 
 ## Setup
 
-From the repository root:
+Create a project and install the CLI:
 
 ```sh
-npm run build
-alias agent-runtime='node ./packages/cli/dist/bin.js'
+mkdir agent-runtime-examples
+cd agent-runtime-examples
+npm init -y
+npm install --save-dev @clearideas/agent-runtime-cli
 export OPENAI_API_KEY="..."
 ```
 
@@ -62,11 +64,11 @@ Prompt chains pass one step's output to a later model call.
 
 <<< ../examples/manifests/prompt-chain.agent.yaml
 
-Run the example:
+Save the example as `prompt-chain.agent.yaml`, then run it:
 
 ```sh
-agent-runtime run \
-  ./examples/manifests/prompt-chain.agent.yaml \
+npx agent-runtime run \
+  ./prompt-chain.agent.yaml \
   --stream
 ```
 

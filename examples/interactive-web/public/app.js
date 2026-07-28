@@ -11,7 +11,7 @@ const elements = {
   executionModes: [...document.querySelectorAll('input[name="execution"]')],
   schedulingModes: [...document.querySelectorAll('input[name="scheduling"]')],
   runButton: document.querySelector("#run-button"),
-  cancelButton: document.querySelector("#cancel-button"),
+  runButtonLabel: document.querySelector("#run-button-label"),
   runtimeLabel: document.querySelector("#runtime-label"),
   modelValue: document.querySelector("#model-value"),
   executionValue: document.querySelector("#execution-value"),
@@ -33,6 +33,14 @@ const elements = {
   contractTabs: [...document.querySelectorAll("[data-contract]")],
   eventList: document.querySelector("#event-list"),
   eventCount: document.querySelector("#event-count"),
+  executionStage: document.querySelector("#execution-stage"),
+  executionGraph: document.querySelector("#execution-graph"),
+  executionConnections: document.querySelector("#execution-connections"),
+  visualizationStatus: document.querySelector("#visualization-status"),
+  visualizationSignal: document.querySelector("#visualization-signal"),
+  executionVariableList: document.querySelector("#execution-variable-list"),
+  executionTimer: document.querySelector("#execution-timer"),
+  executionElapsed: document.querySelector("#execution-elapsed"),
 };
 
 let agentManifest;
@@ -48,6 +56,21 @@ const streamedByStep = new Map();
 const stepOutputViews = new Map();
 const pendingMarkdown = new Map();
 let markdownFrame;
+const executionNodes = new Map();
+const executionVariableNodes = new Map();
+const executionEdges = [];
+const activeModelSteps = new Set();
+const activeToolSteps = new Set();
+const streamingModelSteps = new Set();
+const toolResponseSteps = new Set();
+const activeVariableReads = new Map();
+const streamedCharacters = new Map();
+const completedModelCalls = new Map();
+let visualizationFrame;
+let runTimerStartedAt;
+let runTimerInterval;
+let configuredModel = "AI model";
+let configuredTool = "MCP tool";
 
 const pretty = (value) => JSON.stringify(value, null, 2);
 
@@ -147,6 +170,599 @@ const setFinalOutputStatus = (label, state) => {
   elements.finalOutputStatus.dataset.state = state;
 };
 
+const formatElapsed = (milliseconds) => {
+  const seconds = milliseconds / 1000;
+  if (seconds < 60) return `${seconds.toFixed(1)}s`;
+  const minutes = Math.floor(seconds / 60);
+  return `${minutes}:${(seconds % 60).toFixed(1).padStart(4, "0")}`;
+};
+
+const renderElapsed = () => {
+  if (!elements.executionElapsed || runTimerStartedAt === undefined) return;
+  elements.executionElapsed.textContent = formatElapsed(
+    performance.now() - runTimerStartedAt,
+  );
+};
+
+const resetRunTimer = () => {
+  if (runTimerInterval) clearInterval(runTimerInterval);
+  runTimerInterval = undefined;
+  runTimerStartedAt = undefined;
+  if (!elements.executionTimer || !elements.executionElapsed) return;
+  elements.executionElapsed.textContent = "0.0s";
+  elements.executionTimer.dataset.state = "idle";
+};
+
+const startRunTimer = () => {
+  if (!elements.executionTimer || !elements.executionElapsed) return;
+  if (runTimerInterval) clearInterval(runTimerInterval);
+  runTimerStartedAt = performance.now();
+  elements.executionTimer.dataset.state = "running";
+  renderElapsed();
+  runTimerInterval = setInterval(renderElapsed, 100);
+};
+
+const stopRunTimer = (state = "complete") => {
+  if (!elements.executionTimer) return;
+  if (runTimerStartedAt !== undefined) renderElapsed();
+  if (runTimerInterval) clearInterval(runTimerInterval);
+  runTimerInterval = undefined;
+  runTimerStartedAt = undefined;
+  elements.executionTimer.dataset.state = state;
+};
+
+const referencedVariables = (step) => {
+  const templates = [step.systemPrompt, step.prompt, step.when]
+    .filter((value) => typeof value === "string")
+    .join("\n");
+  const references = new Set();
+  for (const match of templates.matchAll(/\{\{\s*([^}\s]+)[^}]*\}\}/g)) {
+    references.add(match[1].split(".")[0]);
+  }
+  for (const match of templates.matchAll(
+    /(?:^|[^.\w])([A-Za-z_][\w]*)\s*(?:==|!=|>=|<=|>|<)/g,
+  )) {
+    references.add(match[1]);
+  }
+  return references;
+};
+
+const dependencyGraph = (steps) => {
+  const outputOwners = new Map(
+    steps
+      .filter((step) => step.outputVariable)
+      .map((step) => [step.outputVariable, step.id]),
+  );
+  return steps.flatMap((step) =>
+    [...referencedVariables(step)]
+      .filter((variable) => outputOwners.has(variable))
+      .map((variable) => ({
+        source: outputOwners.get(variable),
+        target: step.id,
+        variable,
+      })),
+  );
+};
+
+const executionLayout = (steps, dependencies) => {
+  const levelByStep = new Map();
+  const visit = (stepId, seen = new Set()) => {
+    if (levelByStep.has(stepId)) return levelByStep.get(stepId);
+    if (seen.has(stepId)) return 0;
+    seen.add(stepId);
+    const parents = dependencies
+      .filter((edge) => edge.target === stepId)
+      .map((edge) => edge.source);
+    const level =
+      parents.length === 0
+        ? 1
+        : Math.max(...parents.map((parent) => visit(parent, seen))) + 1;
+    levelByStep.set(stepId, level);
+    return level;
+  };
+  for (const step of steps) visit(step.id);
+  const levels = new Map();
+  for (const step of steps) {
+    const level = levelByStep.get(step.id) ?? 1;
+    const group = levels.get(level) ?? [];
+    group.push(step.id);
+    levels.set(level, group);
+  }
+  return { levelByStep, levels };
+};
+
+const createExecutionNode = ({
+  id,
+  kind,
+  eyebrow,
+  name,
+  detail,
+  outputVariable,
+  column,
+  row,
+}) => {
+  const node = document.createElement("article");
+  const nodeEyebrow = document.createElement("span");
+  const nodeName = document.createElement("strong");
+  const nodeDetail = document.createElement("span");
+  const activity = document.createElement("span");
+  const activityDots = document.createElement("span");
+  const activityLabel = document.createElement("span");
+  const outputVariablePill = document.createElement("span");
+
+  node.className = `execution-node execution-node-${kind}`;
+  node.dataset.nodeId = id;
+  node.dataset.kind = kind;
+  node.dataset.state = "waiting";
+  node.style.gridColumn = String(column);
+  node.style.gridRow = String(row);
+  nodeEyebrow.className = "execution-node-eyebrow";
+  nodeEyebrow.textContent = eyebrow;
+  nodeName.className = "execution-node-name";
+  nodeName.textContent = name;
+  nodeDetail.className = "execution-node-detail";
+  nodeDetail.textContent = detail;
+  activity.className = "execution-node-activity";
+  activityDots.className = "execution-activity-dots";
+  activityDots.innerHTML = "<i></i><i></i><i></i>";
+  activityLabel.className = "execution-activity-label";
+  activityLabel.textContent = kind === "service" ? "Idle" : "Waiting";
+  activity.append(activityDots, activityLabel);
+  node.append(nodeEyebrow, nodeName, nodeDetail, activity);
+  if (outputVariable) {
+    outputVariablePill.className = "execution-output-variable";
+    outputVariablePill.textContent = outputVariable;
+    outputVariablePill.title = `Writes ${outputVariable}`;
+    node.append(outputVariablePill);
+  }
+  elements.executionGraph.append(node);
+
+  const view = {
+    node,
+    detail: nodeDetail,
+    activity: activityLabel,
+    defaultDetail: detail,
+  };
+  executionNodes.set(id, view);
+  return view;
+};
+
+const setExecutionNode = (id, state, activity, detail, redraw = true) => {
+  const view = executionNodes.get(id);
+  if (!view) return;
+  view.node.dataset.state = state;
+  if (activity) view.activity.textContent = activity;
+  if (detail !== undefined) view.detail.textContent = detail;
+  if (redraw) scheduleConnections();
+};
+
+const renderVariableList = () => {
+  if (!elements.executionVariableList) return;
+  executionVariableNodes.clear();
+  elements.executionVariableList.innerHTML = "";
+  for (const variable of agentManifest?.variables ?? []) {
+    const chip = document.createElement("span");
+    const name = document.createElement("strong");
+    const type = document.createElement("small");
+    chip.className = "execution-variable";
+    chip.dataset.variable = variable.key;
+    name.textContent = variable.key;
+    type.textContent = variable.type ?? "value";
+    chip.append(name, type);
+    elements.executionVariableList.append(chip);
+    executionVariableNodes.set(variable.key, chip);
+  }
+};
+
+const runtimeVariablesForStep = (stepId) => {
+  const step = stepDefinitions.get(stepId);
+  if (!step) return [];
+  const runtimeVariables = new Set(
+    (agentManifest?.variables ?? []).map((variable) => variable.key),
+  );
+  return [...referencedVariables(step)].filter((variable) =>
+    runtimeVariables.has(variable),
+  );
+};
+
+const renderExecutionGraph = () => {
+  if (!agentManifest || !elements.executionGraph) return;
+  executionNodes.clear();
+  executionEdges.length = 0;
+  elements.executionGraph.innerHTML = "";
+  const steps = agentManifest.steps ?? [];
+  const dependencies = dependencyGraph(steps);
+  const { levelByStep, levels } = executionLayout(steps, dependencies);
+  const maxLevel = Math.max(1, ...levelByStep.values());
+  const stepColumns = maxLevel + 1;
+  elements.executionGraph.style.setProperty(
+    "--execution-columns",
+    String(stepColumns),
+  );
+
+  for (const step of steps) {
+    const level = levelByStep.get(step.id) ?? 1;
+    const siblings = levels.get(level) ?? [step.id];
+    const siblingIndex = siblings.indexOf(step.id);
+    const row = siblings.length === 1 ? 2 : siblingIndex % 2 === 0 ? 1 : 3;
+    createExecutionNode({
+      id: step.id,
+      kind: "step",
+      eyebrow: `Step ${stepNumbers.get(step.id) ?? siblingIndex + 1}`,
+      name: step.name ?? step.id,
+      detail: step.type === "prompt" ? "Model response" : step.type,
+      outputVariable: step.outputVariable,
+      column: level,
+      row,
+    });
+  }
+
+  createExecutionNode({
+    id: "run-output",
+    kind: "terminal",
+    eyebrow: "Agent result",
+    name: "Final output",
+    detail: "Waiting",
+    column: stepColumns,
+    row: 2,
+  });
+  createExecutionNode({
+    id: "service-model",
+    kind: "service",
+    eyebrow: "Third-party AI",
+    name: configuredModel,
+    detail: "Model API",
+    column: Math.max(2, stepColumns - 2),
+    row: 4,
+  });
+  createExecutionNode({
+    id: "service-tool",
+    kind: "service",
+    eyebrow: "Third-party tool",
+    name: configuredTool,
+    detail: "MCP connection",
+    column: 2,
+    row: 4,
+  });
+
+  const finalSteps = steps.filter(
+    (step) => !dependencies.some((edge) => edge.source === step.id),
+  );
+  executionEdges.push(
+    ...dependencies.map((edge) => ({
+      ...edge,
+      kind: "flow",
+    })),
+    ...finalSteps.map((step) => ({
+      source: step.id,
+      target: "run-output",
+      kind: "flow",
+    })),
+  );
+  renderVariableList();
+  scheduleConnections();
+};
+
+const nodeCenter = (id) => {
+  const element = id.startsWith("variable:")
+    ? executionVariableNodes.get(id.slice("variable:".length))
+    : executionNodes.get(id)?.node;
+  if (!element) return undefined;
+  const stage = elements.executionStage.getBoundingClientRect();
+  const node = element.getBoundingClientRect();
+  return {
+    left: node.left - stage.left,
+    right: node.right - stage.left,
+    top: node.top - stage.top,
+    bottom: node.bottom - stage.top,
+    x: node.left - stage.left + node.width / 2,
+    y: node.top - stage.top + node.height / 2,
+  };
+};
+
+const connectionPath = (source, target, service = false) => {
+  if (service) {
+    const travelsDown = source.y < target.y;
+    const startY = travelsDown ? source.bottom : source.top;
+    const endY = travelsDown ? target.top : target.bottom;
+    const bend = startY + (endY - startY) * 0.5;
+    return `M ${source.x} ${startY} C ${source.x} ${bend}, ${target.x} ${bend}, ${target.x} ${endY}`;
+  }
+  const startX = source.right;
+  const endX = target.left;
+  const bend = startX + (endX - startX) * 0.5;
+  return `M ${startX} ${source.y} C ${bend} ${source.y}, ${bend} ${target.y}, ${endX} ${target.y}`;
+};
+
+const drawConnections = () => {
+  visualizationFrame = undefined;
+  if (
+    !elements.executionStage ||
+    !elements.executionGraph ||
+    !elements.executionConnections
+  )
+    return;
+  const width = Math.max(
+    elements.executionStage.clientWidth,
+    elements.executionGraph.scrollWidth,
+  );
+  const height = elements.executionStage.clientHeight;
+  elements.executionConnections.style.width = `${width}px`;
+  elements.executionConnections.setAttribute(
+    "viewBox",
+    `0 0 ${width} ${height}`,
+  );
+  elements.executionConnections.innerHTML = "";
+  const definitions = document.createElementNS(
+    "http://www.w3.org/2000/svg",
+    "defs",
+  );
+  for (const [id, color] of [
+    ["model", "#60a5fa"],
+    ["tool", "#c084fc"],
+    ["variable", "#7ea6ff"],
+  ]) {
+    const marker = document.createElementNS(
+      "http://www.w3.org/2000/svg",
+      "marker",
+    );
+    const arrow = document.createElementNS(
+      "http://www.w3.org/2000/svg",
+      "path",
+    );
+    marker.setAttribute("id", `execution-arrow-${id}`);
+    marker.setAttribute("viewBox", "0 0 10 10");
+    marker.setAttribute("refX", "8");
+    marker.setAttribute("refY", "5");
+    marker.setAttribute("markerWidth", "5");
+    marker.setAttribute("markerHeight", "5");
+    marker.setAttribute("orient", "auto-start-reverse");
+    arrow.setAttribute("d", "M 0 0 L 10 5 L 0 10 z");
+    arrow.setAttribute("fill", color);
+    marker.append(arrow);
+    definitions.append(marker);
+  }
+  elements.executionConnections.append(definitions);
+  const links = [
+    ...executionEdges,
+    ...[...activeModelSteps].map((stepId) => ({
+      source: streamingModelSteps.has(stepId) ? "service-model" : stepId,
+      target: streamingModelSteps.has(stepId) ? stepId : "service-model",
+      kind: `service model ${streamingModelSteps.has(stepId) ? "response" : "request"}`,
+    })),
+    ...[...activeToolSteps].map((stepId) => ({
+      source: stepId,
+      target: "service-tool",
+      kind: "service tool request",
+    })),
+    ...[...toolResponseSteps].map((stepId) => ({
+      source: "service-tool",
+      target: stepId,
+      kind: "service tool response",
+    })),
+    ...[...activeVariableReads].flatMap(([stepId, variables]) =>
+      variables.map((variable) => ({
+        source: `variable:${variable}`,
+        target: stepId,
+        kind: "variable-read",
+      })),
+    ),
+  ];
+  links.forEach((edge, index) => {
+    const source = nodeCenter(edge.source);
+    const target = nodeCenter(edge.target);
+    if (!source || !target) return;
+    const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+    const pathId = `execution-path-${index}`;
+    path.setAttribute("id", pathId);
+    path.setAttribute(
+      "d",
+      connectionPath(
+        source,
+        target,
+        edge.kind.includes("service") || edge.kind === "variable-read",
+      ),
+    );
+    path.setAttribute("class", `execution-connection ${edge.kind}`);
+    if (edge.kind.includes("service") || edge.kind === "variable-read") {
+      const marker =
+        edge.kind === "variable-read"
+          ? "variable"
+          : edge.kind.includes("tool")
+            ? "tool"
+            : "model";
+      path.setAttribute("marker-end", `url(#execution-arrow-${marker})`);
+    }
+    if (edge.kind === "flow") {
+      const sourceState = executionNodes.get(edge.source)?.node.dataset.state;
+      const targetState = executionNodes.get(edge.target)?.node.dataset.state;
+      const responseIsStreaming = targetState === "streaming";
+      if (sourceState === "complete" && !responseIsStreaming)
+        path.classList.add("ready");
+      if (targetState === "running") path.classList.add("transmitting");
+      if (targetState === "complete") path.classList.add("complete");
+    }
+    elements.executionConnections.append(path);
+  });
+};
+
+const scheduleConnections = () => {
+  if (!elements.executionConnections || visualizationFrame) return;
+  visualizationFrame = requestAnimationFrame(drawConnections);
+};
+
+const resetExecutionGraph = () => {
+  activeModelSteps.clear();
+  activeToolSteps.clear();
+  streamingModelSteps.clear();
+  toolResponseSteps.clear();
+  activeVariableReads.clear();
+  streamedCharacters.clear();
+  completedModelCalls.clear();
+  if (!elements.executionStage) return;
+  for (const [id, view] of executionNodes) {
+    view.node.dataset.state = "waiting";
+    view.detail.textContent = view.defaultDetail;
+    view.activity.textContent = id.startsWith("service-") ? "Idle" : "Waiting";
+  }
+  elements.executionStage.dataset.state = "idle";
+  elements.executionVariableList.dataset.state = "waiting";
+  elements.visualizationStatus.textContent = "Starting run";
+  elements.visualizationSignal.dataset.state = "running";
+  scheduleConnections();
+};
+
+const handleExecutionEvent = (event) => {
+  if (!elements.executionStage) return;
+  const stepId = event.stepId;
+  if (event.type === "run.started") {
+    startRunTimer();
+    elements.executionStage.dataset.state = "running";
+    elements.visualizationStatus.textContent = "Run started";
+  }
+  if (event.type === "step.started" && stepId) {
+    activeVariableReads.set(stepId, runtimeVariablesForStep(stepId));
+    setExecutionNode(stepId, "running", "Running", "Preparing model call");
+    elements.visualizationStatus.textContent = `${stepNames.get(stepId) ?? stepId} started`;
+  }
+  if (event.type === "model.started" && stepId) {
+    toolResponseSteps.delete(stepId);
+    activeModelSteps.add(stepId);
+    streamingModelSteps.delete(stepId);
+    const count = (completedModelCalls.get(stepId) ?? 0) + 1;
+    setExecutionNode(stepId, "running", "Calling AI", `Model call ${count}`);
+    setExecutionNode(
+      "service-model",
+      "running",
+      activeModelSteps.size > 1
+        ? `${activeModelSteps.size} calls`
+        : "Request received",
+      "Streaming model API",
+    );
+  }
+  if (event.type === "model.text.delta" && stepId) {
+    const beganStreaming = !streamingModelSteps.has(stepId);
+    streamingModelSteps.add(stepId);
+    if (beganStreaming) activeVariableReads.delete(stepId);
+    const characters =
+      (streamedCharacters.get(stepId) ?? 0) +
+      String(event.data?.delta ?? "").length;
+    streamedCharacters.set(stepId, characters);
+    setExecutionNode(
+      stepId,
+      "streaming",
+      "Streaming response",
+      `${characters.toLocaleString()} characters`,
+      beganStreaming,
+    );
+    elements.visualizationStatus.textContent =
+      activeModelSteps.size > 1
+        ? `${activeModelSteps.size} responses streaming`
+        : `${stepNames.get(stepId) ?? stepId} streaming`;
+  }
+  if (event.type === "model.completed" && stepId) {
+    activeModelSteps.delete(stepId);
+    streamingModelSteps.delete(stepId);
+    completedModelCalls.set(stepId, (completedModelCalls.get(stepId) ?? 0) + 1);
+    setExecutionNode(
+      stepId,
+      "running",
+      "Response received",
+      `${(streamedCharacters.get(stepId) ?? 0).toLocaleString()} characters`,
+    );
+    setExecutionNode(
+      "service-model",
+      activeModelSteps.size > 0 ? "running" : "complete",
+      activeModelSteps.size > 0
+        ? `${activeModelSteps.size} active`
+        : "Response sent",
+      activeModelSteps.size > 0 ? "Streaming model API" : "Model API",
+    );
+  }
+  if (event.type === "model.tool.requested" && stepId) {
+    setExecutionNode(stepId, "running", "Tool requested", "Waiting for MCP");
+  }
+  if (event.type === "model.tool.started" && stepId) {
+    toolResponseSteps.delete(stepId);
+    activeToolSteps.add(stepId);
+    setExecutionNode(
+      stepId,
+      "running",
+      "Calling tool",
+      event.data?.toolName ?? "MCP tool",
+    );
+    setExecutionNode(
+      "service-tool",
+      "running",
+      "Request received",
+      event.data?.toolName ?? "MCP connection",
+    );
+    elements.visualizationStatus.textContent = `Calling ${configuredTool}`;
+  }
+  if (event.type === "model.tool.completed" && stepId) {
+    activeToolSteps.delete(stepId);
+    toolResponseSteps.add(stepId);
+    setExecutionNode(
+      stepId,
+      "running",
+      "Tool result received",
+      "Returning to model",
+    );
+    setExecutionNode(
+      "service-tool",
+      event.data?.failed ? "error" : "complete",
+      event.data?.failed ? "Failed" : "Result sent",
+      event.data?.toolName ?? "MCP connection",
+    );
+  }
+  if (event.type === "step.completed" && stepId) {
+    activeModelSteps.delete(stepId);
+    activeToolSteps.delete(stepId);
+    streamingModelSteps.delete(stepId);
+    toolResponseSteps.delete(stepId);
+    activeVariableReads.delete(stepId);
+    setExecutionNode(
+      stepId,
+      "complete",
+      "Complete",
+      `${(streamedCharacters.get(stepId) ?? 0).toLocaleString()} characters`,
+    );
+  }
+  if (event.type === "step.skipped" && stepId) {
+    activeVariableReads.delete(stepId);
+    setExecutionNode(stepId, "skipped", "Skipped", "Condition was false");
+  }
+  if (event.type === "step.failed" && stepId) {
+    activeVariableReads.delete(stepId);
+    setExecutionNode(stepId, "error", "Failed", "Step error");
+  }
+  if (event.type === "run.completed") {
+    stopRunTimer("complete");
+    elements.executionStage.dataset.state = "complete";
+    elements.visualizationStatus.textContent = "Run complete";
+    elements.visualizationSignal.dataset.state = "complete";
+    setExecutionNode(
+      "run-output",
+      "complete",
+      "Ready",
+      "Final output assembled",
+    );
+  }
+  if (event.type === "run.failed" || event.type === "run.cancelled") {
+    stopRunTimer("error");
+    elements.executionStage.dataset.state = "error";
+    elements.visualizationStatus.textContent =
+      event.type === "run.cancelled" ? "Run cancelled" : "Run failed";
+    elements.visualizationSignal.dataset.state = "error";
+    setExecutionNode(
+      "run-output",
+      "error",
+      event.type === "run.cancelled" ? "Cancelled" : "Failed",
+      "No final output",
+    );
+  }
+};
+
 const stepOutputView = (stepId) => {
   if (!stepId) return undefined;
   const existing = stepOutputViews.get(stepId);
@@ -206,6 +822,7 @@ const setStepOutputStatus = (stepId, label, state) => {
 };
 
 const resetRunView = () => {
+  resetRunTimer();
   eventTotal = 0;
   streamedByStep.clear();
   stepOutputViews.clear();
@@ -224,6 +841,7 @@ const resetRunView = () => {
   elements.runId.textContent = "Allocating run";
   elements.tokenUsage.textContent = "— tokens";
   elements.activeStep.textContent = "Starting";
+  resetExecutionGraph();
 };
 
 const eventLabel = (type) =>
@@ -267,6 +885,7 @@ const addEvent = (event) => {
 };
 
 const handleEvent = (event) => {
+  handleExecutionEvent(event);
   if (event.type !== "model.text.delta") addEvent(event);
 
   const stepName = event.stepId
@@ -311,6 +930,7 @@ const handleMessage = (message) => {
       message.agentRunManifest.execution?.mode === "parallel"
         ? "Parallel"
         : "Sequential";
+    elements.executionVariableList.dataset.state = "active";
     renderContract();
     return;
   }
@@ -319,6 +939,7 @@ const handleMessage = (message) => {
     return;
   }
   if (message.kind === "result") {
+    stopRunTimer("complete");
     const output = message.result.output;
     for (const stepResult of message.result.stepResults ?? []) {
       const view = stepOutputView(stepResult.stepId);
@@ -337,15 +958,35 @@ const handleMessage = (message) => {
         : "Usage unavailable";
     elements.activeStep.textContent = "Complete";
     setStatus("Complete", "complete");
+    elements.executionVariableList.dataset.state = "complete";
+    setExecutionNode(
+      "run-output",
+      "complete",
+      "Ready",
+      "Final output assembled",
+    );
     return;
   }
   if (message.kind === "error") {
+    stopRunTimer("error");
     elements.runError.hidden = false;
     elements.runError.textContent = message.error.message;
     elements.activeStep.textContent = message.error.cancelled
       ? "Cancelled"
       : "Failed";
     setStatus(message.error.cancelled ? "Cancelled" : "Failed", "error");
+    elements.executionVariableList.dataset.state = "error";
+    elements.executionStage.dataset.state = "error";
+    elements.visualizationStatus.textContent = message.error.cancelled
+      ? "Run cancelled"
+      : "Run failed";
+    elements.visualizationSignal.dataset.state = "error";
+    setExecutionNode(
+      "run-output",
+      "error",
+      message.error.cancelled ? "Cancelled" : "Failed",
+      "No final output",
+    );
   }
 };
 
@@ -373,8 +1014,10 @@ const runAgent = async (event) => {
   abortController = new AbortController();
   resetRunView();
   setStatus("Running", "running");
-  elements.runButton.disabled = true;
-  elements.cancelButton.disabled = false;
+  elements.runButton.dataset.state = "running";
+  elements.runButtonLabel.textContent = "Cancel run";
+  elements.runButton.setAttribute("aria-label", "Cancel active agent run");
+  elements.runButton.setAttribute("aria-busy", "true");
   for (const input of elements.executionModes) input.disabled = true;
   for (const input of elements.schedulingModes) input.disabled = true;
   latestAgentRunManifest = previewAgentRunManifest();
@@ -392,6 +1035,7 @@ const runAgent = async (event) => {
       throw new Error(`The server returned HTTP ${response.status}.`);
     }
   } catch (error) {
+    stopRunTimer("error");
     const cancelled =
       error instanceof DOMException && error.name === "AbortError";
     elements.runError.hidden = false;
@@ -402,10 +1046,24 @@ const runAgent = async (event) => {
         : `No final output was produced.\n\n${String(error)}`;
     elements.activeStep.textContent = cancelled ? "Cancelled" : "Failed";
     setStatus(cancelled ? "Cancelled" : "Failed", "error");
+    elements.executionVariableList.dataset.state = "error";
+    elements.executionStage.dataset.state = "error";
+    elements.visualizationStatus.textContent = cancelled
+      ? "Run cancelled"
+      : "Run failed";
+    elements.visualizationSignal.dataset.state = "error";
+    setExecutionNode(
+      "run-output",
+      "error",
+      cancelled ? "Cancelled" : "Failed",
+      "No final output",
+    );
   } finally {
     abortController = undefined;
-    elements.runButton.disabled = false;
-    elements.cancelButton.disabled = true;
+    elements.runButton.dataset.state = "idle";
+    elements.runButtonLabel.textContent = "Run agent";
+    elements.runButton.setAttribute("aria-label", "Run agent");
+    elements.runButton.setAttribute("aria-busy", "false");
     for (const input of elements.executionModes) input.disabled = false;
     for (const input of elements.schedulingModes) input.disabled = false;
   }
@@ -443,6 +1101,9 @@ const load = async () => {
     elements.streamValue.textContent = config.streaming.toUpperCase();
     elements.mcpValue.textContent = config.mcp;
     elements.telemetryValue.textContent = config.telemetry;
+    configuredModel = `${config.provider}/${config.model}`;
+    configuredTool = config.mcp;
+    renderExecutionGraph();
     renderContract();
   } catch (error) {
     elements.runtimeLabel.textContent =
@@ -452,7 +1113,10 @@ const load = async () => {
 };
 
 elements.form.addEventListener("submit", runAgent);
-elements.cancelButton.addEventListener("click", () => abortController?.abort());
+elements.runButton.addEventListener("click", () => {
+  if (abortController) abortController.abort();
+  else elements.form.requestSubmit();
+});
 elements.maxWords.addEventListener("input", () => {
   elements.maxWordsValue.value = elements.maxWords.value;
   renderContract();
@@ -487,5 +1151,7 @@ for (const tab of elements.contractTabs) {
     renderContract();
   });
 }
+
+window.addEventListener("resize", scheduleConnections);
 
 await load();
