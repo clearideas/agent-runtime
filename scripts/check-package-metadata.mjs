@@ -8,7 +8,9 @@ const root = process.cwd();
 const packagesDirectory = path.join(root, "packages");
 const expectedRepository =
   "git+https://github.com/clearideas/agent-runtime.git";
-const expectedHomepage = "https://github.com/clearideas/agent-runtime#readme";
+const expectedRepositoryHomepage =
+  "https://github.com/clearideas/agent-runtime#readme";
+const expectedDocumentationHomepage = "https://agent-runtime.clearideas.com/";
 const expectedIssues = "https://github.com/clearideas/agent-runtime/issues";
 const expectedRegistry = "https://registry.npmjs.org/";
 const expectedPrerelease = /^0\.1\.0-alpha\.\d+$/u;
@@ -94,6 +96,10 @@ for (const entry of entries.filter((value) => value.isDirectory())) {
   if (manifest.repository?.directory !== `packages/${entry.name}`) {
     fail(`repository.directory must be packages/${entry.name}`);
   }
+  const expectedHomepage =
+    manifest.name === "@clearideas/agent-runtime"
+      ? expectedDocumentationHomepage
+      : expectedRepositoryHomepage;
   if (manifest.homepage !== expectedHomepage) {
     fail(`homepage must be ${expectedHomepage}`);
   }

@@ -15,6 +15,9 @@ export OPENAI_API_KEY="..."
 npm --prefix examples/interactive-web start
 ```
 
+`OPENAI_API_KEY` is required because the example makes real model calls. Set it
+in the same terminal that starts the server.
+
 Open [http://127.0.0.1:4178](http://127.0.0.1:4178). The example uses the
 OpenAI `gpt-5.6-luna` model and the public Context7 MCP endpoint; no Context7
 key is required. The MCP result is returned to the model, written to

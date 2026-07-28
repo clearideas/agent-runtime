@@ -1,9 +1,12 @@
 :root {
-  --vp-c-brand-1: #176b5b;
-  --vp-c-brand-2: #0f806b;
-  --vp-c-brand-3: #15957d;
-  --vp-c-brand-soft: rgba(21, 149, 125, 0.14);
-  --vp-c-bg-alt: #f7f9f8;
+  --vp-c-brand-1: #4080f2;
+  --vp-c-brand-2: #326fd9;
+  --vp-c-brand-3: #4080f2;
+  --vp-c-brand-soft: rgba(64, 128, 242, 0.14);
+  --vp-c-bg-alt: #f7f8fa;
+  --vp-button-brand-bg: #4080f2;
+  --vp-button-brand-hover-bg: #326fd9;
+  --vp-button-brand-active-bg: #285fc2;
   --vp-code-line-height: 1.65;
   --vp-font-family-base:
     Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
@@ -13,11 +16,14 @@
 }
 
 .dark {
-  --vp-c-brand-1: #61d6bd;
-  --vp-c-brand-2: #3fc5a8;
-  --vp-c-brand-3: #27ae91;
-  --vp-c-brand-soft: rgba(97, 214, 189, 0.14);
-  --vp-c-bg-alt: #171b1a;
+  --vp-c-brand-1: #4080f2;
+  --vp-c-brand-2: #6ea1fb;
+  --vp-c-brand-3: #4080f2;
+  --vp-c-brand-soft: rgba(64, 128, 242, 0.18);
+  --vp-c-bg: #181818;
+  --vp-c-bg-alt: #1f1f1f;
+  --vp-c-bg-elv: #1f1f1f;
+  --vp-c-bg-soft: #1f1f1f;
 }
 
 .VPNavBar {

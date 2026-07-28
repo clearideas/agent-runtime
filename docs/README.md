@@ -18,6 +18,7 @@ dependency-safe prompt fan-out; stateful steps and tool calls remain ordered.
 ## Start here
 
 - [Quick start](./quickstart.md) — run an agent with only a model API key
+- [Interactive web example](./interactive-example.md) — stream a live agent run in a browser
 - [Core concepts](./concepts.md) — manifests, configuration, state, steps, and adapters
 - [Build agents](./build-agents.md) — prompt chains, routing, loops, tools, and approvals
 - [Agent manifests and agent run manifests](./manifests.md) — reusable definitions and runtime inputs
@@ -82,12 +83,12 @@ npm run docs:check
 
 ## Public deployment
 
-The release workflow builds the documentation before package publishing and
-deploys it to GitHub Pages only when Changesets reports that npm publishing
-occurred. The documentation build job has read-only repository access and no
-npm credentials. The deployment job receives only Pages and OIDC permissions.
+Documentation is hosted from a private S3 bucket behind CloudFront. The
+standalone documentation workflow deploys changes from `main`; the package
+release workflow can also deploy the site after a release or when explicitly
+requested.
 
-Before the first deployment, configure the repository's Pages source as
-**GitHub Actions**. Protect the `github-pages` environment so only `main` may
-deploy. The workflow reads the Pages base path from GitHub, so it supports both
-the default project URL and a configured custom domain.
+Both workflows use GitHub OIDC to assume the AWS role configured by
+`AWS_ROLE_ARN`. The `documentation` environment is restricted to `main`.
+`DOCS_S3_BUCKET` and `CLOUDFRONT_DISTRIBUTION_ID` identify the deployment
+targets. No long-lived AWS credentials are stored in GitHub.
