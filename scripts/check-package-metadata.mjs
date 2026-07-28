@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-import { readdir, readFile } from "node:fs/promises";
+import { access, readdir, readFile } from "node:fs/promises";
 import path from "node:path";
 import process from "node:process";
 
@@ -22,6 +22,15 @@ const npmConfig = await readFile(path.join(root, ".npmrc"), "utf8");
 const rootManifest = JSON.parse(
   await readFile(path.join(root, "package.json"), "utf8"),
 );
+
+try {
+  await access(path.join(root, ".changeset", "pre.json"));
+  failures.push(
+    ".changeset/pre.json must not exist for stable public releases",
+  );
+} catch {
+  // Stable release mode has no Changesets pre-mode file.
+}
 
 if (rootManifest.private !== true) {
   failures.push("the workspace root must remain private:true");
