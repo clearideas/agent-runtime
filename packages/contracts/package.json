@@ -1,6 +1,6 @@
 {
   "name": "@clearideas/agent-runtime-contracts",
-  "version": "0.1.0-alpha.3",
+  "version": "0.1.0",
   "description": "Versioned, persistence-independent contracts for Clear Ideas Agent Runtime.",
   "license": "Apache-2.0",
   "author": "Clear Ideas Incorporated",
@@ -10,8 +10,8 @@
     "directory": "packages/contracts"
   },
   "publishConfig": {
-    "access": "restricted",
-    "provenance": false,
+    "access": "public",
+    "provenance": true,
     "registry": "https://registry.npmjs.org/"
   },
   "files": [

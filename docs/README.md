@@ -1,9 +1,8 @@
 # Clear Ideas Agent Runtime
 
 Clear Ideas Agent Runtime is a standalone TypeScript runtime for declarative AI
-agents. It runs independently of a hosted Clear Ideas service and installs from
-npm for use inside applications, from the CLI, or through remote execution
-engines.
+agents. Install it from npm for use inside applications, from the CLI, or
+through remote execution engines.
 
 An agent manifest describes reusable behavior. An agent run manifest references
 the agent and supplies runtime inputs. Host configuration defines model
@@ -81,7 +80,7 @@ Run all documentation checks with:
 npm run docs:check
 ```
 
-## Public deployment
+## Documentation deployment
 
 Documentation is hosted from a private S3 bucket behind CloudFront. The
 standalone documentation workflow deploys changes from `main`; the package

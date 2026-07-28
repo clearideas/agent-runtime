@@ -1,13 +1,11 @@
 name: Release packages
 
-# A dispatch with release_enabled=false verifies the private registry and
-# release candidate without publishing. Publishing additionally requires:
+# A dispatch with release_enabled=false validates packages without publishing.
+# Publishing additionally requires:
 # 1. a manual dispatch with release_enabled=true;
 # 2. repository variable NPM_RELEASES_ENABLED=true;
 # 3. approval of the npm-production GitHub environment;
-# 4. npm trusted-publisher configuration for this exact workflow; and
-# 5. a read-only NPM_READ_TOKEN environment secret for private-package metadata
-#    requests.
+# 4. npm trusted-publisher configuration for this exact workflow.
 # Packages are scoped as @clearideas/* and publish only to the npm registry
 # configured below and in publishConfig. Documentation deploys to S3 and
 # CloudFront when requested or when Changesets confirms that packages published.
@@ -57,13 +55,6 @@ jobs:
 
       - name: Install locked dependencies
         run: npm ci
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_READ_TOKEN }}
-
-      - name: Verify private npm registry access
-        run: npm view @clearideas/agent-runtime@alpha version --json
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_READ_TOKEN }}
 
       - name: Validate release candidate
         run: npm run validate
@@ -102,8 +93,6 @@ jobs:
 
       - name: Install locked dependencies
         run: npm ci
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_READ_TOKEN }}
 
       - name: Validate release candidate
         run: npm run validate
@@ -112,13 +101,13 @@ jobs:
         id: changesets
         uses: changesets/action@a45c4d594aa4e2c509dc14a9f2b3b67ba3780d0d # v1.9.0
         with:
-          publish: npm run release:packages:alpha
+          publish: npm run release:packages
           version: npm run version-packages
           commit: "chore: version packages"
           title: "chore: version packages"
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          NPM_CONFIG_PROVENANCE: "false"
+          NPM_CONFIG_PROVENANCE: "true"
 
   documentation:
     name: Build and deploy documentation

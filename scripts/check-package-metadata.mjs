@@ -13,7 +13,7 @@ const expectedRepositoryHomepage =
 const expectedDocumentationHomepage = "https://agent-runtime.clearideas.com/";
 const expectedIssues = "https://github.com/clearideas/agent-runtime/issues";
 const expectedRegistry = "https://registry.npmjs.org/";
-const expectedPrerelease = /^0\.1\.0-alpha\.\d+$/u;
+const expectedStableVersion = /^\d+\.\d+\.\d+$/u;
 const entries = await readdir(packagesDirectory, { withFileTypes: true });
 const failures = [];
 const names = new Set();
@@ -81,11 +81,11 @@ for (const entry of entries.filter((value) => value.isDirectory())) {
   versions.add(manifest.version);
 
   if (manifest.private === true) {
-    fail("publishable private-alpha package must not have private:true");
+    fail("publishable package must not have private:true");
   }
-  if (!expectedPrerelease.test(manifest.version)) {
+  if (!expectedStableVersion.test(manifest.version)) {
     fail(
-      `version must be a 0.1.0-alpha prerelease; found ${JSON.stringify(manifest.version)}`,
+      `version must be a stable semantic version; found ${JSON.stringify(manifest.version)}`,
     );
   }
   if (manifest.license !== "Apache-2.0") fail("license must be Apache-2.0");
@@ -114,13 +114,11 @@ for (const entry of entries.filter((value) => value.isDirectory())) {
   ) {
     fail("keywords must identify AI agents, Agent Runtime, and workflows");
   }
-  if (manifest.publishConfig?.access !== "restricted") {
-    fail("publishConfig.access must be restricted for the private alpha");
+  if (manifest.publishConfig?.access !== "public") {
+    fail("publishConfig.access must be public");
   }
-  if (manifest.publishConfig?.provenance !== false) {
-    fail(
-      "publishConfig.provenance must be false while the repository is private",
-    );
+  if (manifest.publishConfig?.provenance !== true) {
+    fail("publishConfig.provenance must be true");
   }
   if (manifest.publishConfig?.registry !== expectedRegistry) {
     fail(`publishConfig.registry must be ${expectedRegistry}`);
@@ -173,6 +171,6 @@ if (failures.length > 0) {
   process.exitCode = 1;
 } else {
   process.stdout.write(
-    `Package metadata is private-alpha ready (${names.size} restricted packages).\n`,
+    `Package metadata is ready for public release (${names.size} public packages).\n`,
   );
 }

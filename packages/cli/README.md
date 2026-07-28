@@ -10,8 +10,7 @@ npm install --save-dev @clearideas/agent-runtime-cli
 npx agent-runtime examples list
 ```
 
-No source checkout or hosted Clear Ideas service is required. The CLI stores
-run state and events locally by default.
+The CLI stores run state and events locally by default.
 
 ```sh
 npx agent-runtime validate ./agent.yaml
