@@ -1,18 +1,26 @@
 ---
 title: Clear Ideas Agent Runtime
-description: Build and run declarative AI agents with your choice of models, tools, storage, and compute.
+description: A standalone TypeScript runtime for portable, declarative agents with native authorization, sandboxing, durable state, and local or remote execution.
 layout: doc
 aside: false
 ---
 
 <div class="runtime-hero">
 
-# Portable, declarative agent execution
+# A standalone runtime for portable agents
 
-Define an agent once, then run it locally, in your application, or on remote
-compute using your choice of models, tools, persistence, and sandboxes.
+Define an agent once, then run it locally, inside your application, or on remote
+compute. Clear Ideas Agent Runtime is distributed as npm packages and does not
+require a hosted Clear Ideas service.
 
 </div>
+
+```sh
+npm install @clearideas/agent-runtime
+```
+
+The package will become installable when the prepared npm release is made
+public; using the published runtime will not require a source build.
 
 <div class="runtime-grid">
   <a class="runtime-card" href="./quickstart">
@@ -47,8 +55,14 @@ compute using your choice of models, tools, persistence, and sandboxes.
 
 The agent manifest defines the agent. An agent run manifest references that
 definition and supplies invocation values. Host configuration selects model
-providers and connections. Adapters connect storage, compute, sandboxes, and
-telemetry.
+providers, credentials, and connections. Adapters connect persistence, compute,
+sandbox providers, and telemetry.
+
+Authorization policy, sandbox contracts, durable run state, and execution
+engines are native parts of Agent Runtime. Agent manifests may narrow
+host-authorized connections and tools, but cannot grant themselves credentials
+or broader access. Docker and Modal sandbox providers ship as packages in the
+same project.
 
 ## Choose a path
 
@@ -71,5 +85,5 @@ telemetry.
 - Agent runs are sequential by default and can fan out dependency-safe prompt
   steps.
 - Stateful steps and tool calls remain sequential.
-- Host configuration and adapters authorize credentials, connections, network
-  access, and compute.
+- Runtime policy and host configuration authorize credentials, connections,
+  tools, network access, and compute.

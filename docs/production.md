@@ -1,6 +1,6 @@
 ---
 title: Production guide
-description: Secure, observe, limit, recover, and upgrade a hosted Clear Ideas Agent Runtime deployment.
+description: Secure, observe, limit, recover, and upgrade a production Clear Ideas Agent Runtime deployment.
 ---
 
 # Production guide
@@ -19,19 +19,26 @@ description: Secure, observe, limit, recover, and upgrade a hosted Clear Ideas A
 
 ## Security boundaries
 
+Agent Runtime separates what a manifest requests from what the host authorizes.
+Manifests cannot grant themselves credentials, connections, tools, sandbox
+images, network access, model access, or compute. Native runtime enforcement
+includes:
+
+- host-defined MCP connection modes and tool allowlists that a manifest may
+  narrow but not expand;
+- credential references, OAuth credential providers, authorization hooks, and
+  retry-after-refresh behavior;
+- sandbox contracts, bounded artifact collection, and Docker defaults with no
+  network, a read-only root filesystem, dropped capabilities, and resource
+  limits;
+- model policy hooks, execution attempt fencing, and worker-side rejection of
+  request-supplied runtime paths.
+
 Treat manifests as untrusted input unless only trusted operators can create
-them. A strict schema prevents accidental fields but does not authorize:
-
-- outbound webhook destinations;
-- MCP endpoints or individual tool actions;
-- sandbox images, environment, or network;
-- sub-run targets;
-- model spend or data residency.
-
-Configure these permissions in host adapters and infrastructure policy.
-Remote workers reject request-supplied runtime and configuration filesystem
-paths unless host callbacks resolve opaque IDs. Inline configuration requires
-an explicit environment allowlist. Worker hosts must supply a webhook executor
+them, and configure deployment-specific permissions in host policy. Remote
+workers reject request-supplied runtime and configuration filesystem paths
+unless host callbacks resolve opaque IDs. Inline configuration requires an
+explicit environment allowlist. Worker hosts must supply a webhook executor
 with destination authorization when webhook steps are enabled.
 
 ## Secrets

@@ -11,7 +11,7 @@ variables:
   - key: release
     type: object
     value:
-      name: Agent Runtime 1.0
+      name: Agent Runtime public release
     description: Name of the release to describe.
   - key: audience
     type: string

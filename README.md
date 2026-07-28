@@ -1,26 +1,46 @@
 # Clear Ideas Agent Runtime
 
-A declarative, provider-neutral TypeScript runtime for defining, running, and
-observing AI agents locally or on remote compute.
+A standalone, provider-neutral TypeScript runtime for defining, running, and
+observing AI agents locally, inside an application, or on remote compute.
 
-The runtime separates agent manifests from execution infrastructure. An agent
-can use the same contracts with in-process execution, a child process, a remote
-worker, or host-provided adapters.
+Agent Runtime is distributed as npm packages and does not require a hosted
+Clear Ideas service. It separates portable agent manifests from execution
+infrastructure, so the same agent contracts can run in-process, in a child
+process, through a remote worker, or with host-provided adapters.
 
-> **Private alpha:** the npm packages are prepared as restricted
-> `0.1.0-alpha.1` releases. The GitHub release workflow remains disabled until
-> the initial package bootstrap and trusted-publisher configuration are
-> complete.
+> **Public release status:** the packages are ready for npm and remain
+> restricted until the public release is enabled. Once public, installing and
+> using Agent Runtime will not require building this repository from source.
+
+## Install from npm
+
+Install the standard TypeScript composition:
+
+```sh
+npm install @clearideas/agent-runtime
+```
+
+Or install the CLI locally and run it with `npx`:
+
+```sh
+npm install --save-dev @clearideas/agent-runtime-cli
+npx agent-runtime examples list
+```
+
+These install commands will become available when the npm packages are made
+public. See the [quickstart](docs/quickstart.md) for a complete first run.
 
 ## Capabilities
 
 - Versioned YAML and TypeScript agent manifests
 - Sequential execution by default with optional dependency-safe prompt fan-out
 - Streaming model output and ordered tool execution
-- Provider-neutral model, persistence, sandbox, artifact, and telemetry ports
+- Native authorization boundaries for credentials, connections, and tools
+- Native sandbox contracts for code execution and generated artifacts
 - Durable checkpoints, suspension, fresh-process resume, and cancellation
 - Local, child-process, and remote execution engines
-- Memory, file, JSONL, console, and SQLite persistence options
+- Memory, file, and SQLite run stores; JSONL and console event sinks
+- Provider-neutral model, compute, sandbox, artifact, and telemetry adapters
 - Privacy-conscious OpenTelemetry integration
 
 Parallel mode is selected per agent run. It runs independent, tool-free prompt
@@ -45,7 +65,7 @@ loops, and tool calls remain ordered.
 | `docs`                    | VitePress documentation                                      |
 | `examples`                | Manifests and runnable integrations                          |
 
-## Develop locally
+## Use the repository
 
 Requirements:
 
@@ -67,8 +87,9 @@ npm run check:docs
 npm run check:tarballs
 ```
 
-Start with the [quickstart](docs/quickstart.md), then see
-[concepts](docs/concepts.md), [embedding](docs/embedding.md), and
+These commands are for contributors developing Agent Runtime itself. Users of
+the public packages can start with the [quickstart](docs/quickstart.md), then
+see [concepts](docs/concepts.md), [embedding](docs/embedding.md), and
 [production guidance](docs/production.md).
 
 ## Included adapters
@@ -76,14 +97,15 @@ Start with the [quickstart](docs/quickstart.md), then see
 Agent Runtime packages adapters separately from the core contracts. Install
 only the integrations used by the host application.
 
-| Capability     | Included implementations                  |
-| -------------- | ----------------------------------------- |
-| Models         | AI SDK provider adapter                   |
-| Persistence    | memory, files, JSONL, console, and SQLite |
-| Conditions     | JEXL                                      |
-| Remote compute | Modal                                     |
-| Sandboxes      | Docker and Modal                          |
-| Telemetry      | OpenTelemetry                             |
+| Capability     | Included implementations  |
+| -------------- | ------------------------- |
+| Models         | AI SDK provider adapter   |
+| Persistence    | memory, files, and SQLite |
+| Event sinks    | JSONL and console         |
+| Conditions     | JEXL                      |
+| Remote compute | Modal                     |
+| Sandboxes      | Docker and Modal          |
+| Telemetry      | OpenTelemetry             |
 
 See the [adapter catalog](docs/adapters.md) for package names and integration
 guidance.
@@ -106,20 +128,28 @@ so Changesets can read package metadata; it cannot publish.
 All publishable packages use the `@clearideas` scope and explicitly target the
 npm registry. The repository `.npmrc`, each package's `publishConfig`,
 Changesets, and the release workflow all resolve or publish these packages
-through `https://registry.npmjs.org/`. The private alpha uses restricted npm
-visibility and the `alpha` distribution tag. No Agent Runtime package is
-configured for GitHub Packages.
+through `https://registry.npmjs.org/`. The pre-release packages use restricted
+npm visibility and the `alpha` distribution tag until the public release is
+enabled. No Agent Runtime package is configured for GitHub Packages.
+
+The same workflow builds the VitePress documentation before publishing and
+deploys it to GitHub Pages only after Changesets reports a successful npm
+publish. Documentation build and deployment run in separate jobs: the build
+job has read-only repository access and no npm secret, while the deployment job
+receives only `pages: write` and `id-token: write`.
 
 These controls do not replace review. Before the first release:
 
 1. approve the package names and repository coordinates;
-2. complete [license review](LICENSE_REVIEW.md);
-3. authenticate to npm and run `npm run release:bootstrap:private`;
-4. configure an npm trusted publisher on every package for the exact workflow,
+2. authenticate to npm and run `npm run release:bootstrap:private`;
+3. configure an npm trusted publisher on every package for the exact workflow,
    repository, and `npm-production` environment;
-5. create a project-specific, read-only npm token as the `NPM_READ_TOKEN`
-   repository or environment secret;
-6. configure required branch and environment protection; and
+4. create a project-specific, read-only npm token as the `NPM_READ_TOKEN`
+   secret on the `npm-production` environment;
+5. protect `main`, restrict the `npm-production` environment to `main`, and
+   require deployment review;
+6. set the Pages source to **GitHub Actions**, restrict the `github-pages`
+   environment to `main`, and
 7. set `NPM_RELEASES_ENABLED=true`.
 
 Run `npm run release:bootstrap:check` at any time to validate the package set
@@ -137,8 +167,7 @@ resumable: package versions already present on npm are skipped.
 
 ## License
 
-Apache License 2.0 is proposed for the public release. See [LICENSE](LICENSE) and
-[LICENSE_REVIEW.md](LICENSE_REVIEW.md).
+Agent Runtime is licensed under the Apache License 2.0. See [LICENSE](LICENSE).
 
-Copyright 2026 Clear Ideas Incorporated. Clear Ideas and the Clear Ideas logo
-are trademarks of Clear Ideas Incorporated. See [TRADEMARKS.md](TRADEMARKS.md).
+Copyright 2026 Clear Ideas Incorporated. Clear Ideas is a trademark of Clear
+Ideas Incorporated. See [TRADEMARKS.md](TRADEMARKS.md).

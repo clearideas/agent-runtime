@@ -13,15 +13,22 @@ Requirements:
 The CLI uses the local file store and requires no database or container
 runtime.
 
-## 1. Build the CLI
+## 1. Install the CLI
 
-From the repository root:
+Create a project and install the published CLI:
 
 ```sh
-npm install
-npm run build
-alias agent-runtime='node ./packages/cli/dist/bin.js'
+mkdir agent-runtime-quickstart
+cd agent-runtime-quickstart
+npm init -y
+npm install --save-dev @clearideas/agent-runtime-cli
 ```
+
+Run CLI commands in this guide with `npx agent-runtime`. No source checkout or
+repository build is required.
+
+> The package is ready for npm and will become installable when its visibility
+> is switched from restricted to public.
 
 ## 2. Set a provider key
 
@@ -47,8 +54,8 @@ Save this as `hello.agent.yaml`:
 ## 4. Validate and run it
 
 ```sh
-agent-runtime validate ./hello.agent.yaml
-agent-runtime run ./hello.agent.yaml --stream --format pretty
+npx agent-runtime validate ./hello.agent.yaml
+npx agent-runtime run ./hello.agent.yaml --stream --format pretty
 ```
 
 The default local files are:
@@ -73,14 +80,18 @@ to view its stored data.
 ## Supply invocation variables
 
 Use an agent run manifest when invocation values must be supplied at runtime.
-It references the reusable agent:
+First save this reusable definition as `release-brief.agent.yaml`:
+
+<<< ../examples/manifests/release-brief.agent.yaml
+
+Then save this invocation as `release-brief.run.yaml`:
 
 <<< ../examples/manifests/release-brief.run.yaml
 
 Start it with:
 
 ```sh
-agent-runtime run-manifest ./release-brief.run.yaml \
+npx agent-runtime run-manifest ./release-brief.run.yaml \
   --stream
 ```
 
@@ -88,32 +99,38 @@ The referenced agent may declare defaults and may mark inputs with
 `requiresOverride: true`. Override keys must exactly match top-level agent
 declarations. A run cannot introduce a variable or use a dotted path as a key.
 
-For ad hoc local use, `agent-runtime run <agent> --variables
+For ad hoc local use, `npx agent-runtime run <agent> --variables
 <overrides.json>` applies the same validated runtime overrides without saving
 an agent run manifest.
 
 ## Try the bundled examples
 
 ```sh
-agent-runtime examples list
-agent-runtime examples run variables --stream
-agent-runtime examples run conditions --stream
-agent-runtime examples run loops --stream
+npx agent-runtime examples list
+npx agent-runtime examples run variables --stream
+npx agent-runtime examples run conditions --stream
+npx agent-runtime examples run loops --stream
 ```
 
-## Try the browser example
+## Develop the browser example from source
 
-The interactive example creates an `AgentRunManifest`, executes the referenced
-agent locally or through the remote worker protocol, and streams model, tool,
-checkpoint, and lifecycle events to a browser:
+The npm package is the normal installation path. Contributors who want to
+modify the interactive browser example can clone the repository and build the
+workspace:
 
 ```sh
+git clone https://github.com/clearideas/agent-runtime.git
+cd agent-runtime
+npm ci
+npm run build
 npm run example:web
 ```
 
-The example uses OpenAI's `gpt-5.6-luna` model, the public Context7 MCP
-endpoint, and an OpenTelemetry event sink. Set `OPENAI_API_KEY` before starting
-it. A Context7 key is optional.
+The example creates an `AgentRunManifest`, executes the referenced agent locally
+or through the remote worker protocol, and streams model, tool, checkpoint, and
+lifecycle events to a browser. It uses OpenAI's `gpt-5.6-luna` model, the public
+Context7 MCP endpoint, and an OpenTelemetry event sink. Set `OPENAI_API_KEY`
+before starting it. A Context7 key is optional.
 
 See
 `examples/interactive-web/README.md` in the repository for hosted-provider and
@@ -139,7 +156,7 @@ Then run:
 
 ```sh
 ollama pull gemma4
-agent-runtime run ./hello.agent.yaml \
+npx agent-runtime run ./hello.agent.yaml \
   --config ./agent-runtime.config.yaml \
   --stream
 ```

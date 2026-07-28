@@ -164,6 +164,14 @@ const runtimeInput = (body) => {
 
 const staticAssets = {
   "/": [path.join(publicDirectory, "index.html"), "text/html; charset=utf-8"],
+  "/visualizer": [
+    path.join(publicDirectory, "visualizer.html"),
+    "text/html; charset=utf-8",
+  ],
+  "/visualizer.html": [
+    path.join(publicDirectory, "visualizer.html"),
+    "text/html; charset=utf-8",
+  ],
   "/app.js": [
     path.join(publicDirectory, "app.js"),
     "text/javascript; charset=utf-8",
@@ -171,6 +179,10 @@ const staticAssets = {
   "/styles.css": [
     path.join(publicDirectory, "styles.css"),
     "text/css; charset=utf-8",
+  ],
+  "/clearideas-logo.svg": [
+    path.resolve(exampleDirectory, "../../docs/public/clearideas-logo.svg"),
+    "image/svg+xml",
   ],
   "/vendor/marked.js": [
     path.join(markedDirectory, "marked.umd.js"),

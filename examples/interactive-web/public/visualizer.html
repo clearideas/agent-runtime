@@ -7,7 +7,7 @@
       name="description"
       content="Run an agent locally or remotely and inspect its variables, outputs, and events."
     />
-    <title>Interactive agent execution</title>
+    <title>Interactive agent execution visualizer</title>
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
       rel="stylesheet"
@@ -38,6 +38,55 @@
           </button>
         </div>
       </header>
+
+      <section
+        class="execution-visualization"
+        aria-labelledby="execution-visualization-heading"
+      >
+        <div class="execution-visualization-heading">
+          <div class="execution-brand">
+            <img src="/clearideas-logo.svg" alt="Clear Ideas" />
+            <span>Agent Runtime</span>
+          </div>
+          <h2 id="execution-visualization-heading" class="visually-hidden">
+            Agent execution
+          </h2>
+          <div class="execution-visualization-state">
+            <span id="visualization-signal" class="visualization-signal"></span>
+            <span id="visualization-status" aria-live="polite"
+              >Ready to run</span
+            >
+          </div>
+        </div>
+        <div id="execution-stage" class="execution-stage" data-state="idle">
+          <div class="execution-variable-strip">
+            <span class="execution-variable-label">Run variables</span>
+            <div
+              id="execution-variable-list"
+              class="execution-variable-list"
+              aria-label="Variables supplied to this agent run"
+            ></div>
+          </div>
+          <svg
+            id="execution-connections"
+            class="execution-connections"
+            aria-hidden="true"
+          ></svg>
+          <div id="execution-graph" class="execution-graph">
+            <p class="execution-loading">Loading agent flow…</p>
+          </div>
+        </div>
+        <div class="execution-legend" aria-label="Execution status legend">
+          <span><i data-state="waiting"></i>Waiting</span>
+          <span><i data-state="running"></i>Running</span>
+          <span><i data-state="streaming"></i>Streaming</span>
+          <span><i data-state="complete"></i>Complete</span>
+          <span id="execution-timer" class="execution-timer" data-state="idle">
+            <span class="execution-timer-label">Elapsed</span>
+            <strong id="execution-elapsed">0.0s</strong>
+          </span>
+        </div>
+      </section>
 
       <section class="runtime-card" aria-label="Runtime configuration">
         <div class="runtime-status">

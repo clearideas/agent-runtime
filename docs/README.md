@@ -1,10 +1,15 @@
 # Clear Ideas Agent Runtime
 
-Clear Ideas Agent Runtime executes declarative AI agents with interchangeable
-model, persistence, and compute adapters. An agent manifest describes reusable
-behavior. An agent run manifest references the agent and supplies runtime
-inputs. Host configuration defines model providers and connections. Adapters
-provide persistence, events, approvals, remote execution, sandboxes, artifacts,
+Clear Ideas Agent Runtime is a standalone TypeScript runtime for declarative AI
+agents. It runs independently of a hosted Clear Ideas service and installs from
+npm for use inside applications, from the CLI, or through remote execution
+engines.
+
+An agent manifest describes reusable behavior. An agent run manifest references
+the agent and supplies runtime inputs. Host configuration defines model
+providers, credentials, and connections. Native authorization boundaries,
+sandbox contracts, durable state, and execution engines remain under host
+control, with adapters for persistence, compute, sandbox providers, artifacts,
 and telemetry.
 
 Agent runs are sequential by default. An agent run manifest can enable
@@ -74,3 +79,15 @@ Run all documentation checks with:
 ```sh
 npm run docs:check
 ```
+
+## Public deployment
+
+The release workflow builds the documentation before package publishing and
+deploys it to GitHub Pages only when Changesets reports that npm publishing
+occurred. The documentation build job has read-only repository access and no
+npm credentials. The deployment job receives only Pages and OIDC permissions.
+
+Before the first deployment, configure the repository's Pages source as
+**GitHub Actions**. Protect the `github-pages` environment so only `main` may
+deploy. The workflow reads the Pages base path from GitHub, so it supports both
+the default project URL and a configured custom domain.

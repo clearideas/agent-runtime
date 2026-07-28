@@ -14,11 +14,14 @@ interface as remote execution engines.
 - Node.js 24 or newer
 - a model-provider API key
 
-Build Agent Runtime and set the provider key used by the agent manifest:
+Create a project, install Agent Runtime and its CLI, and set the provider key
+used by the agent manifest:
 
 ```sh
-npm install
-npm run build
+mkdir agent-runtime-local
+cd agent-runtime-local
+npm init -y
+npm install @clearideas/agent-runtime @clearideas/agent-runtime-cli
 export OPENAI_API_KEY="..."
 ```
 
@@ -33,16 +36,16 @@ This example uses the minimal manifest from the manifest library:
 ```ts
 import path from "node:path";
 
-import { executeWorkerInvocation } from "@clearideas/agent-runtime-cli";
-import type { RunEvent } from "@clearideas/agent-runtime-contracts";
 import {
   ExecutionClient,
+  FileAgentManifestSource,
   InProcessExecutionEngine,
-} from "@clearideas/agent-runtime-execution";
-import { FileAgentManifestSource } from "@clearideas/agent-runtime-store-local";
+  type RunEvent,
+} from "@clearideas/agent-runtime";
+import { executeWorkerInvocation } from "@clearideas/agent-runtime-cli";
 
 const manifest = await new FileAgentManifestSource(
-  path.resolve("examples/manifests"),
+  path.resolve("."),
   "hello.agent.yaml",
 ).loadManifest();
 
@@ -93,8 +96,8 @@ stored in `.agent-runtime`, and only the explicitly allowlisted
 The same agent can run without application code:
 
 ```sh
-node packages/cli/dist/bin.js run \
-  examples/manifests/hello.agent.yaml \
+npx agent-runtime run \
+  ./hello.agent.yaml \
   --stream \
   --format pretty
 ```
@@ -104,11 +107,15 @@ and host adapters. Use the CLI for direct execution and shell automation.
 
 ## Interactive example
 
-The browser example can run the same agent through local or remote execution:
+The browser example is repository source for contributors. It can run the same
+agent through local or remote execution:
 
 ```sh
-npm run build
+git clone https://github.com/clearideas/agent-runtime.git
+cd agent-runtime
+npm ci
 export OPENAI_API_KEY="..."
+npm run build
 npm --prefix examples/interactive-web start
 ```
 
