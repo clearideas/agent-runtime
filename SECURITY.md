@@ -4,10 +4,9 @@
 
 Do not report security vulnerabilities in public issues or discussions.
 
-After this repository is public, use GitHub private vulnerability reporting.
-Before public launch, report the issue privately to Clear Ideas Incorporated
-through the existing organizational security channel. The final public security
-contact must be confirmed before launch.
+Use
+[GitHub private vulnerability reporting](https://github.com/clearideas/agent-runtime/security/advisories/new)
+to contact the maintainers securely.
 
 Include:
 
@@ -23,8 +22,8 @@ disclosure with the reporter. These are targets, not guarantees.
 
 ## Supported versions
 
-No public version is currently supported. A support matrix will be added before
-the first stable release.
+Security updates target the latest published minor version. Upgrade to the
+latest patch release before reporting a vulnerability or requesting a fix.
 
 ## Security expectations
 

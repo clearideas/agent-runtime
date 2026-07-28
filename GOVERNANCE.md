@@ -11,9 +11,9 @@ model.
 - **Release maintainers** are the subset authorized through the protected npm
   publishing environment.
 
-The public maintainer roster and GitHub team handles must be confirmed before
-the repository is made public. Until then, repository ownership and release
-authority remain with Clear Ideas Incorporated.
+Clear Ideas Incorporated is the project steward. Maintainers and release
+maintainers are identified through the repository's GitHub teams and protected
+environments.
 
 ## Decisions
 
@@ -35,8 +35,7 @@ Breaking changes require:
 
 Releases are generated from reviewed changesets. Publishing requires a manual
 workflow dispatch, the `NPM_RELEASES_ENABLED=true` repository variable, approval
-of the protected npm environment, and npm trusted publishing. Package
-`private: true` flags are an additional safety lock.
+of the protected npm environment, and npm trusted publishing.
 
 No individual may bypass these controls or publish a locally built package as
 an official release.

@@ -1,9 +1,6 @@
 # Support
 
-This project is pre-release.
-
-- Use GitHub issues for reproducible bugs and focused feature requests after the
-  repository is public.
+- Use GitHub issues for reproducible bugs and focused feature requests.
 - Use GitHub discussions for usage questions if discussions are enabled.
 - Follow [SECURITY.md](SECURITY.md) for vulnerabilities.
 

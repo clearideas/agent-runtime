@@ -3,14 +3,11 @@
 A standalone, provider-neutral TypeScript runtime for defining, running, and
 observing AI agents locally, inside an application, or on remote compute.
 
-Agent Runtime is distributed as npm packages and does not require a hosted
-Clear Ideas service. It separates portable agent manifests from execution
-infrastructure, so the same agent contracts can run in-process, in a child
-process, through a remote worker, or with host-provided adapters.
-
-> **Public release status:** the packages are ready for npm and remain
-> restricted until the public release is enabled. Once public, installing and
-> using Agent Runtime will not require building this repository from source.
+Agent Runtime separates portable agent manifests from execution infrastructure,
+so the same agent contracts can run in-process, in a child process, through a
+remote worker, or with host-provided adapters. Applications retain control of
+models, credentials, tools, persistence, compute, sandboxes, and telemetry.
+It is an independent open-source project licensed under Apache 2.0.
 
 ## Install from npm
 
@@ -26,9 +23,6 @@ Or install the CLI locally and run it with `npx`:
 npm install --save-dev @clearideas/agent-runtime-cli
 npx agent-runtime examples list
 ```
-
-These install commands will become available when the npm packages are made
-public.
 
 ## Documentation
 
@@ -58,6 +52,21 @@ The complete documentation is available at
 Parallel mode is selected per agent run. It runs independent, tool-free prompt
 steps concurrently and commits their results in manifest order. Stateful steps,
 loops, and tool calls remain ordered.
+
+## A declarative alternative
+
+For teams evaluating LangChain, LangGraph, or a custom agent harness, Agent
+Runtime provides a manifest-first option:
+
+- agent behavior and run inputs use portable, versioned contracts;
+- local and remote execution share the same event and checkpoint model;
+- providers, persistence, compute, sandboxes, and telemetry are adapters;
+- credentials and tool authorization remain host-controlled; and
+- sequential execution, dependency-safe parallel steps, loops, conditions,
+  approvals, and resumable runs use one runtime.
+
+Applications can embed the TypeScript API, invoke the CLI, or implement the
+remote execution protocol without changing their agent manifests.
 
 ## Repository layout
 
@@ -124,7 +133,7 @@ only the integrations used by the host application.
 See the [adapter catalog](https://agent-runtime.clearideas.com/adapters) for
 package names and integration guidance.
 
-## Versioning and release safety
+## Versioning and releases
 
 Package changes use [Changesets](https://github.com/changesets/changesets):
 
@@ -133,44 +142,27 @@ npm run changeset
 npm run version-packages
 ```
 
-The checked-in release workflow is manual and additionally gated by the
-repository variable `NPM_RELEASES_ENABLED=true` and a protected GitHub
-environment. It requests an OIDC identity token for npm trusted publishing. A
-separate read-only `NPM_READ_TOKEN` is required while the packages are private
-so Changesets can read package metadata; it cannot publish.
+The release workflow is manually dispatched, gated by the repository variable
+`NPM_RELEASES_ENABLED=true`, and protected by the `npm-production` GitHub
+environment. npm trusted publishing uses GitHub OIDC, so publishing does not
+require a long-lived npm token.
 
 All publishable packages use the `@clearideas` scope and explicitly target the
 npm registry. The repository `.npmrc`, each package's `publishConfig`,
 Changesets, and the release workflow all resolve or publish these packages
-through `https://registry.npmjs.org/`. The pre-release packages use restricted
-npm visibility and the `alpha` distribution tag until the public release is
-enabled. No Agent Runtime package is configured for GitHub Packages.
+through `https://registry.npmjs.org/` with public access and npm provenance. No
+Agent Runtime package is configured for GitHub Packages.
 
 The same workflow builds the VitePress documentation before publishing and
 deploys it to a private S3 origin behind CloudFront at
-[agent-runtime.clearideas.com](https://agent-runtime.clearideas.com/) only
-after Changesets reports a successful npm publish or when documentation
-deployment is explicitly requested. The deployment job uses GitHub OIDC to
-assume a repository-scoped AWS role. It does not store long-lived AWS
-credentials in GitHub.
+[agent-runtime.clearideas.com](https://agent-runtime.clearideas.com/) after a
+successful npm publish or when documentation deployment is explicitly
+requested. The deployment job uses GitHub OIDC to assume a repository-scoped
+AWS role. It does not store long-lived AWS credentials in GitHub.
 
-These controls do not replace review. Before the first release:
-
-1. approve the package names and repository coordinates;
-2. authenticate to npm and run `npm run release:bootstrap:private`;
-3. configure an npm trusted publisher on every package for the exact workflow,
-   repository, and `npm-production` environment;
-4. create a project-specific, read-only npm token as the `NPM_READ_TOKEN`
-   secret on the `npm-production` environment;
-5. protect `main`, restrict the `npm-production` environment to `main`, and
-   require deployment review;
-6. set the Pages source to **GitHub Actions**, restrict the `github-pages`
-   environment to `main`, and
-7. set `NPM_RELEASES_ENABLED=true`.
-
-Run `npm run release:bootstrap:check` at any time to validate the package set
-without contacting npm or publishing anything. The bootstrap publish is
-resumable: package versions already present on npm are skipped.
+Run `npm run release:check` to validate the complete package set without
+publishing. Official releases are produced only by the protected GitHub
+workflow.
 
 ## Project policies
 

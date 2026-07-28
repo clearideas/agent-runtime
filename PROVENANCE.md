@@ -1,10 +1,8 @@
 # Provenance
 
-Clear Ideas Agent Runtime originated in the execution components used by the
-Clear Ideas application. It is maintained as an independent TypeScript
-workspace with its own contracts, adapters, tests, documentation, examples,
-and release process.
+Clear Ideas Agent Runtime is developed and released as an independent
+open-source TypeScript project with portable contracts, adapters, tests,
+documentation, examples, and its own release process.
 
-Application-specific data models, hosted credentials, and Clear Ideas service
-orchestration are not part of this repository. Published source releases and
-npm package provenance identify the exact code used for each version.
+Published source releases and npm provenance identify the exact code used for
+each package version.

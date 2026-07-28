@@ -32,9 +32,8 @@ Project maintainers are responsible for clarifying and enforcing acceptable
 behavior and may remove, edit, or reject contributions or participation that
 violate this policy.
 
-Reports should be made privately to the repository owners. The final public
-conduct contact must be confirmed before launch. Maintainers will respect the
-privacy and security of reporters.
+Reports should be made privately to the repository maintainers. Maintainers
+will respect the privacy and security of reporters.
 
 ## Attribution
 

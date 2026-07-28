@@ -51,5 +51,5 @@ Pull requests should:
 - avoid unrelated formatting or generated output.
 
 By submitting a contribution, you agree that it may be licensed under the
-repository's license. See [LICENSE_REVIEW.md](LICENSE_REVIEW.md) while the
-initial public-release license remains under owner review.
+repository's [Apache License 2.0](LICENSE). The project name and marks are
+covered by [TRADEMARKS.md](TRADEMARKS.md).

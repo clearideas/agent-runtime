@@ -10,6 +10,6 @@ Choose the affected packages, select the smallest correct semantic-version bump,
 and describe the change for package consumers. Documentation, tests, and
 repository-only maintenance generally do not need a changeset.
 
-`private: true` remains a deliberate publication safety lock on every package.
-Do not remove it as part of an ordinary changeset. Unlocking publication
-requires a separately reviewed release-readiness change.
+All publishable packages are released publicly through npm trusted publishing.
+The workspace root, documentation, and examples remain `private: true` because
+they are not npm packages.

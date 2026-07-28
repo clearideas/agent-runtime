@@ -9,9 +9,9 @@ aside: false
 
 # A standalone runtime for portable agents
 
-Define an agent once, then run it locally, inside your application, or on remote
-compute. Clear Ideas Agent Runtime is distributed as npm packages and does not
-require a hosted Clear Ideas service.
+Define portable agents with declarative manifests, then run them locally, inside
+an application, or on remote compute. Choose the model providers,
+infrastructure, and adapters that fit your deployment.
 
 </div>
 
@@ -19,8 +19,10 @@ require a hosted Clear Ideas service.
 npm install @clearideas/agent-runtime
 ```
 
-The package will become installable when the prepared npm release is made
-public; using the published runtime will not require a source build.
+Agent Runtime is an independent Apache-2.0 open-source project. It offers a
+manifest-first alternative for teams evaluating LangChain, LangGraph, or a
+custom agent harness: agent definitions remain portable while the host controls
+models, credentials, tools, storage, compute, and telemetry.
 
 <div class="runtime-grid">
   <a class="runtime-card" href="./quickstart">

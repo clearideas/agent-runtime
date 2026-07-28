@@ -1,9 +1,8 @@
 # `@clearideas/agent-runtime`
 
-The standalone TypeScript runtime for portable, declarative agents.
-
-Clear Ideas Agent Runtime runs locally, inside your application, or through a
-remote execution engine. It does not require a hosted Clear Ideas service.
+The standalone TypeScript runtime for portable, declarative agents. Run agents
+locally, inside an application, or through a remote execution engine while
+retaining control of providers, credentials, tools, state, and compute.
 
 [Documentation](https://agent-runtime.clearideas.com/) ·
 [GitHub repository](https://github.com/clearideas/agent-runtime)
@@ -46,8 +45,7 @@ npx agent-runtime examples list
 npx agent-runtime examples run variables --stream
 ```
 
-The CLI persists runs and events locally by default. It does not send run state
-to a Clear Ideas service.
+The CLI persists runs and events locally by default.
 
 ## Documentation
 

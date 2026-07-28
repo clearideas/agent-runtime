@@ -27,16 +27,16 @@
     "validate": "npm run format:check && npm run check:metadata && npm run check:boundaries && npm run build && npm test && npm run check:docs && npm run check:tarballs",
     "changeset": "changeset",
     "version-packages": "changeset version",
-    "release:dry-run": "npm run validate",
-    "release:bootstrap:check": "npm run validate && node scripts/publish-private-alpha.mjs",
-    "release:bootstrap:private": "npm run validate && node scripts/publish-private-alpha.mjs --publish",
-    "release:packages": "changeset publish",
-    "release:packages:alpha": "changeset publish"
+    "release:check": "npm run validate",
+    "release:packages": "changeset publish"
   },
   "engines": {
     "node": ">=24"
   },
   "packageManager": "npm@11.8.0",
+  "overrides": {
+    "@hono/node-server": "^2.0.12"
+  },
   "license": "Apache-2.0",
   "author": "Clear Ideas Incorporated",
   "repository": {

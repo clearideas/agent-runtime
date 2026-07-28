@@ -27,9 +27,6 @@ npm install --save-dev @clearideas/agent-runtime-cli
 Run CLI commands in this guide with `npx agent-runtime`. No source checkout or
 repository build is required.
 
-> The package is ready for npm and will become installable when its visibility
-> is switched from restricted to public.
-
 ## 2. Set a provider key
 
 Choose one:
