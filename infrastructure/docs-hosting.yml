@@ -8,9 +8,10 @@ Parameters:
   DomainName:
     Type: String
     Default: agent-runtime.clearideas.com
-  GitHubRepository:
+  GitHubSubjectPrefix:
     Type: String
-    Default: clearideas/agent-runtime
+    Default: repo:clearideas@1463478/agent-runtime@1313956540
+    Description: Immutable GitHub OIDC subject prefix for the repository
 
 Resources:
   DocumentationBucket:
@@ -177,7 +178,7 @@ Resources:
             Condition:
               StringEquals:
                 token.actions.githubusercontent.com:aud: sts.amazonaws.com
-                token.actions.githubusercontent.com:sub: !Sub "repo:${GitHubRepository}:environment:documentation"
+                token.actions.githubusercontent.com:sub: !Sub "${GitHubSubjectPrefix}:environment:documentation"
       Policies:
         - PolicyName: deploy-documentation
           PolicyDocument:
