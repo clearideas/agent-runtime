@@ -164,6 +164,7 @@ jobs:
 
   documentation-deploy:
     name: Deploy documentation to GitHub Pages
+    if: ${{ always() && needs.documentation.result == 'success' }}
     needs: documentation
     runs-on: ubuntu-latest
     timeout-minutes: 10
