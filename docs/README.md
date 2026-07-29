@@ -11,8 +11,11 @@ sandbox contracts, durable state, and execution engines remain under host
 control, with adapters for persistence, compute, sandbox providers, artifacts,
 and telemetry.
 
-Agent runs are sequential by default. An agent run manifest can enable
-dependency-safe prompt fan-out; stateful steps and tool calls remain ordered.
+Agent Runtime resolves manifest variable reads and outputs into a
+dependency-aware execution plan. Runs are sequential by default. An agent run
+manifest can enable concurrent scheduling of eligible independent prompt
+branches while dependent, stateful, and tool-enabled work remains ordered and
+results commit in manifest order.
 
 ## Start here
 

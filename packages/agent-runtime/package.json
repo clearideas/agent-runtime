@@ -1,6 +1,6 @@
 {
   "name": "@clearideas/agent-runtime",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Standalone TypeScript runtime for declarative agents across local and remote infrastructure.",
   "license": "Apache-2.0",
   "author": "Clear Ideas Incorporated",
@@ -37,16 +37,16 @@
     "postpack": "node ../../scripts/cleanup-package-license.mjs"
   },
   "dependencies": {
-    "@clearideas/agent-runtime-condition-jexl": "0.1.0",
-    "@clearideas/agent-runtime-config": "0.1.0",
-    "@clearideas/agent-runtime-contracts": "0.1.0",
-    "@clearideas/agent-runtime-core": "0.1.0",
-    "@clearideas/agent-runtime-execution": "0.1.0",
-    "@clearideas/agent-runtime-model-ai-sdk": "0.1.0",
-    "@clearideas/agent-runtime-step-loop": "0.1.0",
-    "@clearideas/agent-runtime-step-prompt": "0.1.0",
-    "@clearideas/agent-runtime-step-standard": "0.1.0",
-    "@clearideas/agent-runtime-store-local": "0.1.0"
+    "@clearideas/agent-runtime-condition-jexl": "0.2.0",
+    "@clearideas/agent-runtime-config": "0.2.0",
+    "@clearideas/agent-runtime-contracts": "0.2.0",
+    "@clearideas/agent-runtime-core": "0.2.0",
+    "@clearideas/agent-runtime-execution": "0.2.0",
+    "@clearideas/agent-runtime-model-ai-sdk": "0.2.0",
+    "@clearideas/agent-runtime-step-loop": "0.2.0",
+    "@clearideas/agent-runtime-step-prompt": "0.2.0",
+    "@clearideas/agent-runtime-step-standard": "0.2.0",
+    "@clearideas/agent-runtime-store-local": "0.2.0"
   },
   "devDependencies": {
     "typescript": "^7.0.2",

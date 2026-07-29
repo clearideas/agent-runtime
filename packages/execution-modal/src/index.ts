@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { isIP } from "node:net";
 
 import type { JsonObject, RunError } from "@clearideas/agent-runtime-contracts";
 import {
@@ -15,6 +16,9 @@ import {
   parseWorkerInvocation,
   parseWorkerMessage,
 } from "@clearideas/agent-runtime-execution";
+import type { AgentRunnerEgressPolicy } from "./egress-policy.js";
+
+export * from "./egress-policy.js";
 
 interface ModalSpawnRequestBase {
   executionId: string;
@@ -182,6 +186,283 @@ export interface ModalSdkGatewayOptions {
   deleteQueueOnTerminal?: boolean;
   allowPlaintextInvocationForDevelopment?: boolean;
   now?: () => number;
+}
+
+export type ModalSandboxNetworkPolicy =
+  | {
+      mode: "block";
+      blockNetwork: true;
+    }
+  | {
+      mode: "proxy-only";
+      outboundCidrAllowlist: string[];
+      /**
+       * Exact TLS proxy hostnames only. Never include downstream model, tool,
+       * connection, webhook, or control-plane domains.
+       */
+      outboundDomainAllowlist: string[];
+    }
+  | {
+      /**
+       * Direct domain egress derived from the host-resolved origin policy.
+       * Modal enforces domain entries for TLS traffic on port 443.
+       */
+      mode: "direct-domains";
+      outboundCidrAllowlist: [];
+      outboundDomainAllowlist: string[];
+    };
+
+const normalizeExactProxyCidr = (value: string): string => {
+  const candidate = value.trim();
+  const separator = candidate.lastIndexOf("/");
+  if (separator <= 0) {
+    throw new Error(`Modal proxy address must be an exact CIDR: ${candidate}`);
+  }
+  const address = candidate.slice(0, separator);
+  const prefix = Number(candidate.slice(separator + 1));
+  const family = isIP(address);
+  if (
+    (family === 4 && prefix !== 32) ||
+    (family === 6 && prefix !== 128) ||
+    family === 0
+  ) {
+    throw new Error(
+      `Modal proxy CIDR must identify exactly one IPv4 or IPv6 address: ${candidate}`,
+    );
+  }
+  return `${address}/${prefix}`;
+};
+
+const normalizeExactProxyDomain = (value: string): string => {
+  const candidate = value.trim().toLowerCase().replace(/\.$/u, "");
+  if (
+    !candidate ||
+    candidate.startsWith("*.") ||
+    isIP(candidate) !== 0 ||
+    !/^[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?$/u.test(candidate)
+  ) {
+    throw new Error(`Modal proxy domain must be one exact hostname: ${value}`);
+  }
+  return candidate;
+};
+
+/**
+ * Converts the host-resolved HTTPS origin policy to Modal's stable domain
+ * allowlist. It intentionally performs no DNS or CIDR resolution.
+ */
+export const resolveModalSandboxDomainAllowlist = (
+  egressPolicy: AgentRunnerEgressPolicy,
+): string[] => {
+  const domains = new Set<string>();
+  for (const item of egressPolicy.allowedOrigins) {
+    const url = new URL(item.origin);
+    const port = url.port ? Number(url.port) : 443;
+    if (url.protocol !== "https:" || port !== 443) {
+      throw new Error(
+        `Modal domain egress can express only HTTPS port 443 origins: ${item.origin}`,
+      );
+    }
+    const hostname = url.hostname.toLowerCase().replace(/\.$/u, "");
+    if (isIP(hostname)) {
+      throw new Error(
+        `IP origin ${item.origin} must be supplied by the host as a CIDR policy.`,
+      );
+    }
+    if (!/^(?:\*\.)?[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?$/u.test(hostname)) {
+      throw new Error(`Invalid Modal egress domain: ${hostname}`);
+    }
+    domains.add(hostname);
+  }
+  return [...domains].sort();
+};
+
+/**
+ * Resolves hardened Modal networking from host-owned policy: no network,
+ * proxy-only endpoints, or direct HTTPS domains derived from resolved origins.
+ */
+export const resolveModalSandboxNetworkPolicy = (
+  input:
+    | { mode: "block" }
+    | {
+        mode: "proxy-only";
+        proxyCidrs?: readonly string[];
+        proxyDomains?: readonly string[];
+      }
+    | {
+        mode: "direct-domains";
+        egressPolicy: AgentRunnerEgressPolicy;
+      },
+): ModalSandboxNetworkPolicy => {
+  if (input.mode === "block") return { mode: "block", blockNetwork: true };
+  if (input.mode === "proxy-only") {
+    const cidrs = [
+      ...new Set((input.proxyCidrs ?? []).map(normalizeExactProxyCidr)),
+    ].sort();
+    const domains = [
+      ...new Set((input.proxyDomains ?? []).map(normalizeExactProxyDomain)),
+    ].sort();
+    if (cidrs.length === 0 && domains.length === 0) {
+      throw new Error(
+        "Proxy-only Modal networking requires an exact proxy CIDR or domain.",
+      );
+    }
+    return {
+      mode: "proxy-only",
+      outboundCidrAllowlist: cidrs,
+      outboundDomainAllowlist: domains,
+    };
+  }
+
+  return {
+    mode: "direct-domains",
+    outboundCidrAllowlist: [],
+    outboundDomainAllowlist: resolveModalSandboxDomainAllowlist(
+      input.egressPolicy,
+    ),
+  };
+};
+
+const normalizeModalSandboxNetworkPolicy = (
+  policy: ModalSandboxNetworkPolicy,
+): ModalSandboxNetworkPolicy => {
+  if (policy.mode === "block") {
+    return resolveModalSandboxNetworkPolicy({ mode: "block" });
+  }
+  if (policy.mode === "proxy-only") {
+    return resolveModalSandboxNetworkPolicy({
+      mode: "proxy-only",
+      proxyCidrs: policy.outboundCidrAllowlist,
+      proxyDomains: policy.outboundDomainAllowlist,
+    });
+  }
+  return {
+    mode: "direct-domains",
+    outboundCidrAllowlist: [],
+    outboundDomainAllowlist: resolveModalSandboxDomainAllowlist({
+      mode: "enforce",
+      allowedOrigins: policy.outboundDomainAllowlist.map((domain) => ({
+        type: "tool",
+        origin: `https://${domain}`,
+      })),
+    }),
+  };
+};
+
+export interface ModalSandboxLaunchConfig {
+  networkPolicy: ModalSandboxNetworkPolicy;
+  /** Entrypoint that reads one ModalSpawnRequest from stdin and emits NDJSON. */
+  command?: string[];
+  /** Trusted per-run environment. It is never persisted in providerData. */
+  environment?: Record<string, string>;
+  /**
+   * Opaque Modal Secret handles injected as environment variables. `any` is
+   * intentional here because Modal Secret uses a private nominal SDK type.
+   */
+  secrets?: any[];
+  timeoutMs?: number;
+  idleTimeoutMs?: number;
+  workdir?: string;
+  cpu?: number;
+  cpuLimit?: number;
+  memoryMiB?: number;
+  memoryLimitMiB?: number;
+  regions?: string[];
+  cloud?: string;
+  metadata?: JsonObject;
+}
+
+export type ResolveModalSandboxLaunchConfig = (
+  invocation: WorkerInvocation,
+  context: { executionId: string; runId: string },
+) => ModalSandboxLaunchConfig | Promise<ModalSandboxLaunchConfig>;
+
+export type ModalSandboxSpawnRequest = ModalSpawnRequest & {
+  sandbox: ModalSandboxLaunchConfig;
+};
+
+export interface ModalSandboxSpawnResult {
+  sandboxId: string;
+  metadata?: JsonObject;
+}
+
+export interface ModalSandboxGateway {
+  spawn(request: ModalSandboxSpawnRequest): Promise<ModalSandboxSpawnResult>;
+  cancel(sandboxId: string): Promise<void>;
+}
+
+export interface ModalSandboxStreamingGateway extends ModalSandboxGateway {
+  messages(
+    handle: ExecutionHandle,
+    options?: { signal?: AbortSignal },
+  ): AsyncIterable<WorkerMessage>;
+}
+
+export interface ModalSdkSandboxReaderLike {
+  read(): Promise<{ done: boolean; value?: string }>;
+  cancel?(reason?: unknown): Promise<void>;
+  releaseLock?(): void;
+}
+
+export interface ModalSdkSandboxLike {
+  sandboxId: string;
+  stdin: {
+    writeText(text: string): Promise<void>;
+    close(): Promise<void>;
+  };
+  stdout: {
+    getReader(): ModalSdkSandboxReaderLike;
+  };
+  wait(): Promise<number>;
+  terminate(): Promise<void>;
+}
+
+/** Structural boundary matching the Modal TypeScript SDK Sandbox services. */
+export interface ModalSandboxSdkClientLike {
+  apps: {
+    fromName(
+      name: string,
+      options?: { environment?: string; createIfMissing?: boolean },
+    ): Promise<any>;
+  };
+  images: {
+    fromName(name: string, options?: { environment?: string }): Promise<any>;
+  };
+  sandboxes: {
+    create(
+      app: any,
+      image: any,
+      options: {
+        command: string[];
+        env?: Record<string, string>;
+        secrets?: any[];
+        timeoutMs?: number;
+        idleTimeoutMs?: number;
+        workdir?: string;
+        cpu?: number;
+        cpuLimit?: number;
+        memoryMiB?: number;
+        memoryLimitMiB?: number;
+        regions?: string[];
+        cloud?: string;
+        blockNetwork?: boolean;
+        outboundCidrAllowlist?: string[];
+        outboundDomainAllowlist?: string[];
+        tags?: Record<string, string>;
+      },
+    ): Promise<ModalSdkSandboxLike>;
+    fromId(sandboxId: string): Promise<ModalSdkSandboxLike>;
+  };
+}
+
+export interface ModalSandboxSdkGatewayOptions {
+  appName?: string;
+  imageName: string;
+  environment?: string;
+  command?: string[];
+  baseEnvironment?: Record<string, string>;
+  startupTimeoutMs?: number;
+  maximumProtocolLineBytes?: number;
+  allowPlaintextInvocationForDevelopment?: boolean;
 }
 
 interface ModalTransportClosed {
@@ -372,6 +653,302 @@ export class ModalSdkGateway implements ModalStreamingGateway {
   }
 }
 
+const sandboxSupportsMessages = (
+  gateway: ModalSandboxGateway,
+): gateway is ModalSandboxStreamingGateway =>
+  typeof (gateway as Partial<ModalSandboxStreamingGateway>).messages ===
+  "function";
+
+const readSandboxChunk = async (
+  reader: ModalSdkSandboxReaderLike,
+  timeoutMs: number | undefined,
+  signal: AbortSignal | undefined,
+): Promise<{ done: boolean; value?: string }> => {
+  if (signal?.aborted) throw signal.reason ?? new Error("Operation aborted.");
+  if (timeoutMs == null && !signal) return reader.read();
+
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    const finish = (
+      action: () => void,
+      timeout: ReturnType<typeof setTimeout> | undefined,
+    ): void => {
+      if (settled) return;
+      settled = true;
+      if (timeout) clearTimeout(timeout);
+      signal?.removeEventListener("abort", onAbort);
+      action();
+    };
+    const onAbort = (): void =>
+      finish(
+        () => reject(signal?.reason ?? new Error("Operation aborted.")),
+        timeout,
+      );
+    const timeout =
+      timeoutMs == null
+        ? undefined
+        : setTimeout(
+            () =>
+              finish(
+                () =>
+                  reject(
+                    new Error(
+                      `Modal Sandbox worker did not produce a protocol message within ${timeoutMs}ms.`,
+                    ),
+                  ),
+                timeout,
+              ),
+            timeoutMs,
+          );
+    signal?.addEventListener("abort", onAbort, { once: true });
+    void reader.read().then(
+      (value) => finish(() => resolve(value), timeout),
+      (error: unknown) => finish(() => reject(error), timeout),
+    );
+  });
+};
+
+/**
+ * Concrete Modal SDK transport that runs the entire worker in a Sandbox and
+ * carries the portable worker protocol over stdin/stdout.
+ */
+export class ModalSandboxSdkGateway implements ModalSandboxStreamingGateway {
+  readonly #client: ModalSandboxSdkClientLike;
+  readonly #appName: string;
+  readonly #imageName: string;
+  readonly #environment: string | undefined;
+  readonly #command: string[];
+  readonly #baseEnvironment: Record<string, string>;
+  readonly #startupTimeoutMs: number;
+  readonly #maximumProtocolLineBytes: number;
+  readonly #allowPlaintextInvocationForDevelopment: boolean;
+
+  constructor(
+    client: ModalSandboxSdkClientLike,
+    options: ModalSandboxSdkGatewayOptions,
+  ) {
+    if (!options.imageName.trim()) {
+      throw new Error("Modal Sandbox imageName must be a non-empty string.");
+    }
+    this.#client = client;
+    this.#appName = options.appName ?? "agent-runtime-dev";
+    this.#imageName = options.imageName;
+    this.#environment = options.environment;
+    this.#command = options.command ?? ["agent-runtime-modal-worker"];
+    if (
+      this.#command.length === 0 ||
+      this.#command.some((part) => !part.trim())
+    ) {
+      throw new Error(
+        "Modal Sandbox command must contain non-empty arguments.",
+      );
+    }
+    this.#baseEnvironment = { ...(options.baseEnvironment ?? {}) };
+    this.#startupTimeoutMs = options.startupTimeoutMs ?? 120_000;
+    this.#maximumProtocolLineBytes =
+      options.maximumProtocolLineBytes ?? 4 * 1024 * 1024;
+    if (
+      !Number.isSafeInteger(this.#maximumProtocolLineBytes) ||
+      this.#maximumProtocolLineBytes < 1
+    ) {
+      throw new Error(
+        "Modal Sandbox maximumProtocolLineBytes must be a positive integer.",
+      );
+    }
+    this.#allowPlaintextInvocationForDevelopment =
+      options.allowPlaintextInvocationForDevelopment ?? false;
+  }
+
+  async spawn(
+    request: ModalSandboxSpawnRequest,
+  ): Promise<ModalSandboxSpawnResult> {
+    const payloadKind = modalSpawnPayloadKind(request);
+    if (
+      payloadKind === "plaintext" &&
+      !this.#allowPlaintextInvocationForDevelopment
+    ) {
+      throw new Error("Plaintext Modal invocation is disabled.");
+    }
+    const network = normalizeModalSandboxNetworkPolicy(
+      request.sandbox.networkPolicy,
+    );
+
+    const app = await this.#client.apps.fromName(this.#appName, {
+      createIfMissing: true,
+      ...(this.#environment ? { environment: this.#environment } : {}),
+    });
+    const image = await this.#client.images.fromName(this.#imageName, {
+      ...(this.#environment ? { environment: this.#environment } : {}),
+    });
+    const sandbox = await this.#client.sandboxes.create(app, image, {
+      command: request.sandbox.command ?? this.#command,
+      env: {
+        ...this.#baseEnvironment,
+        ...(request.sandbox.environment ?? {}),
+        AGENT_RUNTIME_MODAL_EXECUTION_ID: request.executionId,
+        AGENT_RUNTIME_MODAL_RUN_ID: request.runId,
+      },
+      ...(request.sandbox.secrets == null
+        ? {}
+        : { secrets: request.sandbox.secrets }),
+      ...(request.sandbox.timeoutMs == null
+        ? {}
+        : { timeoutMs: request.sandbox.timeoutMs }),
+      ...(request.sandbox.idleTimeoutMs == null
+        ? {}
+        : { idleTimeoutMs: request.sandbox.idleTimeoutMs }),
+      ...(request.sandbox.workdir == null
+        ? {}
+        : { workdir: request.sandbox.workdir }),
+      ...(request.sandbox.cpu == null ? {} : { cpu: request.sandbox.cpu }),
+      ...(request.sandbox.cpuLimit == null
+        ? {}
+        : { cpuLimit: request.sandbox.cpuLimit }),
+      ...(request.sandbox.memoryMiB == null
+        ? {}
+        : { memoryMiB: request.sandbox.memoryMiB }),
+      ...(request.sandbox.memoryLimitMiB == null
+        ? {}
+        : { memoryLimitMiB: request.sandbox.memoryLimitMiB }),
+      ...(request.sandbox.regions == null
+        ? {}
+        : { regions: request.sandbox.regions }),
+      ...(request.sandbox.cloud == null
+        ? {}
+        : { cloud: request.sandbox.cloud }),
+      ...(network.mode === "block"
+        ? { blockNetwork: true }
+        : {
+            outboundCidrAllowlist: network.outboundCidrAllowlist,
+            outboundDomainAllowlist: network.outboundDomainAllowlist,
+          }),
+      tags: {
+        "agent-runtime-execution-id": request.executionId,
+        "agent-runtime-run-id": request.runId,
+      },
+    });
+
+    const workerRequest: ModalSpawnRequest =
+      "invocationEnvelope" in request && request.invocationEnvelope != null
+        ? {
+            executionId: request.executionId,
+            runId: request.runId,
+            invocationEnvelope: request.invocationEnvelope,
+          }
+        : {
+            executionId: request.executionId,
+            runId: request.runId,
+            invocation: request.invocation,
+          };
+    try {
+      await sandbox.stdin.writeText(`${JSON.stringify(workerRequest)}\n`);
+      await sandbox.stdin.close();
+    } catch (error) {
+      await sandbox.terminate().catch(() => undefined);
+      throw new Error("Failed to deliver the Modal Sandbox invocation.", {
+        cause: error,
+      });
+    }
+
+    return {
+      sandboxId: sandbox.sandboxId,
+      ...(request.sandbox.metadata
+        ? { metadata: request.sandbox.metadata }
+        : {}),
+    };
+  }
+
+  async cancel(sandboxId: string): Promise<void> {
+    const sandbox = await this.#client.sandboxes.fromId(sandboxId);
+    await sandbox.terminate();
+  }
+
+  async *messages(
+    handle: ExecutionHandle,
+    options: { signal?: AbortSignal } = {},
+  ): AsyncIterable<WorkerMessage> {
+    const sandboxId = handle.providerData?.sandboxId;
+    if (typeof sandboxId !== "string" || !sandboxId.trim()) {
+      throw new Error("Modal execution handle is missing its sandbox ID.");
+    }
+    const sandbox = await this.#client.sandboxes.fromId(sandboxId);
+    const reader = sandbox.stdout.getReader();
+    let buffer = "";
+    let receivedMessage = false;
+    let terminal = false;
+    const startupStartedAt = Date.now();
+    try {
+      while (!options.signal?.aborted) {
+        const startupTimeoutMs = receivedMessage
+          ? undefined
+          : Math.max(
+              1,
+              this.#startupTimeoutMs - (Date.now() - startupStartedAt),
+            );
+        const chunk = await readSandboxChunk(
+          reader,
+          startupTimeoutMs,
+          options.signal,
+        );
+        if (chunk.value) buffer += chunk.value;
+
+        let newline = buffer.indexOf("\n");
+        while (newline >= 0) {
+          const rawLine = buffer.slice(0, newline);
+          buffer = buffer.slice(newline + 1);
+          newline = buffer.indexOf("\n");
+          if (
+            Buffer.byteLength(rawLine, "utf8") > this.#maximumProtocolLineBytes
+          ) {
+            throw new Error("Modal Sandbox worker protocol line is too large.");
+          }
+          const line = rawLine.trim();
+          if (!line) continue;
+          const message = parseWorkerMessage(line);
+          receivedMessage = true;
+          if (message.type === "result" || message.type === "error") {
+            terminal = true;
+            await sandbox.terminate().catch(() => undefined);
+          }
+          yield message;
+          if (terminal) return;
+        }
+        if (
+          Buffer.byteLength(buffer, "utf8") > this.#maximumProtocolLineBytes
+        ) {
+          throw new Error("Modal Sandbox worker protocol line is too large.");
+        }
+        if (!chunk.done) continue;
+
+        const finalLine = buffer.trim();
+        if (finalLine) {
+          const message = parseWorkerMessage(finalLine);
+          receivedMessage = true;
+          if (message.type === "result" || message.type === "error") {
+            terminal = true;
+            await sandbox.terminate().catch(() => undefined);
+          }
+          yield message;
+          if (terminal) return;
+        }
+        const exitCode = await sandbox.wait();
+        throw new Error(
+          `Modal Sandbox worker exited with code ${exitCode} without a terminal protocol message.`,
+        );
+      }
+    } catch (error) {
+      await reader.cancel?.(error).catch(() => undefined);
+      await sandbox.terminate().catch(() => undefined);
+      throw error;
+    } finally {
+      if (options.signal?.aborted) {
+        await reader.cancel?.(options.signal.reason).catch(() => undefined);
+      }
+      reader.releaseLock?.();
+    }
+  }
+}
+
 const supportsMessages = (
   gateway: ModalGateway,
 ): gateway is ModalStreamingGateway =>
@@ -531,6 +1108,161 @@ export class ModalComputeLauncher implements RemoteComputeLauncher {
   }
 }
 
+export interface ModalSandboxComputeLauncherOptions extends ModalComputeLauncherOptions {
+  /**
+   * Trusted host callback. It may inspect the invocation to resolve host-owned
+   * policy, but only the resulting sandbox configuration crosses into Modal.
+   */
+  resolveSandbox: ResolveModalSandboxLaunchConfig;
+}
+
+export class ModalSandboxComputeLauncher implements RemoteComputeLauncher {
+  readonly name: string;
+  readonly #gateway: ModalSandboxGateway;
+  readonly #reporter: RemoteExecutionReporter | undefined;
+  readonly #invocationCodec: WorkerInvocationEnvelopeCodec | undefined;
+  readonly #audience: string;
+  readonly #envelopeTtlMs: number | undefined;
+  readonly #allowPlaintextInvocationForDevelopment: boolean;
+  readonly #resolveSandbox: ResolveModalSandboxLaunchConfig;
+  readonly #observers = new Map<string, AbortController>();
+
+  constructor(
+    gateway: ModalSandboxGateway,
+    options: ModalSandboxComputeLauncherOptions,
+    reporter?: RemoteExecutionReporter,
+  ) {
+    this.#gateway = gateway;
+    this.name = options.name ?? "modal-sandbox";
+    this.#reporter = reporter;
+    this.#invocationCodec = options.invocationCodec;
+    this.#audience = options.audience ?? DEFAULT_MODAL_WORKER_AUDIENCE;
+    this.#envelopeTtlMs = options.envelopeTtlMs;
+    this.#allowPlaintextInvocationForDevelopment =
+      options.allowPlaintextInvocationForDevelopment ?? false;
+    this.#resolveSandbox = options.resolveSandbox;
+    if (
+      !this.#invocationCodec &&
+      !this.#allowPlaintextInvocationForDevelopment
+    ) {
+      throw new Error(
+        "Modal Sandbox remote execution requires an invocation envelope codec. Plaintext invocation is available only through allowPlaintextInvocationForDevelopment.",
+      );
+    }
+  }
+
+  async launch(
+    invocation: WorkerInvocation,
+    context: { handle: ExecutionHandle },
+  ): Promise<JsonObject> {
+    const boundInvocation: WorkerInvocation =
+      invocation.request.runId == null
+        ? {
+            ...invocation,
+            request: {
+              ...invocation.request,
+              runId: context.handle.runId,
+            },
+          }
+        : invocation;
+    const sandbox = await this.#resolveSandbox(boundInvocation, {
+      executionId: context.handle.id,
+      runId: context.handle.runId,
+    });
+    const networkPolicy = normalizeModalSandboxNetworkPolicy(
+      sandbox.networkPolicy,
+    );
+    const protectedInvocation = this.#invocationCodec
+      ? {
+          invocationEnvelope: this.#invocationCodec.seal(boundInvocation, {
+            executionId: context.handle.id,
+            runId: context.handle.runId,
+            audience: this.#audience,
+            ...(this.#envelopeTtlMs == null
+              ? {}
+              : { ttlMs: this.#envelopeTtlMs }),
+          }),
+        }
+      : { invocation: boundInvocation };
+
+    let spawned: ModalSandboxSpawnResult;
+    try {
+      spawned = await this.#gateway.spawn({
+        ...protectedInvocation,
+        executionId: context.handle.id,
+        runId: context.handle.runId,
+        sandbox: { ...sandbox, networkPolicy },
+      } as ModalSandboxSpawnRequest);
+    } catch (error) {
+      throw new Error("Modal failed to start the Sandbox execution.", {
+        cause: error,
+      });
+    }
+    if (!spawned.sandboxId.trim()) {
+      throw new Error("Modal returned an empty sandbox ID.");
+    }
+    return {
+      ...(spawned.metadata ?? {}),
+      sandboxId: spawned.sandboxId,
+    };
+  }
+
+  async cancel(handle: ExecutionHandle): Promise<void> {
+    const observer = this.#observers.get(handle.id);
+    observer?.abort(new Error("Modal Sandbox execution cancelled."));
+    const sandboxId = handle.providerData?.sandboxId;
+    if (typeof sandboxId !== "string" || !sandboxId.trim()) return;
+    await this.#gateway.cancel(sandboxId);
+  }
+
+  async observe(handle: ExecutionHandle): Promise<void> {
+    if (!sandboxSupportsMessages(this.#gateway) || !this.#reporter) return;
+    const controller = new AbortController();
+    this.#observers.set(handle.id, controller);
+    let terminal = false;
+    try {
+      for await (const message of this.#gateway.messages(handle, {
+        signal: controller.signal,
+      })) {
+        if (message.type === "event") {
+          await this.#reporter.acceptEvent(handle, message.event);
+        } else if (message.type === "result") {
+          terminal = true;
+          await this.#reporter.complete(handle, message.result);
+          return;
+        } else if (message.type === "error") {
+          terminal = true;
+          await this.#reporter.fail(handle, {
+            code: message.error.code,
+            message: "Modal Sandbox worker reported an execution failure.",
+            ...(message.error.retryable == null
+              ? {}
+              : { retryable: message.error.retryable }),
+          });
+          return;
+        }
+      }
+      if (!terminal) {
+        await this.#reporter.fail(handle, {
+          code: "MODAL_SANDBOX_MESSAGE_STREAM_ENDED",
+          message:
+            "Modal Sandbox worker message stream ended without a terminal result.",
+          retryable: true,
+        });
+      }
+    } catch {
+      if (controller.signal.aborted) return;
+      await this.#reporter.fail(handle, {
+        code: "MODAL_SANDBOX_MESSAGE_STREAM_FAILED",
+        message: "Modal Sandbox worker message delivery failed.",
+        retryable: true,
+      });
+    } finally {
+      this.#observers.delete(handle.id);
+    }
+  }
+}
+
 export class ModalExecutionEngine extends RemoteExecutionEngine {
   constructor(
     gateway: ModalGateway,
@@ -539,6 +1271,23 @@ export class ModalExecutionEngine extends RemoteExecutionEngine {
   ) {
     super(
       new ModalComputeLauncher(
+        gateway,
+        options,
+        supportsReporting(controlPlane) ? controlPlane : undefined,
+      ),
+      controlPlane,
+    );
+  }
+}
+
+export class ModalSandboxExecutionEngine extends RemoteExecutionEngine {
+  constructor(
+    gateway: ModalSandboxGateway,
+    controlPlane: RemoteExecutionControlPlane,
+    options: ModalSandboxComputeLauncherOptions,
+  ) {
+    super(
+      new ModalSandboxComputeLauncher(
         gateway,
         options,
         supportsReporting(controlPlane) ? controlPlane : undefined,

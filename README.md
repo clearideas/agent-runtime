@@ -39,19 +39,30 @@ The complete documentation is available at
 ## Capabilities
 
 - Versioned YAML and TypeScript agent manifests
-- Sequential execution by default with optional dependency-safe prompt fan-out
+- Manifest-to-graph scheduling with deterministic orchestration and dependency-safe fan-out
 - Streaming model output and ordered tool execution
 - Native authorization boundaries for credentials, connections, and tools
 - Native sandbox contracts for code execution and generated artifacts
 - Durable checkpoints, suspension, fresh-process resume, and cancellation
 - Local, child-process, and remote execution engines
+- Host-resolved Modal Sandbox networking with blocked, direct-domain, and
+  proxy-only modes
 - Memory, file, and SQLite run stores; JSONL and console event sinks
 - Provider-neutral model, compute, sandbox, artifact, and telemetry adapters
 - Privacy-conscious OpenTelemetry integration
 
-Parallel mode is selected per agent run. It runs independent, tool-free prompt
-steps concurrently and commits their results in manifest order. Stateful steps,
-loops, and tool calls remain ordered.
+For each run, Agent Runtime resolves the manifest's variable reads and outputs
+into a dependency-aware execution plan. With parallel mode enabled, eligible
+independent prompt branches execute concurrently while dependent, stateful, and
+tool-enabled work remains ordered. Results commit in manifest order, preserving
+deterministic orchestration while reducing elapsed time when the graph contains
+independent work.
+
+## Dependency-aware graph execution
+
+[![Watch Agent Runtime resolve a manifest into a dependency-aware execution graph](https://clearideas.com/assets/images/agent-runtime-parallel-poster.png)](https://clearideas.com/open-source/agent-runtime#manifest-graph-execution)
+
+[Watch the 27-second manifest graph execution demonstration](https://clearideas.com/open-source/agent-runtime#manifest-graph-execution).
 
 ## A declarative alternative
 
@@ -62,8 +73,8 @@ Runtime provides a manifest-first option:
 - local and remote execution share the same event and checkpoint model;
 - providers, persistence, compute, sandboxes, and telemetry are adapters;
 - credentials and tool authorization remain host-controlled; and
-- sequential execution, dependency-safe parallel steps, loops, conditions,
-  approvals, and resumable runs use one runtime.
+- graph-scheduled execution, loops, conditions, approvals, and resumable runs
+  use one runtime.
 
 Applications can embed the TypeScript API, invoke the CLI, or implement the
 remote execution protocol without changing their agent manifests.

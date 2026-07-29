@@ -48,8 +48,9 @@ An agent run manifest references an agent and supplies runtime values:
 A run may override any declared variable and must supply every variable marked
 `requiresOverride: true`. Agent Runtime applies run values after agent defaults.
 
-Set `execution.mode` to `parallel` to run adjacent, independent prompt steps
-concurrently:
+Set `execution.mode` to `parallel` to have Agent Runtime resolve manifest
+variable dependencies into execution waves and schedule eligible independent
+prompt branches concurrently:
 
 ```yaml
 schemaVersion: "1.0"
@@ -63,11 +64,13 @@ variables:
     value: Remote MCP clients
 ```
 
-The default mode is `sequential`. In parallel mode, Agent Runtime reads template
-and condition references and waits when a step consumes a prior
-`outputVariable`. Tool-enabled prompts, loops, approvals, webhooks, code,
-sub-runs, and steps with runtime extensions remain ordered. Tool calls within a
-prompt step also remain ordered.
+The default mode is `sequential`. In parallel mode, Agent Runtime derives a
+dependency-aware execution plan from template and condition references, step
+outputs, and manifest order. It waits when a step consumes a prior
+`outputVariable`, fans eligible independent prompt branches out, and commits
+each wave in manifest order. Tool-enabled prompts, loops, approvals, webhooks,
+code, sub-runs, and steps with runtime extensions remain ordered. Tool calls
+within a prompt step also remain ordered.
 
 Use the embedding API to start the same run:
 
