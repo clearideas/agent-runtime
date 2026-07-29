@@ -13,12 +13,12 @@
     "skipLibCheck": true,
     "noUncheckedIndexedAccess": true,
     "exactOptionalPropertyTypes": true,
-    "baseUrl": ".",
     "paths": {
       "@clearideas/agent-runtime-contracts": ["../contracts/dist/index.d.ts"],
       "@clearideas/agent-runtime-core/ports": ["../core/dist/ports/index.d.ts"]
     }
   },
   "include": ["src/**/*.ts"],
-  "exclude": ["src/**/*.test.ts"]
+  "exclude": ["src/**/*.test.ts"],
+  "references": [{ "path": "../contracts" }, { "path": "../core" }]
 }

@@ -13,5 +13,17 @@
     "skipLibCheck": true
   },
   "include": ["src/**/*.ts"],
-  "exclude": ["src/**/*.test.ts"]
+  "exclude": ["src/**/*.test.ts"],
+  "references": [
+    { "path": "../condition-jexl" },
+    { "path": "../runtime" },
+    { "path": "../contracts" },
+    { "path": "../core" },
+    { "path": "../execution" },
+    { "path": "../model-ai-sdk" },
+    { "path": "../step-loop" },
+    { "path": "../step-prompt" },
+    { "path": "../step-standard" },
+    { "path": "../store-local" }
+  ]
 }

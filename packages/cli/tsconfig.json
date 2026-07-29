@@ -14,7 +14,6 @@
     "noUncheckedIndexedAccess": true,
     "exactOptionalPropertyTypes": true,
     "types": ["node"],
-    "baseUrl": ".",
     "paths": {
       "@clearideas/agent-runtime-contracts": ["../contracts/dist/index.d.ts"],
       "@clearideas/agent-runtime-core": ["../core/dist/index.d.ts"],
@@ -39,5 +38,17 @@
     }
   },
   "include": ["src/**/*.ts"],
-  "exclude": ["src/**/*.test.ts"]
+  "exclude": ["src/**/*.test.ts"],
+  "references": [
+    { "path": "../condition-jexl" },
+    { "path": "../runtime" },
+    { "path": "../contracts" },
+    { "path": "../core" },
+    { "path": "../execution" },
+    { "path": "../step-loop" },
+    { "path": "../step-prompt" },
+    { "path": "../step-standard" },
+    { "path": "../store-local" },
+    { "path": "../store-sqlite" }
+  ]
 }
