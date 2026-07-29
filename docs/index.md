@@ -50,7 +50,7 @@ models, credentials, tools, storage, compute, and telemetry.
   <span>→</span>
   <div><strong>Agent run manifest</strong><br/><small>Reference and inputs</small></div>
   <span>→</span>
-  <div><strong>Agent Runtime</strong><br/><small>State, models, tools, and execution</small></div>
+  <div><strong>Execution graph</strong><br/><small>Resolved dependencies and scheduling</small></div>
   <span>→</span>
   <div><strong>Adapters</strong><br/><small>Storage and compute</small></div>
 </div>
@@ -60,11 +60,18 @@ definition and supplies invocation values. Host configuration selects model
 providers, credentials, and connections. Adapters connect persistence, compute,
 sandbox providers, and telemetry.
 
+Agent Runtime resolves manifest variable dependencies into an execution plan.
+Sequential mode follows manifest order. Parallel mode schedules eligible
+independent prompt branches concurrently, then commits their results in
+manifest order; dependent, stateful, and tool-enabled work remains ordered.
+
 Authorization policy, sandbox contracts, durable run state, and execution
 engines are native parts of Agent Runtime. Agent manifests may narrow
 host-authorized connections and tools, but cannot grant themselves credentials
-or broader access. Docker and Modal sandbox providers ship as packages in the
-same project.
+or broader access. Modal remote execution can apply a host-resolved direct
+domain list, allow only a host-provided proxy endpoint, or block networking
+without adding egress fields to the manifest. Docker and Modal sandbox
+providers ship as packages in the same project.
 
 ## Choose a path
 
@@ -84,8 +91,9 @@ same project.
 - Agent manifests are YAML or JSON documents containing serializable values.
 - Model, persistence, compute, sandbox, and telemetry integrations use adapters.
 - Checkpoints record committed state and nested progress.
-- Agent runs are sequential by default and can fan out dependency-safe prompt
-  steps.
+- Agent manifests resolve into dependency-aware execution plans.
+- Parallel mode can fan out eligible prompt branches while preserving
+  deterministic orchestration and manifest-order commits.
 - Stateful steps and tool calls remain sequential.
 - Runtime policy and host configuration authorize credentials, connections,
   tools, network access, and compute.

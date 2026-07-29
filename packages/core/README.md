@@ -10,6 +10,7 @@ Every resumed run receives an attempt number. Stores must use that attempt as a 
 an older process cannot commit after a newer attempt takes ownership. Events are ordered by
 `(runId, attempt, sequence)`.
 
-Runs are sequential by default. Parallel mode fans out dependency-safe,
-tool-free prompt steps and commits each wave in manifest order. Stateful steps
-and tool calls remain sequential.
+The runtime resolves manifest variable reads and outputs into dependency-aware
+execution waves. Runs are sequential by default. Parallel mode concurrently
+schedules eligible tool-free prompt branches and commits each wave in manifest
+order. Stateful steps and tool calls remain sequential.

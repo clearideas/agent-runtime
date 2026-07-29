@@ -35,6 +35,19 @@ install only the infrastructure they use. The project includes Docker and Modal
 sandbox providers, SQLite persistence, generated-file handling, Modal compute,
 and OpenTelemetry.
 
+## Dependency-aware graph execution
+
+[![Watch Agent Runtime resolve a manifest into a dependency-aware execution graph](https://clearideas.com/assets/images/agent-runtime-parallel-poster.png)](https://clearideas.com/open-source/agent-runtime#manifest-graph-execution)
+
+[Watch the 27-second manifest graph execution demonstration](https://clearideas.com/open-source/agent-runtime#manifest-graph-execution).
+
+At run time, Agent Runtime resolves manifest variable reads and outputs into a
+dependency-aware execution plan. Parallel mode concurrently schedules eligible
+independent prompt branches, keeps dependent and effectful work ordered, and
+commits results in manifest order. This preserves deterministic orchestration
+while substantially reducing elapsed time for agents with enough independent
+work.
+
 ## Use the CLI
 
 For a first local run:

@@ -76,13 +76,14 @@ appears only after the run completes and all steps marked
 `includeInFinalOutput` have been collected. While a run is active, the run
 control becomes **Cancel run**.
 
-## View the execution
+## View manifest graph execution
 
 Open
 [http://127.0.0.1:4178/visualizer](http://127.0.0.1:4178/visualizer) to run the
 same agent with an event-driven execution map.
 
-The map is generated from the agent manifest. It shows:
+The map is generated from the agent manifest and visualizes the
+dependency-aware execution plan resolved by the runtime. It shows:
 
 - run variables read by each step
 - step dependencies, fan-out, and fan-in

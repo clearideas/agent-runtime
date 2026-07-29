@@ -1113,9 +1113,24 @@ const load = async () => {
 };
 
 elements.form.addEventListener("submit", runAgent);
+elements.runButton.setAttribute(
+  "aria-keyshortcuts",
+  "Meta+Enter Control+Enter",
+);
+elements.runButton.title = "Run or cancel agent (⌘+Enter / Ctrl+Enter)";
 elements.runButton.addEventListener("click", () => {
   if (abortController) abortController.abort();
   else elements.form.requestSubmit();
+});
+document.addEventListener("keydown", (event) => {
+  if (
+    event.key === "Enter" &&
+    (event.metaKey || event.ctrlKey) &&
+    !event.repeat
+  ) {
+    event.preventDefault();
+    elements.runButton.click();
+  }
 });
 elements.maxWords.addEventListener("input", () => {
   elements.maxWordsValue.value = elements.maxWords.value;
