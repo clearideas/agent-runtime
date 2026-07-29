@@ -41,7 +41,7 @@
     "ai": "^7.0.41"
   },
   "devDependencies": {
-    "typescript": "^6.0.3",
+    "typescript": "^7.0.2",
     "vitest": "^4.0.18"
   },
   "engines": {
