@@ -12,7 +12,6 @@
     "skipLibCheck": true,
     "noUncheckedIndexedAccess": true,
     "exactOptionalPropertyTypes": true,
-    "baseUrl": ".",
     "paths": {
       "@clearideas/agent-runtime-sandbox": ["../sandbox/src/index.ts"]
     }

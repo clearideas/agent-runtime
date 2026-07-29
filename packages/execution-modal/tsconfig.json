@@ -14,7 +14,6 @@
     "noUncheckedIndexedAccess": true,
     "exactOptionalPropertyTypes": true,
     "types": ["node"],
-    "baseUrl": ".",
     "paths": {
       "@clearideas/agent-runtime-contracts": ["../contracts/src/index.ts"],
       "@clearideas/agent-runtime-execution": ["../execution/src/index.ts"]

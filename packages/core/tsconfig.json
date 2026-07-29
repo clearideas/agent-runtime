@@ -13,7 +13,6 @@
     "skipLibCheck": true,
     "noUncheckedIndexedAccess": true,
     "exactOptionalPropertyTypes": true,
-    "baseUrl": ".",
     "paths": {
       "@clearideas/agent-runtime-contracts": ["../contracts/src/index.ts"]
     }

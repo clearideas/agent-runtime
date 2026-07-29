@@ -49,7 +49,7 @@
     "@clearideas/agent-runtime-store-local": "0.1.0"
   },
   "devDependencies": {
-    "typescript": "^6.0.3",
+    "typescript": "^7.0.2",
     "vitest": "^4.0.18"
   },
   "engines": {
