@@ -15,7 +15,7 @@ Modal support is distributed in two optional packages:
 The packages implement the same execution and sandbox contracts used by other
 adapters.
 
-## Remote execution
+## Function remote execution
 
 `ModalExecutionEngine` maps the remote execution lifecycle to Modal function
 calls and a per-execution message queue:
@@ -104,6 +104,117 @@ const engine = new ModalExecutionEngine(gateway, controlPlane, {
 ```
 
 Do not enable plaintext invocation for shared or remote production compute.
+
+## Sandbox remote execution
+
+`ModalSandboxExecutionEngine` runs the complete agent worker in a Modal
+Sandbox rather than a reusable Function container. The host resolves the
+launch policy before the encrypted invocation crosses the provider boundary:
+
+```ts
+import {
+  ModalSandboxExecutionEngine,
+  ModalSandboxSdkGateway,
+  resolveAgentRunnerEgressPolicy,
+  resolveModalSandboxNetworkPolicy,
+} from "@clearideas/agent-runtime-execution-modal";
+
+const gateway = new ModalSandboxSdkGateway(modalClient, {
+  appName: "agent-runtime",
+  imageName: "agent-runtime-worker:stable",
+  environment: "production",
+});
+
+const engine = new ModalSandboxExecutionEngine(gateway, controlPlane, {
+  invocationCodec,
+  resolveSandbox: async (invocation) => {
+    const egressPolicy = await resolveAgentRunnerEgressPolicy(
+      invocation.request.manifest,
+      {
+        controlPlaneOrigins: ["https://control.example.com"],
+        defaultModel: hostDefaultModel,
+        resolveModelOrigins: (model) => modelCatalog.originsFor(model),
+        resolveConnectionOrigins: (binding) =>
+          connectionRegistry.originsFor(binding.ref),
+        resolveToolOrigins: (tool) => toolRegistry.originsFor(tool),
+        resolveManifestRef: (ref) => agentRegistry.load(ref),
+      },
+    );
+
+    return {
+      networkPolicy: resolveModalSandboxNetworkPolicy({
+        mode: "direct-domains",
+        egressPolicy,
+      }),
+      timeoutMs: invocation.request.timeoutMs,
+      secrets: [modalInvocationKeyringSecret],
+    };
+  },
+});
+```
+
+The worker image uses `agent-runtime-modal-worker` as its entrypoint. The
+bootstrap reads one authenticated envelope from stdin, binds it to the trusted
+execution and run IDs injected by the gateway, removes the envelope keyring
+from the child environment, and starts `agent-runtime worker`. Worker messages
+are streamed back over stdout; stderr is not persisted in execution state.
+
+### Network modes
+
+The host, not the agent manifest, selects the Modal network policy:
+
+| Mode             | Modal enforcement                                                 |
+| ---------------- | ----------------------------------------------------------------- |
+| `block`          | all networking disabled                                           |
+| `direct-domains` | direct TLS domains derived from the host-resolved run policy      |
+| `proxy-only`     | exact proxy CIDRs or exact TLS proxy hostnames supplied by a host |
+
+Agent Runtime extracts domain entries from normalized origins; it does not
+perform DNS lookups or derive CIDRs. This keeps CDN and regional provider
+routing stable. Origins on non-443 ports fail resolution because Modal domain
+allowlisting cannot faithfully represent them.
+
+The ownership boundary is:
+
+| Concern                          | Owner                                       |
+| -------------------------------- | ------------------------------------------- |
+| Portable agent behavior          | `AgentManifest`                             |
+| Model, tool, and connection URLs | trusted host callbacks                      |
+| Resolved downstream origins      | `resolveAgentRunnerEgressPolicy`            |
+| Modal network boundary           | `resolveModalSandboxNetworkPolicy`          |
+| DNS-to-CIDR resolution           | host or infrastructure, never Agent Runtime |
+| Signed proxy authorization       | host and proxy, not the manifest or worker  |
+
+For direct-domain enforcement, pass the resolved policy to `direct-domains`.
+For proxy-mediated enforcement, pass only the proxy endpoint to `proxy-only`
+and use the resolved policy at the proxy authorization layer.
+
+```ts
+const directNetwork = resolveModalSandboxNetworkPolicy({
+  mode: "direct-domains",
+  egressPolicy,
+});
+
+const proxyNetwork = resolveModalSandboxNetworkPolicy({
+  mode: "proxy-only",
+  proxyDomains: ["runner-egress.example.com"],
+  // Or: proxyCidrs: ["203.0.113.10/32"]
+});
+```
+
+Modal combines domain and CIDR allowlists additively. `proxy-only` must contain
+only proxy endpoints. Adding downstream model, tool, connection, webhook, or
+control-plane domains would create direct routes around the proxy.
+
+When a host coordinates a referenced sub-run through its own control plane,
+`resolveManifestRef` may return `null`. That means the reference adds no direct
+network destination to the current Sandbox. Returning `undefined` or omitting
+the resolver for an unresolved reference fails closed.
+
+`direct-domains` lets Modal enforce the resolved TLS domain set directly.
+`proxy-only` lets Modal enforce the route to the proxy while the proxy handles
+downstream DNS and destination authorization. Both avoid requiring Agent
+Runtime to resolve provider or CDN domains into CIDRs.
 
 ## Sandbox provider
 
