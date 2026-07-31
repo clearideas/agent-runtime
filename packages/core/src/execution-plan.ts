@@ -54,6 +54,12 @@ const conditionReadsVariable = (
 const readsVariable = (step: PromptStep, key: string): boolean =>
   templateReadsVariable(step.systemPrompt, key) ||
   templateReadsVariable(step.prompt, key) ||
+  (step.messages?.some((message) =>
+    message.content.some(
+      (part) => part.type === "text" && templateReadsVariable(part.text, key),
+    ),
+  ) ??
+    false) ||
   conditionReadsVariable(step.when, key);
 
 const dependsOnCurrentWave = (

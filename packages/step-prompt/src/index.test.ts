@@ -30,6 +30,219 @@ const manifest: AgentManifest = {
 };
 
 describe("PromptStepExecutor", () => {
+  it("replays complete rich histories, templates text only, and resolves artifact media", async () => {
+    const requests: ModelRequest[] = [];
+    const historyStep: PromptStep = {
+      id: "history",
+      type: "prompt",
+      model: { provider: "openai", model: "gpt-test" },
+      messages: [
+        {
+          role: "system",
+          content: [{ type: "text", text: "Topic: {{ topic }}" }],
+          metadata: { source: "fixture" },
+          providerOptions: {
+            anthropic: { cacheControl: { type: "ephemeral" } },
+          },
+        },
+        {
+          role: "user",
+          content: [
+            { type: "text", text: "Inspect {{ imageLabel }}" },
+            {
+              type: "image",
+              artifact: {
+                id: "artifact-1",
+                name: "diagram.png",
+                mediaType: "image/png",
+              },
+              metadata: { alt: "{{ shouldNotCompile }}" },
+            },
+          ],
+        },
+        {
+          role: "assistant",
+          content: [
+            {
+              type: "tool-call",
+              call: {
+                id: "historical-call",
+                name: "lookup",
+                input: { query: "{{ shouldNotCompile }}" },
+              },
+            },
+          ],
+        },
+        {
+          role: "tool",
+          content: [
+            {
+              type: "tool-result",
+              result: {
+                callId: "historical-call",
+                name: "lookup",
+                output: { answer: "{{ shouldNotCompile }}" },
+                metadata: { cached: true },
+                artifacts: [
+                  {
+                    id: "artifact-2",
+                    name: "tool-image.png",
+                    mediaType: "image/png",
+                  },
+                ],
+              },
+            },
+          ],
+        },
+        {
+          role: "user",
+          content: [{ type: "text", text: "Continue." }],
+        },
+      ],
+    };
+    const model: ModelAdapter = {
+      generate: async (request) => {
+        requests.push(structuredClone(request));
+        return {
+          output: "done",
+          transcript: [
+            {
+              id: "assistant-history",
+              type: "message",
+              role: "assistant",
+              content: [{ type: "text", text: "done" }],
+              createdAt: "2026-07-22T00:00:00.000Z",
+            },
+          ],
+        };
+      },
+    };
+
+    await new PromptStepExecutor().execute({
+      runId: "run-history",
+      manifest: { schemaVersion: "1.0", steps: [historyStep] },
+      step: historyStep,
+      stepIndex: 0,
+      variables: {
+        topic: "architecture",
+        imageLabel: "the diagram",
+        shouldNotCompile: "secret",
+      },
+      model,
+      artifacts: {
+        put: async () => {
+          throw new Error("not used");
+        },
+        get: async (ref) => ({
+          ref: { ...ref, size: 3 },
+          data: new Uint8Array([1, 2, 3]),
+        }),
+      },
+      emit: async (type) => ({
+        id: type,
+        runId: "run-history",
+        sequence: 1,
+        timestamp: "2026-07-22T00:00:00.000Z",
+        type,
+      }),
+    });
+
+    expect(requests).toHaveLength(1);
+    expect(requests[0]?.messages).toHaveLength(5);
+    expect(requests[0]?.messages[0]).toMatchObject({
+      role: "system",
+      content: [{ type: "text", text: "Topic: architecture" }],
+      metadata: { source: "fixture" },
+    });
+    expect(requests[0]?.messages[1]).toMatchObject({
+      role: "user",
+      content: [
+        { type: "text", text: "Inspect the diagram" },
+        {
+          type: "image",
+          data: "AQID",
+          mediaType: "image/png",
+          metadata: { alt: "{{ shouldNotCompile }}" },
+        },
+      ],
+    });
+    expect(requests[0]?.messages[2]).toMatchObject({
+      role: "assistant",
+      content: [
+        {
+          type: "tool-call",
+          call: {
+            id: "historical-call",
+            input: { query: "{{ shouldNotCompile }}" },
+          },
+        },
+      ],
+    });
+    expect(requests[0]?.messages[3]).toMatchObject({
+      role: "tool",
+      content: [
+        {
+          type: "tool-result",
+          result: {
+            output: { answer: "{{ shouldNotCompile }}" },
+            metadata: { cached: true },
+            artifacts: [
+              {
+                id: "artifact-2",
+                uri: "data:image/png;base64,AQID",
+                size: 3,
+              },
+            ],
+          },
+        },
+      ],
+    });
+  });
+
+  it("enforces configured complete-history input limits", async () => {
+    const limitedStep: PromptStep = {
+      id: "limited",
+      type: "prompt",
+      messages: [
+        {
+          role: "user",
+          content: [{ type: "text", text: "one" }],
+        },
+        {
+          role: "assistant",
+          content: [{ type: "text", text: "two" }],
+        },
+      ],
+      model: { provider: "openai", model: "gpt-test" },
+    };
+    await expect(
+      new PromptStepExecutor().execute({
+        runId: "run-limited",
+        manifest: {
+          schemaVersion: "1.0",
+          steps: [limitedStep],
+          limits: { maxMessagesPerPrompt: 1 },
+        },
+        step: limitedStep,
+        stepIndex: 0,
+        variables: {},
+        model: {
+          generate: async () => ({
+            output: "should not run",
+            transcript: [],
+          }),
+        },
+        emit: async (type) => ({
+          id: type,
+          runId: "run-limited",
+          sequence: 1,
+          timestamp: "2026-07-22T00:00:00.000Z",
+          type,
+        }),
+      }),
+    ).rejects.toThrow("exceeding the 1-message input limit");
+  });
+
   it("streams deltas and executes tool calls sequentially before continuing", async () => {
     const requests: ModelRequest[] = [];
     const executionOrder: string[] = [];

@@ -1,6 +1,8 @@
 import type {
+  ContentPart,
   JsonObject,
   JsonValue,
+  PromptMessage,
   PromptStep,
   ToolResult,
   TranscriptItem,
@@ -167,9 +169,161 @@ const referenceProvider = (reference: PromptStep["model"]): string => {
 const transcriptMessages = (items: TranscriptItem[]): ModelMessage[] =>
   items.flatMap((item) =>
     item.role
-      ? [{ role: item.role, content: item.content } satisfies ModelMessage]
+      ? [
+          {
+            role: item.role,
+            content: item.content,
+            ...(item.metadata ? { metadata: item.metadata } : {}),
+            ...(item.providerOptions
+              ? { providerOptions: item.providerOptions }
+              : {}),
+          } satisfies ModelMessage,
+        ]
       : [],
   );
+
+const bytesToBase64 = (bytes: Uint8Array): string => {
+  let binary = "";
+  const chunkSize = 32_768;
+  for (let offset = 0; offset < bytes.length; offset += chunkSize) {
+    binary += String.fromCharCode(
+      ...bytes.subarray(offset, offset + chunkSize),
+    );
+  }
+  return btoa(binary);
+};
+
+const compileMessage = (
+  message: PromptMessage,
+  variables: Readonly<VariableState>,
+): ModelMessage => ({
+  ...message,
+  content: message.content.map((part) =>
+    part.type === "text"
+      ? { ...part, text: compilePromptTemplate(part.text, variables) }
+      : part,
+  ),
+});
+
+const resolveMediaPart = async (
+  part: ContentPart,
+  context: StepExecutionContext,
+): Promise<ContentPart> => {
+  if (
+    part.type === "tool-result" &&
+    part.result.artifacts != null &&
+    part.result.artifacts.length > 0 &&
+    context.artifacts
+  ) {
+    const artifacts = await Promise.all(
+      part.result.artifacts.map(async (artifact) => {
+        const loaded = await context.artifacts!.get(artifact);
+        return {
+          ...artifact,
+          uri: `data:${loaded.ref.mediaType};base64,${bytesToBase64(loaded.data)}`,
+          mediaType: loaded.ref.mediaType,
+          size: loaded.data.byteLength,
+        };
+      }),
+    );
+    return {
+      ...part,
+      result: { ...part.result, artifacts },
+    };
+  }
+  if (
+    (part.type !== "image" && part.type !== "file") ||
+    part.artifact == null ||
+    part.data != null
+  ) {
+    return part;
+  }
+  if (context.artifacts) {
+    const loaded = await context.artifacts.get(part.artifact);
+    return {
+      ...part,
+      data: bytesToBase64(loaded.data),
+      mediaType: part.mediaType ?? loaded.ref.mediaType,
+      ...(part.type === "file" ? { name: part.name ?? loaded.ref.name } : {}),
+    };
+  }
+  if (part.artifact.uri == null) {
+    throw new Error(
+      `Prompt media artifact ${part.artifact.id} requires an ArtifactStore or URI`,
+    );
+  }
+  return part;
+};
+
+const resolveMessageMedia = async (
+  message: ModelMessage,
+  context: StepExecutionContext,
+): Promise<ModelMessage> => ({
+  ...message,
+  content: await Promise.all(
+    message.content.map((part) => resolveMediaPart(part, context)),
+  ),
+});
+
+const initialMessages = async (
+  step: PromptStep,
+  context: StepExecutionContext,
+): Promise<ModelMessage[]> => {
+  const messages: ModelMessage[] = [];
+  if (step.messages) {
+    messages.push(
+      ...step.messages.map((message) =>
+        compileMessage(message, context.variables),
+      ),
+    );
+  } else {
+    if (step.systemPrompt) {
+      messages.push({
+        role: "system",
+        content: [
+          {
+            type: "text",
+            text: compilePromptTemplate(step.systemPrompt, context.variables),
+          },
+        ],
+      });
+    }
+    messages.push({
+      role: "user",
+      content: [
+        {
+          type: "text",
+          text: compilePromptTemplate(step.prompt ?? "", context.variables),
+        },
+      ],
+    });
+  }
+  return Promise.all(
+    messages.map((message) => resolveMessageMedia(message, context)),
+  );
+};
+
+const enforceInputLimits = (
+  context: StepExecutionContext & { step: PromptStep },
+  messages: ModelMessage[],
+): void => {
+  const maximumMessages = context.manifest.limits?.maxMessagesPerPrompt;
+  if (maximumMessages != null && messages.length > maximumMessages) {
+    throw new Error(
+      `Prompt step ${context.step.id} has ${messages.length} messages, exceeding the ${maximumMessages}-message input limit`,
+    );
+  }
+  const maximumInputBytes = context.manifest.limits?.maxInputBytes;
+  if (maximumInputBytes == null) return;
+  const inputBytes = new TextEncoder().encode(
+    JSON.stringify(messages),
+  ).byteLength;
+  if (inputBytes > maximumInputBytes) {
+    throw new Error(
+      `Prompt step ${context.step.id} input is ${inputBytes} bytes, exceeding the ${maximumInputBytes}-byte input limit`,
+    );
+  }
+};
 
 const usageData = (result: ModelResult): JsonObject | undefined => {
   const usage = [...result.transcript]
@@ -217,30 +371,7 @@ export class PromptStepExecutor implements StepExecutor<PromptStep> {
       throw new Error(`Prompt step ${context.step.id} requires a ModelAdapter`);
     }
     const tools = await this.#resolveTools(context);
-    const messages: ModelMessage[] = [];
-    if (context.step.systemPrompt) {
-      messages.push({
-        role: "system",
-        content: [
-          {
-            type: "text",
-            text: compilePromptTemplate(
-              context.step.systemPrompt,
-              context.variables,
-            ),
-          },
-        ],
-      });
-    }
-    messages.push({
-      role: "user",
-      content: [
-        {
-          type: "text",
-          text: compilePromptTemplate(context.step.prompt, context.variables),
-        },
-      ],
-    });
+    const messages = await initialMessages(context.step, context);
 
     const transcript: TranscriptItem[] = [];
     const maxToolCalls =
@@ -250,6 +381,7 @@ export class PromptStepExecutor implements StepExecutor<PromptStep> {
     let result: ModelResult;
 
     while (true) {
+      enforceInputLimits(context, messages);
       const providerOptions = modelOptions(context.step, context);
       const operation = modelOperation(
         context.signal,
@@ -330,7 +462,12 @@ export class PromptStepExecutor implements StepExecutor<PromptStep> {
         });
         const toolTranscript = this.#toolTranscript(toolResult);
         transcript.push(toolTranscript);
-        messages.push({ role: "tool", content: toolTranscript.content });
+        messages.push(
+          await resolveMessageMedia(
+            { role: "tool", content: toolTranscript.content },
+            context,
+          ),
+        );
         await context.emit("model.tool.completed", {
           toolCallId: call.id,
           toolName: call.name,

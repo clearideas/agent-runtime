@@ -4,6 +4,7 @@ import type {
   JsonObject,
   JsonValue,
   ModelUsage,
+  PromptMessage,
   RunCheckpoint,
   RunError,
   RunEvent,
@@ -251,10 +252,7 @@ export interface SandboxAdapter {
   ): Promise<SandboxResult>;
 }
 
-export interface ModelMessage {
-  role: "system" | "user" | "assistant" | "tool";
-  content: TranscriptItem["content"];
-}
+export type ModelMessage = PromptMessage;
 
 export interface ModelRequest {
   model: string;
