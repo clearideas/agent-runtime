@@ -1,6 +1,6 @@
 {
   "name": "@clearideas/agent-runtime-execution",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Provider-neutral local and remote execution engine contracts for Clear Ideas Agent Runtime.",
   "license": "Apache-2.0",
   "author": "Clear Ideas Incorporated",
@@ -40,7 +40,7 @@
     "postpack": "node ../../scripts/cleanup-package-license.mjs"
   },
   "dependencies": {
-    "@clearideas/agent-runtime-contracts": "0.2.0"
+    "@clearideas/agent-runtime-contracts": "0.3.0"
   },
   "devDependencies": {
     "@types/node": "^26.1.2",

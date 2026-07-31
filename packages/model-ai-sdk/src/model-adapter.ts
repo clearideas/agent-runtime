@@ -4,6 +4,7 @@ import type {
   JsonValue,
   ModelUsage,
   ToolCall,
+  ToolResult,
   TranscriptItem,
 } from "@clearideas/agent-runtime-contracts";
 import type {
@@ -21,6 +22,7 @@ import {
   type ModelMessage as AiSdkModelMessage,
   Output,
   streamText,
+  type SystemModelMessage,
   tool,
   type ToolContent,
   type ToolSet,
@@ -78,7 +80,7 @@ export const createProviderRegistryModelResolver =
 
 export interface AiSdkCallOptions {
   model: LanguageModel;
-  system?: string;
+  system?: string | SystemModelMessage | SystemModelMessage[];
   messages: AiSdkModelMessage[];
   tools?: ToolSet;
   output?: unknown;
@@ -105,6 +107,7 @@ export interface AiSdkToolCall {
   toolCallId: string;
   toolName: string;
   input: unknown;
+  providerExecuted?: boolean;
 }
 
 export interface AiSdkGenerateResult {
@@ -114,6 +117,7 @@ export interface AiSdkGenerateResult {
   finishReason?: string;
   totalUsage?: AiSdkUsage;
   providerMetadata?: unknown;
+  responseMessages?: readonly AiSdkModelMessage[];
   output?: unknown;
 }
 
@@ -135,6 +139,8 @@ export interface AiSdkStreamPart {
 export interface AiSdkStreamResult {
   fullStream: AsyncIterable<AiSdkStreamPart>;
   output?: PromiseLike<unknown> | unknown;
+  responseMessages?:
+    PromiseLike<readonly AiSdkModelMessage[]> | readonly AiSdkModelMessage[];
 }
 
 export type GenerateTextFunction = (
@@ -163,6 +169,17 @@ const defaultGenerateText: GenerateTextFunction = async (options) => {
 const defaultStreamText: StreamTextFunction = (options) => {
   const result = streamText(options as Parameters<typeof streamText>[0]);
   return result as unknown as AiSdkStreamResult;
+};
+
+const combinedProviderOptions = (
+  message: ModelMessage,
+): JsonObject | undefined => {
+  const combined: JsonObject = {};
+  for (const part of message.content) {
+    if (part.providerOptions) Object.assign(combined, part.providerOptions);
+  }
+  if (message.providerOptions) Object.assign(combined, message.providerOptions);
+  return Object.keys(combined).length > 0 ? combined : undefined;
 };
 
 /**
@@ -229,6 +246,9 @@ export class AiSdkModelAdapter implements ModelAdapter {
             toolCallId: part.toolCallId,
             toolName: part.toolName,
             input: part.input,
+            ...(typeof part.providerExecuted === "boolean"
+              ? { providerExecuted: part.providerExecuted }
+              : {}),
           });
           toolCalls.push(call);
           yield { type: "tool-call", call };
@@ -264,6 +284,10 @@ export class AiSdkModelAdapter implements ModelAdapter {
 
     const structuredOutput =
       request.outputSchema == null ? undefined : await result.output;
+    const responseMessages =
+      result.responseMessages == null
+        ? undefined
+        : await result.responseMessages;
     const completed = this.#buildModelResult({
       request,
       text,
@@ -273,16 +297,34 @@ export class AiSdkModelAdapter implements ModelAdapter {
       usage,
       providerMetadata,
       structuredOutput,
+      responseMessages,
     });
     yield { type: "completed", result: completed };
   }
 
   #toCallOptions(request: ModelRequest): AiSdkCallOptions {
-    const system = request.messages
+    const systemMessages = request.messages
       .filter((message) => message.role === "system")
-      .map((message) => partsAsText(message.content))
-      .filter(Boolean)
-      .join("\n\n");
+      .map((message) => {
+        const providerOptions = combinedProviderOptions(message);
+        return {
+          role: "system" as const,
+          content: partsAsText(message.content),
+          ...(providerOptions
+            ? { providerOptions: providerOptions as never }
+            : {}),
+        };
+      })
+      .filter((message) => message.content.length > 0);
+    const hasSystemProviderOptions = systemMessages.some(
+      (message) => message.providerOptions != null,
+    );
+    const system =
+      systemMessages.length === 0
+        ? undefined
+        : hasSystemProviderOptions
+          ? systemMessages
+          : systemMessages.map((message) => message.content).join("\n\n");
     const options: AiSdkCallOptions = {
       model: this.#resolveModel(request.model),
       ...(system ? { system } : {}),
@@ -325,6 +367,7 @@ export class AiSdkModelAdapter implements ModelAdapter {
       finishReason: result.finishReason,
       usage: result.totalUsage,
       providerMetadata: result.providerMetadata,
+      responseMessages: result.responseMessages,
       structuredOutput:
         request.outputSchema == null ? undefined : result.output,
     });
@@ -339,6 +382,7 @@ export class AiSdkModelAdapter implements ModelAdapter {
     usage?: AiSdkUsage | undefined;
     providerMetadata?: unknown;
     structuredOutput?: unknown;
+    responseMessages?: readonly AiSdkModelMessage[] | undefined;
   }): ModelResult {
     const content: ContentPart[] = [];
     if (input.reasoning.length > 0) {
@@ -351,23 +395,39 @@ export class AiSdkModelAdapter implements ModelAdapter {
       ...input.toolCalls.map((call) => ({ type: "tool-call" as const, call })),
     );
 
-    const transcriptItem: TranscriptItem = {
-      id: this.#generateTranscriptId(),
-      type: "message",
-      role: "assistant",
-      content,
-      createdAt: this.#now().toISOString(),
-      model: input.request.model,
-    };
+    const transcript =
+      input.responseMessages == null || input.responseMessages.length === 0
+        ? [
+            {
+              id: this.#generateTranscriptId(),
+              type: "message" as const,
+              role: "assistant" as const,
+              content,
+              createdAt: this.#now().toISOString(),
+              model: input.request.model,
+            },
+          ]
+        : input.responseMessages.flatMap((message) => {
+            const item = fromAiSdkResponseMessage(
+              message,
+              this.#generateTranscriptId(),
+              this.#now().toISOString(),
+              input.request.model,
+            );
+            return item == null ? [] : [item];
+          });
     const mappedUsage = toModelUsage(input.usage);
-    if (mappedUsage != null) transcriptItem.usage = mappedUsage;
+    const usageItem = [...transcript]
+      .reverse()
+      .find((item) => item.role === "assistant");
+    if (mappedUsage != null && usageItem != null) usageItem.usage = mappedUsage;
 
     const modelResult: ModelResult = {
       output:
         input.structuredOutput === undefined
           ? input.text
           : toJsonValue(input.structuredOutput),
-      transcript: [transcriptItem],
+      transcript,
       toolCalls: input.toolCalls,
     };
     if (input.finishReason != null) {
@@ -396,46 +456,134 @@ function toAiSdkTools(tools: AgentTool[]): ToolSet {
   );
 }
 
-function toAiSdkMessage(message: ModelMessage): AiSdkModelMessage {
-  if (message.role === "tool") {
-    const content: ToolContent = [];
-    for (const part of message.content) {
-      if (part.type !== "tool-result") continue;
-      const output =
-        part.result.error == null
-          ? { type: "json" as const, value: part.result.output ?? null }
-          : {
-              type: "json" as const,
-              value: {
-                error: {
-                  code: part.result.error.code,
-                  message: part.result.error.message,
-                },
-              },
-            };
-      content.push({
-        type: "tool-result",
-        toolCallId: part.result.callId,
-        toolName: part.result.name,
-        output,
+const contentProviderOptions = (
+  part: ModelMessage["content"][number],
+): { providerOptions: never } | Record<string, never> =>
+  part.providerOptions
+    ? { providerOptions: part.providerOptions as never }
+    : {};
+
+const messageProviderOptions = (
+  message: ModelMessage,
+): { providerOptions: never } | Record<string, never> =>
+  message.providerOptions
+    ? { providerOptions: message.providerOptions as never }
+    : {};
+
+const mediaSource = (
+  part: Extract<ModelMessage["content"][number], { type: "image" | "file" }>,
+): string | URL => {
+  if (part.data != null) return part.data;
+  const uri = part.url ?? part.artifact?.uri;
+  if (uri != null) return new URL(uri);
+  throw new Error(`${part.type} content requires resolvable data or a URL`);
+};
+
+const mediaType = (
+  part: Extract<ModelMessage["content"][number], { type: "image" | "file" }>,
+): string => {
+  const value = part.mediaType ?? part.artifact?.mediaType;
+  if (value == null) {
+    throw new Error(`${part.type} content requires a media type`);
+  }
+  return value;
+};
+
+type AiSdkToolResultPart = Extract<
+  ToolContent[number],
+  { type: "tool-result" }
+>;
+
+const toAiSdkToolResultPart = (
+  part: Extract<ModelMessage["content"][number], { type: "tool-result" }>,
+): AiSdkToolResultPart => {
+  const result = part.result;
+  let output: AiSdkToolResultPart["output"];
+  if (result.artifacts != null && result.artifacts.length > 0) {
+    const value: Array<Record<string, unknown>> = [];
+    if (result.output !== undefined) {
+      value.push({
+        type: "text",
+        text:
+          typeof result.output === "string"
+            ? result.output
+            : JSON.stringify(result.output),
       });
     }
-    return { role: "tool", content };
+    for (const artifact of result.artifacts) {
+      if (artifact.uri == null) {
+        throw new Error(
+          `Historical tool artifact ${artifact.id} requires a URI`,
+        );
+      }
+      value.push({
+        type: "file",
+        data: new URL(artifact.uri),
+        mediaType: artifact.mediaType,
+        filename: artifact.name,
+      });
+    }
+    output = { type: "content", value } as AiSdkToolResultPart["output"];
+  } else {
+    output =
+      result.error == null
+        ? { type: "json", value: result.output ?? null }
+        : {
+            type: "json",
+            value: {
+              error: {
+                code: result.error.code,
+                message: result.error.message,
+              },
+            },
+          };
+  }
+  return {
+    type: "tool-result",
+    toolCallId: result.callId,
+    toolName: result.name,
+    output,
+    ...contentProviderOptions(part),
+  };
+};
+
+function toAiSdkMessage(message: ModelMessage): AiSdkModelMessage {
+  if (message.role === "system") {
+    throw new Error("System messages must be mapped as model instructions");
+  }
+  if (message.role === "tool") {
+    const content: ToolContent = message.content.map((part) => {
+      if (part.type !== "tool-result") {
+        throw new Error(`Tool messages cannot contain ${part.type} content`);
+      }
+      return toAiSdkToolResultPart(part);
+    });
+    return { role: "tool", content, ...messageProviderOptions(message) };
   }
   if (message.role === "assistant") {
     const content: Exclude<AssistantContent, string> = [];
     for (const part of message.content) {
       switch (part.type) {
         case "text":
-          content.push({ type: "text", text: part.text });
+          content.push({
+            type: "text",
+            text: part.text,
+            ...contentProviderOptions(part),
+          });
           break;
         case "reasoning":
-          if (part.text != null) {
-            content.push({ type: "reasoning", text: part.text });
-          }
+          content.push({
+            type: "reasoning",
+            text: part.text ?? "",
+            ...contentProviderOptions(part),
+          });
           break;
         case "json":
-          content.push({ type: "text", text: JSON.stringify(part.value) });
+          content.push({
+            type: "text",
+            text: JSON.stringify(part.value),
+            ...contentProviderOptions(part),
+          });
           break;
         case "tool-call":
           content.push({
@@ -443,45 +591,272 @@ function toAiSdkMessage(message: ModelMessage): AiSdkModelMessage {
             toolCallId: part.call.id,
             toolName: part.call.name,
             input: part.call.input,
+            ...(part.call.providerExecuted != null
+              ? { providerExecuted: part.call.providerExecuted }
+              : {}),
+            ...contentProviderOptions(part),
+          });
+          break;
+        case "tool-result":
+          content.push(toAiSdkToolResultPart(part));
+          break;
+        case "image":
+        case "file":
+          content.push({
+            type: "file",
+            data: mediaSource(part),
+            mediaType: mediaType(part),
+            ...(part.type === "file" && (part.name ?? part.artifact?.name)
+              ? { filename: (part.name ?? part.artifact?.name)! }
+              : {}),
+            ...contentProviderOptions(part),
           });
           break;
         default:
-          break;
+          throw new Error(`Unsupported assistant content`);
       }
     }
-    return { role: "assistant", content };
+    return {
+      role: "assistant",
+      content,
+      ...messageProviderOptions(message),
+    };
   }
 
   const content: Exclude<UserContent, string> = [];
   for (const part of message.content) {
     switch (part.type) {
       case "text":
-        content.push({ type: "text", text: part.text });
+        content.push({
+          type: "text",
+          text: part.text,
+          ...contentProviderOptions(part),
+        });
         break;
       case "json":
-        content.push({ type: "text", text: JSON.stringify(part.value) });
+        content.push({
+          type: "text",
+          text: JSON.stringify(part.value),
+          ...contentProviderOptions(part),
+        });
         break;
-      case "image": {
-        const url = part.url ?? part.artifact?.uri;
-        if (url != null) content.push({ type: "image", image: new URL(url) });
+      case "image":
+        content.push({
+          type: "image",
+          image: mediaSource(part),
+          ...((part.mediaType ?? part.artifact?.mediaType)
+            ? { mediaType: (part.mediaType ?? part.artifact?.mediaType)! }
+            : {}),
+          ...contentProviderOptions(part),
+        });
         break;
-      }
-      case "file": {
-        const uri = part.artifact.uri;
-        if (uri != null) {
-          content.push({
-            type: "file",
-            data: new URL(uri),
-            mediaType: part.artifact.mediaType,
-          });
-        }
+      case "file":
+        content.push({
+          type: "file",
+          data: mediaSource(part),
+          mediaType: mediaType(part),
+          ...((part.name ?? part.artifact?.name)
+            ? { filename: (part.name ?? part.artifact?.name)! }
+            : {}),
+          ...contentProviderOptions(part),
+        });
         break;
-      }
       default:
-        break;
+        throw new Error(`User messages cannot contain ${part.type} content`);
     }
   }
-  return { role: "user", content };
+  return { role: "user", content, ...messageProviderOptions(message) };
+}
+
+const fromAiSdkProviderOptions = (value: unknown): JsonObject | undefined =>
+  toJsonObject(value);
+
+const fromAiSdkPartOptions = (
+  part: Record<string, unknown>,
+): Pick<ContentPart, "providerOptions"> =>
+  part.providerOptions == null
+    ? {}
+    : {
+        providerOptions: fromAiSdkProviderOptions(part.providerOptions) ?? {
+          value: toJsonValue(part.providerOptions),
+        },
+      };
+
+const bytesAsBase64 = (bytes: Uint8Array): string => {
+  let binary = "";
+  const chunkSize = 32_768;
+  for (let offset = 0; offset < bytes.length; offset += chunkSize) {
+    binary += String.fromCharCode(
+      ...bytes.subarray(offset, offset + chunkSize),
+    );
+  }
+  return btoa(binary);
+};
+
+const fromAiSdkFile = (
+  part: Record<string, unknown>,
+): Extract<ContentPart, { type: "file" }> => {
+  const data = part.data;
+  const source: Pick<
+    Extract<ContentPart, { type: "file" }>,
+    "data" | "url"
+  > = data instanceof URL
+    ? { url: data.href }
+    : typeof data === "string"
+      ? { data }
+      : data instanceof Uint8Array
+        ? { data: bytesAsBase64(data) }
+        : typeof data === "object" &&
+            data != null &&
+            "type" in data &&
+            data.type === "url" &&
+            "url" in data
+          ? {
+              url: data.url instanceof URL ? data.url.href : String(data.url),
+            }
+          : (() => {
+              throw new Error(
+                "AI SDK returned file content that cannot be durably replayed",
+              );
+            })();
+  const mediaType =
+    typeof part.mediaType === "string" ? part.mediaType : undefined;
+  if (mediaType == null) {
+    throw new Error("AI SDK returned file content without a media type");
+  }
+  return {
+    type: "file",
+    ...source,
+    mediaType,
+    ...(typeof part.filename === "string" ? { name: part.filename } : {}),
+    ...fromAiSdkPartOptions(part),
+  };
+};
+
+const fromAiSdkToolOutput = (
+  output: unknown,
+): Pick<ToolResult, "output" | "error"> => {
+  if (typeof output !== "object" || output == null) {
+    return { output: toJsonValue(output) };
+  }
+  const record = output as Record<string, unknown>;
+  switch (record.type) {
+    case "text":
+    case "json":
+      return { output: toJsonValue(record.value) };
+    case "error-text":
+    case "error-json":
+      return {
+        error: {
+          code: "tool_error",
+          message:
+            typeof record.value === "string"
+              ? record.value
+              : JSON.stringify(record.value),
+        },
+      };
+    case "execution-denied":
+      return {
+        error: {
+          code: "tool_execution_denied",
+          message:
+            typeof record.reason === "string"
+              ? record.reason
+              : "Tool execution was denied.",
+        },
+      };
+    default:
+      return { output: toJsonValue(output) };
+  }
+};
+
+const fromAiSdkToolResult = (
+  part: Record<string, unknown>,
+): Extract<ContentPart, { type: "tool-result" }> => {
+  if (
+    typeof part.toolCallId !== "string" ||
+    typeof part.toolName !== "string"
+  ) {
+    throw new Error("AI SDK returned an invalid tool result");
+  }
+  return {
+    type: "tool-result",
+    result: {
+      callId: part.toolCallId,
+      name: part.toolName,
+      ...fromAiSdkToolOutput(part.output),
+    },
+    ...fromAiSdkPartOptions(part),
+  };
+};
+
+function fromAiSdkResponseMessage(
+  message: AiSdkModelMessage,
+  id: string,
+  createdAt: string,
+  model: string,
+): TranscriptItem | undefined {
+  if (message.role !== "assistant" && message.role !== "tool") return undefined;
+  const rawContent =
+    typeof message.content === "string"
+      ? [{ type: "text", text: message.content }]
+      : message.content;
+  const content: ContentPart[] = rawContent.map((rawPart) => {
+    const part = rawPart as unknown as Record<string, unknown>;
+    switch (part.type) {
+      case "text":
+        return {
+          type: "text",
+          text: typeof part.text === "string" ? part.text : "",
+          ...fromAiSdkPartOptions(part),
+        };
+      case "reasoning":
+        return {
+          type: "reasoning",
+          ...(typeof part.text === "string" ? { text: part.text } : {}),
+          ...fromAiSdkPartOptions(part),
+        };
+      case "tool-call":
+        if (
+          typeof part.toolCallId !== "string" ||
+          typeof part.toolName !== "string"
+        ) {
+          throw new Error("AI SDK returned an invalid tool call");
+        }
+        return {
+          type: "tool-call",
+          call: {
+            id: part.toolCallId,
+            name: part.toolName,
+            input: toJsonObject(part.input) ?? {
+              value: toJsonValue(part.input),
+            },
+            ...(typeof part.providerExecuted === "boolean"
+              ? { providerExecuted: part.providerExecuted }
+              : {}),
+          },
+          ...fromAiSdkPartOptions(part),
+        };
+      case "tool-result":
+        return fromAiSdkToolResult(part);
+      case "file":
+        return fromAiSdkFile(part);
+      default:
+        throw new Error(
+          `AI SDK returned unsupported replay content: ${String(part.type)}`,
+        );
+    }
+  });
+  const providerOptions = fromAiSdkProviderOptions(message.providerOptions);
+  return {
+    id,
+    type: message.role === "tool" ? "tool-result" : "message",
+    role: message.role,
+    content,
+    createdAt,
+    model,
+    ...(providerOptions ? { providerOptions } : {}),
+  };
 }
 
 function partsAsText(parts: ModelMessage["content"]): string {
@@ -501,6 +876,9 @@ function toToolCall(call: AiSdkToolCall): ToolCall {
     id: call.toolCallId,
     name: call.toolName,
     input: toJsonObject(call.input) ?? { value: toJsonValue(call.input) },
+    ...(call.providerExecuted != null
+      ? { providerExecuted: call.providerExecuted }
+      : {}),
   };
 }
 

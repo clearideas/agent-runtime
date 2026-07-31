@@ -112,6 +112,29 @@ or:
 { ref: string, options?: JsonObject }
 ```
 
+## Prompt steps and complete message history
+
+A prompt step uses exactly one input form:
+
+- `prompt: string` with optional `systemPrompt: string`, retained as the
+  backward-compatible shorthand.
+- `messages: PromptMessage[]`, containing the complete ordered history.
+
+`PromptMessage` has a `role` of `system`, `user`, `assistant`, or `tool`, a
+`content` array, and optional inert `metadata` and replayed `providerOptions`.
+Content parts support text, reasoning, JSON, images, files, tool calls, and tool
+results. System messages contain text only; tool messages contain tool results
+only. Historical tool calls and results must use matching IDs and names.
+
+Images and files require exactly one source: `url`, base64-encoded `data`, or an
+`artifact` reference. File content also requires a media type unless supplied
+by its artifact. Opaque `metadata` is persisted but not forwarded to the model;
+`providerOptions` is forwarded by compatible model adapters.
+
+Use `limits.maxMessagesPerPrompt` and `limits.maxInputBytes` to bound complete
+history size. Input-byte enforcement includes resolved base64 artifact data and
+is checked again after each new tool result.
+
 ## Runtime configuration
 
 ```ts

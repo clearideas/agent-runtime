@@ -221,6 +221,203 @@ describe("AiSdkModelAdapter", () => {
     });
   });
 
+  it("forwards rich history media and provider options and captures replayable response messages", async () => {
+    let received: AiSdkCallOptions | undefined;
+    const adapter = new AiSdkModelAdapter({
+      resolveModel: () => fakeModel,
+      generateText: async (options) => {
+        received = options;
+        return {
+          text: "",
+          toolCalls: [
+            {
+              toolCallId: "new-call",
+              toolName: "lookup",
+              input: { id: 2 },
+            },
+          ],
+          responseMessages: [
+            {
+              role: "assistant",
+              content: [
+                {
+                  type: "reasoning",
+                  text: "checking",
+                  providerOptions: {
+                    openai: { reasoningId: "reasoning-1" },
+                  },
+                },
+                {
+                  type: "tool-call",
+                  toolCallId: "new-call",
+                  toolName: "lookup",
+                  input: { id: 2 },
+                  providerExecuted: true,
+                  providerOptions: { openai: { itemId: "item-1" } },
+                },
+              ],
+              providerOptions: { openai: { messageId: "message-1" } },
+            },
+          ],
+        };
+      },
+      now: () => new Date("2026-07-22T12:00:00.000Z"),
+      generateTranscriptId: () => "response-message",
+    });
+
+    const result = await adapter.generate(
+      request({
+        messages: [
+          {
+            role: "system",
+            content: [{ type: "text", text: "Use the history." }],
+            providerOptions: { anthropic: { cacheControl: "ephemeral" } },
+          },
+          {
+            role: "user",
+            content: [
+              {
+                type: "image",
+                data: "AQID",
+                mediaType: "image/png",
+                metadata: { alt: "diagram" },
+                providerOptions: { openai: { imageDetail: "high" } },
+              },
+            ],
+            metadata: { source: "import" },
+          },
+          {
+            role: "assistant",
+            content: [
+              {
+                type: "tool-call",
+                call: {
+                  id: "old-call",
+                  name: "lookup",
+                  input: { id: 1 },
+                  providerExecuted: true,
+                  metadata: { imported: true },
+                },
+                providerOptions: { openai: { itemId: "old-item" } },
+              },
+            ],
+          },
+          {
+            role: "tool",
+            content: [
+              {
+                type: "tool-result",
+                result: {
+                  callId: "old-call",
+                  name: "lookup",
+                  output: { found: true },
+                  metadata: { latencyMs: 12 },
+                  artifacts: [
+                    {
+                      id: "artifact-1",
+                      name: "result.png",
+                      mediaType: "image/png",
+                      uri: "data:image/png;base64,AQID",
+                    },
+                  ],
+                },
+                providerOptions: { openai: { itemId: "result-item" } },
+              },
+            ],
+          },
+        ],
+      }),
+    );
+
+    expect(received?.system).toEqual([
+      {
+        role: "system",
+        content: "Use the history.",
+        providerOptions: {
+          anthropic: { cacheControl: "ephemeral" },
+        },
+      },
+    ]);
+    expect(received?.messages).toEqual([
+      {
+        role: "user",
+        content: [
+          {
+            type: "image",
+            image: "AQID",
+            mediaType: "image/png",
+            providerOptions: { openai: { imageDetail: "high" } },
+          },
+        ],
+      },
+      {
+        role: "assistant",
+        content: [
+          {
+            type: "tool-call",
+            toolCallId: "old-call",
+            toolName: "lookup",
+            input: { id: 1 },
+            providerExecuted: true,
+            providerOptions: { openai: { itemId: "old-item" } },
+          },
+        ],
+      },
+      {
+        role: "tool",
+        content: [
+          {
+            type: "tool-result",
+            toolCallId: "old-call",
+            toolName: "lookup",
+            output: {
+              type: "content",
+              value: [
+                { type: "text", text: '{"found":true}' },
+                {
+                  type: "file",
+                  data: new URL("data:image/png;base64,AQID"),
+                  mediaType: "image/png",
+                  filename: "result.png",
+                },
+              ],
+            },
+            providerOptions: { openai: { itemId: "result-item" } },
+          },
+        ],
+      },
+    ]);
+    expect(result.transcript).toEqual([
+      {
+        id: "response-message",
+        type: "message",
+        role: "assistant",
+        content: [
+          {
+            type: "reasoning",
+            text: "checking",
+            providerOptions: {
+              openai: { reasoningId: "reasoning-1" },
+            },
+          },
+          {
+            type: "tool-call",
+            call: {
+              id: "new-call",
+              name: "lookup",
+              input: { id: 2 },
+              providerExecuted: true,
+            },
+            providerOptions: { openai: { itemId: "item-1" } },
+          },
+        ],
+        createdAt: "2026-07-22T12:00:00.000Z",
+        model: "openai/gpt-test",
+        providerOptions: { openai: { messageId: "message-1" } },
+      },
+    ]);
+  });
+
   it("emits transient deltas and one completed neutral result in stream order", async () => {
     async function* parts(): AsyncIterable<AiSdkStreamPart> {
       yield { type: "text-start", id: "text_1" };

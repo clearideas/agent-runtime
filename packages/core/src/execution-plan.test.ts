@@ -67,6 +67,31 @@ describe("buildExecutionWaves", () => {
     ]);
   });
 
+  it("recognizes template dependencies inside complete message histories", () => {
+    const consumer: AgentStep = {
+      id: "consumer",
+      type: "prompt",
+      messages: [
+        {
+          role: "user",
+          content: [{ type: "text", text: "Use {{ research.summary }}" }],
+        },
+      ],
+      outputVariable: "answer",
+    };
+    expect(
+      buildExecutionWaves(
+        manifest([
+          prompt("research", "Research", "research"),
+          consumer,
+          prompt("independent", "Independent", "other"),
+        ]),
+        0,
+        { mode: "parallel" },
+      ),
+    ).toEqual([{ stepIndexes: [0] }, { stepIndexes: [1, 2] }]);
+  });
+
   it("uses stateful and tool-enabled steps as barriers", () => {
     const toolStep = prompt("tool", "Call tool", "toolResult");
     if (toolStep.type === "prompt") toolStep.tools = ["search"];

@@ -9,6 +9,164 @@ import {
 } from "../src/index.js";
 
 describe("agent manifest contracts", () => {
+  it("accepts complete rich prompt histories while preserving legacy prompts", () => {
+    const legacy = safeParseAgentManifest({
+      schemaVersion: "1.0",
+      steps: [
+        {
+          id: "legacy",
+          type: "prompt",
+          systemPrompt: "Be concise.",
+          prompt: "Answer.",
+        },
+      ],
+    });
+    expect(legacy.success).toBe(true);
+
+    const parsed = parseAgentManifest({
+      schemaVersion: "1.0",
+      steps: [
+        {
+          id: "continued-chat",
+          type: "prompt",
+          messages: [
+            {
+              role: "system",
+              content: [{ type: "text", text: "Review {{topic}}." }],
+              metadata: { source: "agent" },
+            },
+            {
+              role: "user",
+              content: [
+                { type: "text", text: "Inspect this image." },
+                {
+                  type: "image",
+                  url: "https://example.test/diagram.png",
+                  mediaType: "image/png",
+                  providerOptions: { openai: { detail: "high" } },
+                },
+              ],
+            },
+            {
+              role: "assistant",
+              content: [
+                {
+                  type: "tool-call",
+                  call: {
+                    id: "call-1",
+                    name: "lookup",
+                    input: { id: 1 },
+                    metadata: { imported: true },
+                  },
+                },
+              ],
+            },
+            {
+              role: "tool",
+              content: [
+                {
+                  type: "tool-result",
+                  result: {
+                    callId: "call-1",
+                    name: "lookup",
+                    output: { found: true },
+                    metadata: { latencyMs: 10 },
+                  },
+                },
+              ],
+            },
+            {
+              role: "user",
+              content: [{ type: "text", text: "Give the final answer." }],
+            },
+          ],
+        },
+      ],
+    });
+
+    const step = parsed.steps[0];
+    expect(step?.type).toBe("prompt");
+    if (step?.type === "prompt") {
+      expect(step.messages).toHaveLength(5);
+      expect(step.messages?.[1]?.content[1]).toMatchObject({
+        type: "image",
+        mediaType: "image/png",
+      });
+    }
+  });
+
+  it("rejects ambiguous histories, invalid media, and unpaired tool results", () => {
+    expect(
+      safeParseAgentManifest({
+        schemaVersion: "1.0",
+        steps: [
+          {
+            id: "ambiguous",
+            type: "prompt",
+            prompt: "Legacy",
+            messages: [
+              {
+                role: "user",
+                content: [{ type: "text", text: "History" }],
+              },
+            ],
+          },
+        ],
+      }).success,
+    ).toBe(false);
+
+    expect(
+      safeParseAgentManifest({
+        schemaVersion: "1.0",
+        steps: [
+          {
+            id: "invalid-media",
+            type: "prompt",
+            messages: [
+              {
+                role: "user",
+                content: [
+                  {
+                    type: "image",
+                    url: "https://example.test/image.png",
+                    data: "also-inline",
+                  },
+                ],
+              },
+            ],
+          },
+        ],
+      }).success,
+    ).toBe(false);
+
+    expect(
+      safeParseAgentManifest({
+        schemaVersion: "1.0",
+        steps: [
+          {
+            id: "orphan-result",
+            type: "prompt",
+            messages: [
+              {
+                role: "tool",
+                content: [
+                  {
+                    type: "tool-result",
+                    result: {
+                      callId: "missing",
+                      name: "lookup",
+                      output: null,
+                    },
+                  },
+                ],
+              },
+            ],
+          },
+        ],
+      }).success,
+    ).toBe(false);
+  });
+
   it("accepts explicit variables, conditional collection loops, and goal loops", () => {
     const manifest = parseAgentManifest({
       schemaVersion: "1.0",

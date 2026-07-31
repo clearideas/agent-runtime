@@ -122,13 +122,15 @@ output.
 
 ## Template expressions
 
-Templates use <code v-pre>{{ path.to.value }}</code>. Missing values render as an empty string.
-Objects and arrays render as JSON. Template lookup is case-insensitive, while
-stored paths retain their declared spelling. Template interpolation applies
-only to prompt and system-prompt text. Direct JEXL variable access is
+Templates use <code v-pre>{{ path.to.value }}</code>. Missing values render as
+an empty string. Objects and arrays render as JSON. Template lookup is
+case-insensitive, while stored paths retain their declared spelling. Template
+interpolation applies only to legacy prompt and system-prompt text and to text
+parts in complete message histories. Tool payloads, metadata, provider options,
+and media sources are never interpolated. Direct JEXL variable access is
 case-sensitive. Template-wrapped <code v-pre>{{ path }}</code> operands in
-conditions are resolved case-insensitively. Webhook, approval, code, and
-sub-run fields are passed to their adapters as declared.
+conditions are resolved case-insensitively. Webhook, approval, code, and sub-run
+fields are passed to their adapters as declared.
 
 ## Model selection
 

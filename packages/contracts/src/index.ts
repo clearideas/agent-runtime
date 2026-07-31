@@ -107,6 +107,8 @@ export interface ToolCall {
   name: string;
   input: JsonObject;
   stepId?: string;
+  providerExecuted?: boolean;
+  metadata?: JsonObject;
 }
 
 export interface ToolResult {
@@ -118,14 +120,44 @@ export interface ToolResult {
   metadata?: JsonObject;
 }
 
-export type ContentPart =
+export type ContentPart = (
   | { type: "text"; text: string }
   | { type: "reasoning"; text?: string; encrypted?: string }
   | { type: "json"; value: JsonValue }
-  | { type: "image"; artifact?: ArtifactRef; url?: string; mediaType?: string }
-  | { type: "file"; artifact: ArtifactRef }
+  | {
+      type: "image";
+      artifact?: ArtifactRef;
+      url?: string;
+      /** Base64-encoded bytes. Prefer artifact references for durable histories. */
+      data?: string;
+      mediaType?: string;
+    }
+  | {
+      type: "file";
+      artifact?: ArtifactRef;
+      url?: string;
+      /** Base64-encoded bytes. Prefer artifact references for durable histories. */
+      data?: string;
+      name?: string;
+      mediaType?: string;
+    }
   | { type: "tool-call"; call: ToolCall }
-  | { type: "tool-result"; result: ToolResult };
+  | { type: "tool-result"; result: ToolResult }
+) & {
+  /** Opaque application metadata. It is persisted but never interpreted by a model adapter. */
+  metadata?: JsonObject;
+  /** Provider-specific replay information forwarded by compatible model adapters. */
+  providerOptions?: JsonObject;
+};
+
+export interface PromptMessage {
+  role: "system" | "user" | "assistant" | "tool";
+  content: ContentPart[];
+  /** Opaque application metadata. */
+  metadata?: JsonObject;
+  /** Provider-specific replay information forwarded by compatible model adapters. */
+  providerOptions?: JsonObject;
+}
 
 export interface TranscriptItem {
   id: string;
@@ -142,6 +174,7 @@ export interface TranscriptItem {
   model?: string;
   usage?: ModelUsage;
   metadata?: JsonObject;
+  providerOptions?: JsonObject;
 }
 
 export type ModelReference =
@@ -254,10 +287,8 @@ export interface AgentStepBase {
   extensions?: JsonObject;
 }
 
-export interface PromptStep extends AgentStepBase {
+interface PromptStepDefinition extends AgentStepBase {
   type: "prompt";
-  prompt: string;
-  systemPrompt?: string;
   model?: ModelReference;
   outputSchema?: JsonObject;
   tools?: string[];
@@ -269,6 +300,22 @@ export interface PromptStep extends AgentStepBase {
     requireOutput?: boolean;
   };
 }
+
+export type PromptStep = PromptStepDefinition &
+  (
+    | {
+        /** Backward-compatible single-user-message shorthand. */
+        prompt: string;
+        systemPrompt?: string;
+        messages?: never;
+      }
+    | {
+        /** Complete ordered model history. */
+        messages: PromptMessage[];
+        prompt?: never;
+        systemPrompt?: never;
+      }
+  );
 
 export interface LoopDefinition {
   source?: string;
@@ -350,6 +397,81 @@ const modelReferenceSchema: z.ZodType<ModelReference> = z.union([
   profileModelReferenceSchema,
 ]);
 
+export const promptMessageSchema: z.ZodType<PromptMessage> = z.lazy(() =>
+  z
+    .strictObject({
+      role: z.enum(["system", "user", "assistant", "tool"]),
+      content: z.array(contentPartSchema).min(1),
+      metadata: jsonObjectSchema.optional(),
+      providerOptions: jsonObjectSchema.optional(),
+    })
+    .superRefine((message, context) => {
+      if (message.role === "system") {
+        message.content.forEach((part, index) => {
+          if (part.type !== "text") {
+            context.addIssue({
+              code: "custom",
+              path: ["content", index],
+              message: "System messages may contain only text parts.",
+            });
+          }
+        });
+      }
+      if (message.role === "tool") {
+        message.content.forEach((part, index) => {
+          if (part.type !== "tool-result") {
+            context.addIssue({
+              code: "custom",
+              path: ["content", index],
+              message: "Tool messages may contain only tool-result parts.",
+            });
+          }
+        });
+      }
+      if (message.role === "user") {
+        message.content.forEach((part, index) => {
+          if (
+            part.type === "reasoning" ||
+            part.type === "tool-call" ||
+            part.type === "tool-result"
+          ) {
+            context.addIssue({
+              code: "custom",
+              path: ["content", index],
+              message: `User messages cannot contain ${part.type} parts.`,
+            });
+          }
+        });
+      }
+      message.content.forEach((part, index) => {
+        if (part.type !== "image" && part.type !== "file") return;
+        const sourceCount = [part.artifact, part.url, part.data].filter(
+          (value) => value !== undefined,
+        ).length;
+        if (sourceCount !== 1) {
+          context.addIssue({
+            code: "custom",
+            path: ["content", index],
+            message:
+              "History media parts require exactly one of artifact, url, or data.",
+          });
+        }
+        if (
+          part.type === "file" &&
+          part.artifact == null &&
+          part.mediaType == null
+        ) {
+          context.addIssue({
+            code: "custom",
+            path: ["content", index, "mediaType"],
+            message:
+              "History file parts without an artifact reference require mediaType.",
+          });
+        }
+      });
+    }),
+);
+
 const agentConnectionBindingSchema = z.strictObject({
   ref: z.string().min(1),
   alias: z
@@ -361,24 +483,108 @@ const agentConnectionBindingSchema = z.strictObject({
   required: z.boolean().optional(),
 });
 
-export const agentStepSchema: z.ZodType<AgentStep> = z.lazy(() =>
+// The prompt refinement below enforces the PromptStep input union. Zod retains
+// optional field inference after superRefine, so expose the refined output type.
+export const agentStepSchema = z.lazy(() =>
   z.discriminatedUnion("type", [
-    z.strictObject({
-      ...stepBaseShape,
-      type: z.literal("prompt"),
-      prompt: z.string(),
-      systemPrompt: z.string().optional(),
-      model: modelReferenceSchema.optional(),
-      outputSchema: jsonObjectSchema.optional(),
-      tools: z.array(z.string()).optional(),
-      maxOutputTokens: z.number().int().positive().optional(),
-      completionPolicy: z
-        .strictObject({
-          onTruncation: z.enum(["fail", "accept"]).optional(),
-          requireOutput: z.boolean().optional(),
-        })
-        .optional(),
-    }),
+    z
+      .strictObject({
+        ...stepBaseShape,
+        type: z.literal("prompt"),
+        prompt: z.string().optional(),
+        systemPrompt: z.string().optional(),
+        messages: z.array(promptMessageSchema).min(1).optional(),
+        model: modelReferenceSchema.optional(),
+        outputSchema: jsonObjectSchema.optional(),
+        tools: z.array(z.string()).optional(),
+        maxOutputTokens: z.number().int().positive().optional(),
+        completionPolicy: z
+          .strictObject({
+            onTruncation: z.enum(["fail", "accept"]).optional(),
+            requireOutput: z.boolean().optional(),
+          })
+          .optional(),
+      })
+      .superRefine((step, context) => {
+        const usesLegacyPrompt = step.prompt !== undefined;
+        const usesMessages = step.messages !== undefined;
+        if (usesLegacyPrompt === usesMessages) {
+          context.addIssue({
+            code: "custom",
+            message: "Prompt steps require exactly one of prompt or messages.",
+          });
+        }
+        if (usesMessages && step.systemPrompt !== undefined) {
+          context.addIssue({
+            code: "custom",
+            path: ["systemPrompt"],
+            message:
+              "systemPrompt cannot be combined with a complete messages history.",
+          });
+        }
+
+        const calls = new Map<string, string>();
+        const results = new Set<string>();
+        let sawNonSystemMessage = false;
+        for (const [messageIndex, message] of (step.messages ?? []).entries()) {
+          if (message.role === "system" && sawNonSystemMessage) {
+            context.addIssue({
+              code: "custom",
+              path: ["messages", messageIndex, "role"],
+              message:
+                "System messages must precede user, assistant, and tool history.",
+            });
+          } else if (message.role !== "system") {
+            sawNonSystemMessage = true;
+          }
+          for (const [partIndex, part] of message.content.entries()) {
+            if (part.type === "tool-call") {
+              if (calls.has(part.call.id)) {
+                context.addIssue({
+                  code: "custom",
+                  path: ["messages", messageIndex, "content", partIndex],
+                  message: `Duplicate historical tool-call id: ${part.call.id}`,
+                });
+              } else {
+                calls.set(part.call.id, part.call.name);
+              }
+            }
+            if (part.type === "tool-result") {
+              const expectedName = calls.get(part.result.callId);
+              if (expectedName == null) {
+                context.addIssue({
+                  code: "custom",
+                  path: ["messages", messageIndex, "content", partIndex],
+                  message: `Historical tool result ${part.result.callId} has no preceding tool call.`,
+                });
+              } else if (expectedName !== part.result.name) {
+                context.addIssue({
+                  code: "custom",
+                  path: ["messages", messageIndex, "content", partIndex],
+                  message: `Historical tool result ${part.result.callId} names ${part.result.name}; expected ${expectedName}.`,
+                });
+              } else if (results.has(part.result.callId)) {
+                context.addIssue({
+                  code: "custom",
+                  path: ["messages", messageIndex, "content", partIndex],
+                  message: `Duplicate historical tool result: ${part.result.callId}`,
+                });
+              } else {
+                results.add(part.result.callId);
+              }
+            }
+          }
+        }
+        for (const callId of calls.keys()) {
+          if (!results.has(callId)) {
+            context.addIssue({
+              code: "custom",
+              path: ["messages"],
+              message: `Historical tool call ${callId} has no tool result.`,
+            });
+          }
+        }
+      }),
     z.strictObject({
       ...stepBaseShape,
       type: z.literal("loop"),
@@ -435,7 +641,7 @@ export const agentStepSchema: z.ZodType<AgentStep> = z.lazy(() =>
       environment: z.record(z.string(), z.string()).optional(),
     }),
   ]),
-);
+) as unknown as z.ZodType<AgentStep>;
 
 export interface AgentManifest {
   schemaVersion: typeof AGENT_MANIFEST_SCHEMA_VERSION;
@@ -448,6 +654,8 @@ export interface AgentManifest {
   steps: AgentStep[];
   limits?: {
     maxSteps?: number;
+    maxMessagesPerPrompt?: number;
+    maxInputBytes?: number;
     maxOutputBytes?: number;
     maxToolCallsPerIteration?: number;
     providerTimeoutMs?: number;
@@ -490,6 +698,8 @@ export const agentManifestSchema: z.ZodType<AgentManifest> = z
     limits: z
       .object({
         maxSteps: z.number().int().positive().optional(),
+        maxMessagesPerPrompt: z.number().int().positive().optional(),
+        maxInputBytes: z.number().int().positive().optional(),
         maxOutputBytes: z.number().int().positive().optional(),
         maxToolCallsPerIteration: z.number().int().positive().optional(),
         providerTimeoutMs: z.number().int().positive().optional(),
@@ -650,6 +860,8 @@ const toolCallSchema = z.strictObject({
   name: z.string().min(1),
   input: jsonObjectSchema,
   stepId: z.string().optional(),
+  providerExecuted: z.boolean().optional(),
+  metadata: jsonObjectSchema.optional(),
 });
 
 const toolResultSchema = z.strictObject({
@@ -661,23 +873,57 @@ const toolResultSchema = z.strictObject({
   metadata: jsonObjectSchema.optional(),
 });
 
+const contentPartMetadataShape = {
+  metadata: jsonObjectSchema.optional(),
+  providerOptions: jsonObjectSchema.optional(),
+};
+
+const mediaSourceSchema = {
+  artifact: artifactRefSchema.optional(),
+  url: z.string().min(1).optional(),
+  data: z.string().min(1).optional(),
+};
+
 const contentPartSchema = z.discriminatedUnion("type", [
-  z.strictObject({ type: z.literal("text"), text: z.string() }),
+  z.strictObject({
+    type: z.literal("text"),
+    text: z.string(),
+    ...contentPartMetadataShape,
+  }),
   z.strictObject({
     type: z.literal("reasoning"),
     text: z.string().optional(),
     encrypted: z.string().optional(),
+    ...contentPartMetadataShape,
   }),
-  z.strictObject({ type: z.literal("json"), value: jsonValueSchema }),
+  z.strictObject({
+    type: z.literal("json"),
+    value: jsonValueSchema,
+    ...contentPartMetadataShape,
+  }),
   z.strictObject({
     type: z.literal("image"),
-    artifact: artifactRefSchema.optional(),
-    url: z.string().optional(),
-    mediaType: z.string().optional(),
+    ...mediaSourceSchema,
+    mediaType: z.string().min(1).optional(),
+    ...contentPartMetadataShape,
   }),
-  z.strictObject({ type: z.literal("file"), artifact: artifactRefSchema }),
-  z.strictObject({ type: z.literal("tool-call"), call: toolCallSchema }),
-  z.strictObject({ type: z.literal("tool-result"), result: toolResultSchema }),
+  z.strictObject({
+    type: z.literal("file"),
+    ...mediaSourceSchema,
+    name: z.string().min(1).optional(),
+    mediaType: z.string().min(1).optional(),
+    ...contentPartMetadataShape,
+  }),
+  z.strictObject({
+    type: z.literal("tool-call"),
+    call: toolCallSchema,
+    ...contentPartMetadataShape,
+  }),
+  z.strictObject({
+    type: z.literal("tool-result"),
+    result: toolResultSchema,
+    ...contentPartMetadataShape,
+  }),
 ]);
 
 export const transcriptItemSchema = z.strictObject({
@@ -696,6 +942,7 @@ export const transcriptItemSchema = z.strictObject({
   model: z.string().optional(),
   usage: modelUsageSchema.optional(),
   metadata: jsonObjectSchema.optional(),
+  providerOptions: jsonObjectSchema.optional(),
 });
 
 const executionCursorSchema = z.strictObject({
