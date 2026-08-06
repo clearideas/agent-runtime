@@ -1,5 +1,35 @@
 # Security review record
 
+## GHSA-7p8r-x3mc-p8w7
+
+Reviewed: August 6, 2026
+
+Resolved: August 6, 2026
+
+The workspace now resolves the `fast-uri` dependency used by
+`@modelcontextprotocol/sdk` through Ajv to `fast-uri@3.1.5`, which contains the
+host-confusion fix. Agent Runtime does not use `fast-uri` to authorize outbound
+destinations, but the vulnerable production dependency has been removed.
+
+Reference:
+[GHSA-7p8r-x3mc-p8w7](https://github.com/advisories/GHSA-7p8r-x3mc-p8w7)
+
+## GHSA-8j4g-w8fx-2239
+
+Reviewed: August 6, 2026
+
+Resolved: August 6, 2026
+
+The workspace now resolves the Hono dependency used by
+`@modelcontextprotocol/sdk` to `hono@4.13.0`, which contains the CORS middleware
+ReDoS fix. Agent Runtime uses the MCP SDK client and does not configure Hono's
+CORS middleware, but the vulnerable production dependency has been removed.
+
+The production dependency audit reports no vulnerabilities.
+
+Reference:
+[GHSA-8j4g-w8fx-2239](https://github.com/advisories/GHSA-8j4g-w8fx-2239)
+
 ## GHSA-frvp-7c67-39w9
 
 Reviewed: July 27, 2026
