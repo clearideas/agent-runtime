@@ -163,6 +163,49 @@ describe("runner CLI", () => {
     });
   });
 
+  it("rejects an invalid CLI token limit before execution", async () => {
+    const file = path.join(directory, "budget.agent.json");
+    await writeFile(file, JSON.stringify({ ...manifest, steps: [] }));
+
+    await expect(
+      runCli(["run", file, "--max-total-tokens", "0"], io),
+    ).resolves.toBe(1);
+    expect(stderr).toContain(
+      "--max-total-tokens must be a positive safe integer",
+    );
+  });
+
+  it("persists a CLI token limit in the run checkpoint", async () => {
+    const file = path.join(directory, "budget.agent.json");
+    const storeDirectory = path.join(directory, "budget-state");
+    await writeFile(file, JSON.stringify({ ...manifest, steps: [] }));
+
+    await expect(
+      runCli(
+        [
+          "run",
+          file,
+          "--run-id",
+          "budget-run",
+          "--max-total-tokens",
+          "100",
+          "--store",
+          storeDirectory,
+          "--events",
+          "none",
+          "--artifacts",
+          "none",
+        ],
+        io,
+      ),
+    ).resolves.toBe(0);
+    expect(
+      await new FileRunStore(storeDirectory).loadLatestCheckpoint("budget-run"),
+    ).toMatchObject({
+      budget: { maxTotalTokens: 100, consumedTokens: 0 },
+    });
+  });
+
   it("runs a validated agent run manifest that references an agent manifest", async () => {
     const agentFile = path.join(directory, "release.agent.yaml");
     const runFile = path.join(directory, "release.run.yaml");

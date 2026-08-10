@@ -65,7 +65,9 @@ it. A read-only connection cannot be elevated to `read_write`, and read-mode
 MCP connections expose only the host-declared `readTools` subset. MCP server
 annotations are descriptive hints, not authorization controls. MCP tool names
 use `<alias>__<tool>` to prevent collisions and satisfy model-provider
-function-name restrictions.
+function-name restrictions. Prompt tool idempotency keys are forwarded as
+`_meta["agent-runtime/idempotency-key"]`; side-effecting MCP servers must honor
+that metadata to deduplicate recovery attempts.
 
 MCP authentication modes are `none`, `bearer`, `oauth`, and
 `client_credentials`. OAuth connections obtain request headers from a

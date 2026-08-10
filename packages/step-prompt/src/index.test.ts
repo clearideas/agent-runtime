@@ -1,8 +1,16 @@
 import type {
+  JsonObject,
+  ModelUsage,
   PromptStep,
+  RunBudgetState,
   RunEvent,
   AgentManifest,
+  TranscriptItem,
 } from "@clearideas/agent-runtime-contracts";
+import type {
+  NestedCheckpointInput,
+  TokenBudgetContext,
+} from "@clearideas/agent-runtime-core";
 import type {
   ModelAdapter,
   ModelRequest,
@@ -364,6 +372,242 @@ describe("PromptStepExecutor", () => {
       events.filter((event) => event.type === "model.text.delta"),
     ).toHaveLength(2);
     expect(events.map((event) => event.type)).toContain("model.tool.completed");
+  });
+
+  it("suspends at the cumulative token limit and resumes without replay", async () => {
+    const modelRequests: ModelRequest[] = [];
+    const toolCalls: string[] = [];
+    const events: string[] = [];
+    const usageTranscript = (
+      id: string,
+      content: TranscriptItem["content"],
+      usage: ModelUsage,
+    ): TranscriptItem => ({
+      id,
+      type: "message",
+      role: "assistant",
+      content,
+      usage,
+      createdAt: "2026-07-22T00:00:00.000Z",
+    });
+    const model: ModelAdapter = {
+      generate: async (request) => {
+        modelRequests.push(structuredClone(request));
+        if (modelRequests.length === 1) {
+          const call = { id: "call-1", name: "lookup", input: { id: 1 } };
+          return {
+            output: "",
+            transcript: [
+              usageTranscript("assistant-1", [{ type: "tool-call", call }], {
+                totalTokens: 10,
+              }),
+            ],
+            toolCalls: [call],
+            finishReason: "tool-calls",
+          };
+        }
+        return {
+          output: "done",
+          transcript: [
+            usageTranscript("assistant-2", [{ type: "text", text: "done" }], {
+              totalTokens: 2,
+            }),
+          ],
+          finishReason: "stop",
+        };
+      },
+    };
+    const tools: ToolAdapter = {
+      listTools: async () => [
+        { name: "lookup", inputSchema: { type: "object" } },
+      ],
+      executeTool: async (call) => {
+        toolCalls.push(call.id);
+        return { callId: call.id, name: call.name, output: { found: true } };
+      },
+    };
+    const makeBudget = (
+      maxTotalTokens: number,
+      initialConsumedTokens: number,
+    ): TokenBudgetContext => {
+      let consumedTokens = initialConsumedTokens;
+      return {
+        maxTotalTokens,
+        get consumedTokens() {
+          return consumedTokens;
+        },
+        consume(usage): RunBudgetState {
+          consumedTokens +=
+            usage.totalTokens ??
+            (usage.inputTokens ?? 0) + (usage.outputTokens ?? 0);
+          return { maxTotalTokens, consumedTokens };
+        },
+      };
+    };
+    let saved: NestedCheckpointInput | undefined;
+    const execute = (
+      tokenBudget: TokenBudgetContext,
+      resume?: { continuation?: JsonObject; transcript?: TranscriptItem[] },
+    ) =>
+      new PromptStepExecutor({
+        generateTranscriptId: () => "tool-result-1",
+      }).execute({
+        runId: "run-budget",
+        manifest,
+        step,
+        stepIndex: 0,
+        variables: { Item: { Name: "Proposal" }, audience: "board" },
+        model,
+        tools,
+        tokenBudget,
+        ...(resume
+          ? {
+              resume: {
+                cursor: { stepIndex: 0, stepId: step.id },
+                ...(resume.continuation
+                  ? { continuation: resume.continuation }
+                  : {}),
+                ...(resume.transcript ? { transcript: resume.transcript } : {}),
+              },
+            }
+          : {}),
+        checkpoint: async (checkpoint) => {
+          saved = structuredClone(checkpoint);
+        },
+        emit: async (type) => {
+          events.push(type);
+          return {
+            id: type,
+            runId: "run-budget",
+            sequence: events.length,
+            timestamp: "2026-07-22T00:00:00.000Z",
+            type,
+          };
+        },
+      });
+
+    await expect(execute(makeBudget(10, 0))).rejects.toMatchObject({
+      reason: "token-budget",
+    });
+    expect(modelRequests).toHaveLength(1);
+    expect(toolCalls).toEqual([]);
+    expect(saved?.continuation).toMatchObject({
+      type: "prompt",
+      nextToolIndex: 0,
+      toolCallCount: 0,
+    });
+
+    await expect(
+      execute(makeBudget(10, 10), {
+        continuation: saved?.continuation,
+        transcript: saved?.transcript,
+      }),
+    ).rejects.toMatchObject({ reason: "token-budget" });
+    expect(modelRequests).toHaveLength(1);
+    expect(toolCalls).toEqual([]);
+
+    await expect(
+      execute(makeBudget(12, 10), {
+        continuation: saved?.continuation,
+        transcript: saved?.transcript,
+      }),
+    ).resolves.toMatchObject({ output: "done" });
+    expect(modelRequests).toHaveLength(2);
+    expect(toolCalls).toEqual(["call-1"]);
+    expect(events.filter((event) => event === "model.usage")).toHaveLength(2);
+  });
+
+  it("reuses a checkpointed tool idempotency key after a lost result", async () => {
+    const modelRequests: ModelRequest[] = [];
+    const idempotencyKeys: string[] = [];
+    const appliedEffects = new Set<string>();
+    let effectCount = 0;
+    const model: ModelAdapter = {
+      generate: async (request) => {
+        modelRequests.push(structuredClone(request));
+        if (modelRequests.length === 1) {
+          const call = { id: "side-effect-1", name: "lookup", input: {} };
+          return {
+            transcript: [
+              {
+                id: "assistant-side-effect",
+                type: "message",
+                role: "assistant",
+                content: [{ type: "tool-call", call }],
+                createdAt: "2026-07-22T00:00:00.000Z",
+              },
+            ],
+            toolCalls: [call],
+          };
+        }
+        return { output: "done", transcript: [] };
+      },
+    };
+    const tools: ToolAdapter = {
+      listTools: async () => [
+        { name: "lookup", inputSchema: { type: "object" } },
+      ],
+      executeTool: async (call, context) => {
+        const key = context.idempotencyKey!;
+        idempotencyKeys.push(key);
+        if (!appliedEffects.has(key)) {
+          appliedEffects.add(key);
+          effectCount += 1;
+          throw new Error("process exited after the external effect");
+        }
+        return { callId: call.id, name: call.name, output: { applied: true } };
+      },
+    };
+    let saved: NestedCheckpointInput | undefined;
+    const execute = (resume?: NestedCheckpointInput) =>
+      new PromptStepExecutor({
+        generateTranscriptId: () => "tool-result-side-effect",
+        generateToolIdempotencyKey: () => "stable-tool-key",
+      }).execute({
+        runId: "run-side-effect",
+        manifest,
+        step,
+        stepIndex: 0,
+        variables: { Item: { Name: "Proposal" }, audience: "board" },
+        model,
+        tools,
+        ...(resume
+          ? {
+              resume: {
+                cursor: { stepIndex: 0, stepId: step.id },
+                ...(resume.continuation
+                  ? { continuation: resume.continuation }
+                  : {}),
+                ...(resume.transcript ? { transcript: resume.transcript } : {}),
+              },
+            }
+          : {}),
+        checkpoint: async (checkpoint) => {
+          saved = structuredClone(checkpoint);
+        },
+        emit: async (type) => ({
+          id: type,
+          runId: "run-side-effect",
+          sequence: 1,
+          timestamp: "2026-07-22T00:00:00.000Z",
+          type,
+        }),
+      });
+
+    await expect(execute()).rejects.toThrow(
+      "process exited after the external effect",
+    );
+    expect(saved?.continuation).toMatchObject({
+      type: "prompt",
+      nextToolIndex: 0,
+      toolIdempotencyKeys: ["stable-tool-key"],
+    });
+
+    await expect(execute(saved)).resolves.toMatchObject({ output: "done" });
+    expect(modelRequests).toHaveLength(2);
+    expect(idempotencyKeys).toHaveLength(2);
+    expect(idempotencyKeys[1]).toBe(idempotencyKeys[0]);
+    expect(effectCount).toBe(1);
   });
 
   it("uses non-streaming generation when stream is unavailable", async () => {

@@ -16,7 +16,8 @@ The CLI stores run state and events locally by default.
 npx agent-runtime validate ./agent.yaml
 npx agent-runtime config validate ./agent-runtime.config.yaml
 npx agent-runtime run ./agent.yaml --config ./agent-runtime.config.yaml --store ./.agent-runtime
-npx agent-runtime resume run_123 --store ./.agent-runtime
+npx agent-runtime run ./agent.yaml --max-total-tokens 100000 --store ./.agent-runtime
+npx agent-runtime resume run_123 --max-total-tokens 150000 --store ./.agent-runtime
 npx agent-runtime inspect run_123 --store ./.agent-runtime
 npx agent-runtime events ./.agent-runtime/events.jsonl --run run_123 --tail 20
 npx agent-runtime examples run variables --stream
@@ -126,6 +127,8 @@ agent:
 schemaVersion: "1.0"
 agent:
   ref: release.agent.yaml
+budget:
+  maxTotalTokens: 100000
 variables:
   - key: audience
     value: partners
@@ -203,6 +206,12 @@ by supplying a `WebhookStepExecutor` with `authorizeDestination`.
 Agent run manifests may select sequential or dependency-safe parallel step
 scheduling. Resume uses the latest checkpoint and rejects a completed run or a
 manifest/checkpoint mismatch.
+
+`--max-total-tokens` sets the cumulative reported-token limit for a direct run
+or replaces the persisted limit during resume. Agent run manifests declare the
+same value as `budget.maxTotalTokens`. A resume without a higher effective
+limit suspends again before another model call. Budgeted runs are scheduled
+sequentially to keep enforcement deterministic.
 
 ## Worker command
 

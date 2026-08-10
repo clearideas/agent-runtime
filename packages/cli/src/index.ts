@@ -73,9 +73,9 @@ const usage = `Clear Ideas Agent Runtime
 Usage:
   agent-runtime validate <manifest.json|manifest.yaml> [--config <config.yaml>]
   agent-runtime config validate <config.json|config.yaml>
-  agent-runtime run <manifest.json|manifest.yaml> [--variables <overrides.json>] [--config <config.yaml>] [--run-id <id>] [--store <path>] [--store-driver <file|sqlite>] [--events <file|none>] [--artifacts <directory|none>] [--runtime-module <local-js-file>] [--stream] [--format <json|pretty|ndjson>] [--show-reasoning]
+  agent-runtime run <manifest.json|manifest.yaml> [--variables <overrides.json>] [--max-total-tokens <count>] [--config <config.yaml>] [--run-id <id>] [--store <path>] [--store-driver <file|sqlite>] [--events <file|none>] [--artifacts <directory|none>] [--runtime-module <local-js-file>] [--stream] [--format <json|pretty|ndjson>] [--show-reasoning]
   agent-runtime run-manifest <run.json|run.yaml> [--config <config.yaml>] [--store <path>] [--store-driver <file|sqlite>] [--events <file|none>] [--artifacts <directory|none>] [--runtime-module <local-js-file>] [--stream] [--format <json|pretty|ndjson>] [--show-reasoning]
-  agent-runtime resume <run-id> [--config <config.yaml>] [--store <path>] [--store-driver <file|sqlite>] [--events <file|none>] [--artifacts <directory|none>] [--runtime-module <local-js-file>] [--stream] [--format <json|pretty|ndjson>] [--show-reasoning]
+  agent-runtime resume <run-id> [--max-total-tokens <count>] [--config <config.yaml>] [--store <path>] [--store-driver <file|sqlite>] [--events <file|none>] [--artifacts <directory|none>] [--runtime-module <local-js-file>] [--stream] [--format <json|pretty|ndjson>] [--show-reasoning]
   agent-runtime inspect <run-id> [--store <path>] [--store-driver <file|sqlite>] [--runtime-module <local-js-file>]
   agent-runtime events <events.jsonl> [--run <run-id>] [--type <event-type>] [--tail <count>]
   agent-runtime examples list
@@ -203,6 +203,19 @@ const requireOnePositional = (parsed: ParsedOptions, label: string): string => {
   if (parsed.positional.length !== 1)
     throw new Error(`Expected exactly one ${label}.`);
   return parsed.positional[0]!;
+};
+
+const positiveSafeIntegerOption = (
+  parsed: ParsedOptions,
+  name: string,
+): number | undefined => {
+  const value = parsed.options.get(name);
+  if (value == null) return undefined;
+  const parsedValue = Number(value);
+  if (!Number.isSafeInteger(parsedValue) || parsedValue <= 0) {
+    throw new Error(`--${name} must be a positive safe integer.`);
+  }
+  return parsedValue;
 };
 
 const validateManifest = async (args: string[], io: CliIo): Promise<void> => {
@@ -752,6 +765,7 @@ const executionOptions = new Set([
   "stream",
   "format",
   "show-reasoning",
+  "max-total-tokens",
 ]);
 
 const executionFlags = new Set(["stream", "show-reasoning"]);
@@ -779,10 +793,12 @@ const execute = async (
   }
   if (
     command === "run-manifest" &&
-    (parsed.options.has("variables") || parsed.options.has("run-id"))
+    (parsed.options.has("variables") ||
+      parsed.options.has("run-id") ||
+      parsed.options.has("max-total-tokens"))
   ) {
     throw new Error(
-      "--variables and --run-id cannot be combined with an agent run manifest; declare them in the agent run manifest.",
+      "--variables, --run-id, and --max-total-tokens cannot be combined with an agent run manifest; declare them in the agent run manifest.",
     );
   }
 
@@ -807,6 +823,7 @@ const execute = async (
     command === "resume"
       ? target
       : (agentRunManifest?.runId ?? parsed.options.get("run-id"));
+  const maxTotalTokens = positiveSafeIntegerOption(parsed, "max-total-tokens");
   const runtimeModulePath = parsed.options.get("runtime-module");
   const runtimeStore =
     command === "resume"
@@ -942,6 +959,7 @@ const execute = async (
             manifest,
             ...(runId ? { runId } : {}),
             ...(variableOverrides ? { variables: variableOverrides } : {}),
+            ...(maxTotalTokens ? { budget: { maxTotalTokens } } : {}),
             ...(signal ? { signal } : {}),
             ...(command === "resume" ? { resume: true } : {}),
           },
@@ -1219,6 +1237,7 @@ export const executeWorkerInvocation = async (
     ...(request.runId ? { runId: request.runId } : {}),
     ...(invocationVariables ? { variables: invocationVariables } : {}),
     ...(request.execution ? { execution: request.execution } : {}),
+    ...(request.budget ? { budget: request.budget } : {}),
     ...(options.signal ? { signal: options.signal } : {}),
     ...(invocation.action === "resume"
       ? {

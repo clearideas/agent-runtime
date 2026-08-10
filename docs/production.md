@@ -81,6 +81,11 @@ Set manifest limits and enforce host ceilings that an agent cannot raise:
 Enforce billing and authorization limits in the host application or provider
 configuration.
 
+`budget.maxTotalTokens` provides a durable per-run ceiling based on reported
+model usage. Hosted systems should still validate the requested limit against a
+tenant ceiling before submission or resume; a run may replace its persisted
+limit only through a new host-authorized request.
+
 ## Observability
 
 Add `OpenTelemetryEventSink` to receive nested run, step, model, and tool spans.
@@ -103,7 +108,9 @@ exporter flushing in the OpenTelemetry SDK.
 ## Failure and recovery
 
 Classify failures as retryable only when repeating the operation is safe.
-Webhook steps support an explicit idempotency key. Tool, sub-run, and custom
+Webhook steps support an explicit idempotency key. Prompt tool calls receive a
+stable runtime-generated `ToolExecutionContext.idempotencyKey`; side-effecting
+adapters must make it atomic with the external effect. Sub-run and custom
 adapter retries require their own idempotency design.
 
 Use heartbeats or provider status to establish ownership. Do not take over a

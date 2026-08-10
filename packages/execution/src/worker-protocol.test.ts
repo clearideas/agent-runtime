@@ -19,6 +19,7 @@ describe("portable worker protocol", () => {
       runId: "run-1",
       variables: [{ key: "audience", value: "partners" }],
       execution: { mode: "parallel", maxConcurrency: 4 },
+      budget: { maxTotalTokens: 5_000 },
     });
     expect(parseWorkerInvocation(JSON.stringify(invocation))).toEqual(
       invocation,
@@ -70,6 +71,19 @@ describe("portable worker protocol", () => {
         request: {
           manifest: { schemaVersion: "1.0", steps: [] },
           execution: { mode: "parallel", maxConcurrency: 0 },
+        },
+      }),
+    ).toThrow();
+  });
+
+  it("rejects an invalid token budget at the worker boundary", () => {
+    expect(() =>
+      parseWorkerInvocation({
+        protocolVersion: EXECUTION_PROTOCOL_VERSION,
+        action: "run",
+        request: {
+          manifest: { schemaVersion: "1.0", steps: [] },
+          budget: { maxTotalTokens: 0 },
         },
       }),
     ).toThrow();

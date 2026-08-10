@@ -2,12 +2,15 @@ import type {
   ContentPart,
   JsonObject,
   JsonValue,
+  ModelUsage,
   PromptMessage,
   PromptStep,
+  ToolCall,
   ToolResult,
   TranscriptItem,
   VariableState,
 } from "@clearideas/agent-runtime-contracts";
+import { RunSuspendedError } from "@clearideas/agent-runtime-core";
 import type {
   StepExecutionContext,
   StepExecutionResult,
@@ -23,6 +26,7 @@ import type {
 export interface PromptStepExecutorOptions {
   now?: () => Date;
   generateTranscriptId?: () => string;
+  generateToolIdempotencyKey?: () => string;
   defaultMaxToolCalls?: number;
 }
 
@@ -351,16 +355,90 @@ const hasOutput = (output: JsonValue | undefined): boolean =>
   output !== undefined &&
   (typeof output !== "string" || output.trim().length > 0);
 
+interface PromptContinuation {
+  output?: JsonValue;
+  hasOutput: boolean;
+  finishReason?: string;
+  toolCalls: ToolCall[];
+  toolIdempotencyKeys: string[];
+  nextToolIndex: number;
+  toolCallCount: number;
+}
+
+const parsePromptContinuation = (
+  context: StepExecutionContext & { step: PromptStep },
+): PromptContinuation | undefined => {
+  const value = context.resume?.continuation;
+  if (
+    value?.type !== "prompt" ||
+    value.stepId !== context.step.id ||
+    value.phase !== "model-completed" ||
+    typeof value.hasOutput !== "boolean" ||
+    !Array.isArray(value.toolCalls) ||
+    !Array.isArray(value.toolIdempotencyKeys) ||
+    value.toolIdempotencyKeys.length !== value.toolCalls.length ||
+    value.toolIdempotencyKeys.some(
+      (key) => typeof key !== "string" || key.length === 0,
+    ) ||
+    !Number.isSafeInteger(value.nextToolIndex) ||
+    Number(value.nextToolIndex) < 0 ||
+    Number(value.nextToolIndex) > value.toolCalls.length ||
+    !Number.isSafeInteger(value.toolCallCount) ||
+    Number(value.toolCallCount) < 0
+  ) {
+    return undefined;
+  }
+  return {
+    ...(value.hasOutput ? { output: structuredClone(value.output) } : {}),
+    hasOutput: value.hasOutput,
+    ...(typeof value.finishReason === "string"
+      ? { finishReason: value.finishReason }
+      : {}),
+    toolCalls: structuredClone(value.toolCalls) as unknown as ToolCall[],
+    toolIdempotencyKeys: [...value.toolIdempotencyKeys] as string[],
+    nextToolIndex: Number(value.nextToolIndex),
+    toolCallCount: Number(value.toolCallCount),
+  };
+};
+
+const continuationData = (
+  stepId: string,
+  result: ModelResult,
+  toolIdempotencyKeys: string[],
+  nextToolIndex: number,
+  toolCallCount: number,
+): JsonObject => ({
+  type: "prompt",
+  phase: "model-completed",
+  stepId,
+  hasOutput: result.output !== undefined,
+  ...(result.output !== undefined
+    ? { output: structuredClone(result.output) }
+    : {}),
+  ...(result.finishReason ? { finishReason: result.finishReason } : {}),
+  toolCalls: JSON.parse(JSON.stringify(result.toolCalls ?? [])) as JsonValue,
+  toolIdempotencyKeys,
+  nextToolIndex,
+  toolCallCount,
+});
+
+const resultUsage = (result: ModelResult): ModelUsage | undefined =>
+  [...result.transcript].reverse().find((item) => item.usage)?.usage;
+
 export class PromptStepExecutor implements StepExecutor<PromptStep> {
   readonly type = "prompt" as const;
   readonly #now: () => Date;
   readonly #generateTranscriptId: () => string;
+  readonly #generateToolIdempotencyKey: () => string;
   readonly #defaultMaxToolCalls: number;
 
   constructor(options: PromptStepExecutorOptions = {}) {
     this.#now = options.now ?? (() => new Date());
     this.#generateTranscriptId =
       options.generateTranscriptId ?? (() => globalThis.crypto.randomUUID());
+    this.#generateToolIdempotencyKey =
+      options.generateToolIdempotencyKey ??
+      (() => `agent-runtime:${globalThis.crypto.randomUUID()}`);
     this.#defaultMaxToolCalls = options.defaultMaxToolCalls ?? 25;
   }
 
@@ -370,59 +448,132 @@ export class PromptStepExecutor implements StepExecutor<PromptStep> {
     if (!context.model) {
       throw new Error(`Prompt step ${context.step.id} requires a ModelAdapter`);
     }
+    if (context.tokenBudget && !context.checkpoint) {
+      throw new Error("Budgeted prompt execution requires checkpoint support");
+    }
     const tools = await this.#resolveTools(context);
+    const checkpointPromptRounds =
+      context.tokenBudget != null || tools.length > 0;
     const messages = await initialMessages(context.step, context);
-
-    const transcript: TranscriptItem[] = [];
+    const transcript: TranscriptItem[] = structuredClone(
+      context.resume?.transcript ?? [],
+    );
+    messages.push(
+      ...(await Promise.all(
+        transcriptMessages(transcript).map((message) =>
+          resolveMessageMedia(message, context),
+        ),
+      )),
+    );
     const maxToolCalls =
       context.manifest.limits?.maxToolCallsPerIteration ??
       this.#defaultMaxToolCalls;
-    let toolCallCount = 0;
-    let result: ModelResult;
+    const resumed = parsePromptContinuation(context);
+    let toolCallCount = resumed?.toolCallCount ?? 0;
+    let nextToolIndex = resumed?.nextToolIndex ?? 0;
+    let toolIdempotencyKeys = resumed?.toolIdempotencyKeys ?? [];
+    let result: ModelResult | undefined = resumed
+      ? {
+          ...(resumed.hasOutput ? { output: resumed.output } : {}),
+          transcript: [],
+          toolCalls: resumed.toolCalls,
+          ...(resumed.finishReason
+            ? { finishReason: resumed.finishReason }
+            : {}),
+        }
+      : undefined;
+    let finalResult: ModelResult | undefined;
+
+    const suspendIfExhausted = (): void => {
+      const budget = context.tokenBudget;
+      if (!budget || budget.consumedTokens < budget.maxTotalTokens) return;
+      throw new RunSuspendedError("token-budget", {
+        maxTotalTokens: budget.maxTotalTokens,
+        consumedTokens: budget.consumedTokens,
+        stepId: context.step.id,
+      });
+    };
+
+    const checkpoint = async (
+      current: ModelResult,
+      nextIndex: number,
+    ): Promise<void> => {
+      if (!checkpointPromptRounds || !context.checkpoint) return;
+      await context.checkpoint!({
+        state: structuredClone(context.variables as VariableState),
+        continuation: continuationData(
+          context.step.id,
+          current,
+          toolIdempotencyKeys,
+          nextIndex,
+          toolCallCount,
+        ),
+        transcript,
+      });
+    };
 
     while (true) {
-      enforceInputLimits(context, messages);
-      const providerOptions = modelOptions(context.step, context);
-      const operation = modelOperation(
-        context.signal,
-        context.manifest.limits?.providerTimeoutMs,
-      );
-      const request: ModelRequest = {
-        model: modelKey(context.step, context),
-        messages,
-        ...(tools.length > 0 ? { tools } : {}),
-        ...(context.step.outputSchema
-          ? { outputSchema: context.step.outputSchema }
-          : {}),
-        ...(context.step.maxOutputTokens
-          ? { maxOutputTokens: context.step.maxOutputTokens }
-          : {}),
-        ...(providerOptions ? { providerOptions } : {}),
-        ...(operation.signal ? { signal: operation.signal } : {}),
-      };
-      await context.emit("model.started", {
-        model: request.model,
-        provider: referenceProvider(
-          context.step.model ?? context.manifest.model,
-        ),
-      });
-      try {
-        result = await this.#invokeModel(context, request);
-      } catch (error) {
-        if (operation.didTimeOut()) {
-          throw new ModelTimeoutError(
-            context.manifest.limits!.providerTimeoutMs!,
-          );
+      if (!result) {
+        suspendIfExhausted();
+        enforceInputLimits(context, messages);
+        const providerOptions = modelOptions(context.step, context);
+        const operation = modelOperation(
+          context.signal,
+          context.manifest.limits?.providerTimeoutMs,
+        );
+        const request: ModelRequest = {
+          model: modelKey(context.step, context),
+          messages,
+          ...(tools.length > 0 ? { tools } : {}),
+          ...(context.step.outputSchema
+            ? { outputSchema: context.step.outputSchema }
+            : {}),
+          ...(context.step.maxOutputTokens
+            ? { maxOutputTokens: context.step.maxOutputTokens }
+            : {}),
+          ...(providerOptions ? { providerOptions } : {}),
+          ...(operation.signal ? { signal: operation.signal } : {}),
+        };
+        await context.emit("model.started", {
+          model: request.model,
+          provider: referenceProvider(
+            context.step.model ?? context.manifest.model,
+          ),
+        });
+        try {
+          result = await this.#invokeModel(context, request);
+        } catch (error) {
+          if (operation.didTimeOut()) {
+            throw new ModelTimeoutError(
+              context.manifest.limits!.providerTimeoutMs!,
+            );
+          }
+          throw error;
+        } finally {
+          operation.dispose();
         }
-        throw error;
-      } finally {
-        operation.dispose();
+        transcript.push(...result.transcript);
+        messages.push(...transcriptMessages(result.transcript));
+        await context.emit("model.completed", safeModelCompletedData(result));
+
+        const usage = resultUsage(result);
+        const budgetState = context.tokenBudget
+          ? context.tokenBudget.consume(usage ?? {})
+          : undefined;
+        if (usage) {
+          await context.emit("model.usage", {
+            usage: JSON.parse(JSON.stringify(usage)) as JsonObject,
+            ...(budgetState ?? {}),
+          });
+        }
+        nextToolIndex = 0;
+        toolIdempotencyKeys = (result.toolCalls ?? []).map(() =>
+          this.#generateToolIdempotencyKey(),
+        );
       }
-      transcript.push(...result.transcript);
-      messages.push(...transcriptMessages(result.transcript));
-      await context.emit("model.completed", safeModelCompletedData(result));
 
       const calls = result.toolCalls ?? [];
+      await checkpoint(result, nextToolIndex);
       if (
         isTruncatedFinishReason(result.finishReason) &&
         context.step.completionPolicy?.onTruncation !== "accept"
@@ -432,20 +583,28 @@ export class PromptStepExecutor implements StepExecutor<PromptStep> {
           result.finishReason,
         );
       }
-      if (calls.length === 0) break;
+      if (calls.length === 0) {
+        finalResult = result;
+        break;
+      }
+      suspendIfExhausted();
       if (!context.tools) {
         throw new Error(
           `Model requested tools but no ToolAdapter is configured`,
         );
       }
-      if (toolCallCount + calls.length > maxToolCalls) {
+      if (toolCallCount + (calls.length - nextToolIndex) > maxToolCalls) {
         throw new Error(
           `Prompt step ${context.step.id} exceeded its ${maxToolCalls} tool-call limit`,
         );
       }
 
-      for (const call of calls) {
-        toolCallCount += 1;
+      for (
+        let toolIndex = nextToolIndex;
+        toolIndex < calls.length;
+        toolIndex += 1
+      ) {
+        const call = calls[toolIndex]!;
         await context.emit("model.tool.requested", {
           toolCallId: call.id,
           toolName: call.name,
@@ -458,8 +617,10 @@ export class PromptStepExecutor implements StepExecutor<PromptStep> {
           runId: context.runId,
           stepId: context.step.id,
           variables: context.variables,
+          idempotencyKey: toolIdempotencyKeys[toolIndex]!,
           ...(context.signal ? { signal: context.signal } : {}),
         });
+        toolCallCount += 1;
         const toolTranscript = this.#toolTranscript(toolResult);
         transcript.push(toolTranscript);
         messages.push(
@@ -474,25 +635,34 @@ export class PromptStepExecutor implements StepExecutor<PromptStep> {
           failed: toolResult.error != null,
           ...(toolResult.error ? { errorCode: toolResult.error.code } : {}),
         });
+        await checkpoint(result, toolIndex + 1);
       }
+      result = undefined;
+      nextToolIndex = 0;
+      toolIdempotencyKeys = [];
     }
+
+    if (!finalResult)
+      throw new Error("Prompt execution ended without a result");
 
     if (
       context.step.completionPolicy?.requireOutput &&
-      !hasOutput(result.output)
+      !hasOutput(finalResult.output)
     ) {
       throw new ModelCompletionError(
         `Model response for prompt step ${context.step.id} did not contain required output.`,
-        result.finishReason,
+        finalResult.finishReason,
       );
     }
 
     return {
-      ...(result.output === undefined ? {} : { output: result.output }),
-      ...(context.step.outputVariable && result.output !== undefined
+      ...(finalResult.output === undefined
+        ? {}
+        : { output: finalResult.output }),
+      ...(context.step.outputVariable && finalResult.output !== undefined
         ? {
             statePatch: {
-              set: { [context.step.outputVariable]: result.output },
+              set: { [context.step.outputVariable]: finalResult.output },
             },
           }
         : {}),

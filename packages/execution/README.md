@@ -9,6 +9,9 @@ result, and cancellation.
 process. Remote adapters launch the worker protocol and store provider job data
 in the execution handle.
 
+Execution requests may carry `budget.maxTotalTokens`; resume requests may
+replace that cumulative limit before the worker continues.
+
 Event streams accept an `(attempt, sequence)` cursor and can be reconnected
 without replaying events already observed by the client. Submission
 idempotency is explicit and conflicting reuse is rejected.

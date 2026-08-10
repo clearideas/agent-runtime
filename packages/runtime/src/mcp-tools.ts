@@ -452,7 +452,17 @@ export class ConfiguredMcpToolAdapter implements ToolAdapter {
         false,
         async (client) => {
           const toolResult = await withTimeout(
-            client.callTool({ name: binding.toolName, arguments: call.input }),
+            client.callTool({
+              name: binding.toolName,
+              arguments: call.input,
+              ...(context.idempotencyKey
+                ? {
+                    _meta: {
+                      "agent-runtime/idempotency-key": context.idempotencyKey,
+                    },
+                  }
+                : {}),
+            }),
             binding.connection.toolTimeoutMs,
             `Tool ${call.name}`,
           );

@@ -1,4 +1,5 @@
 import {
+  agentRunBudgetSchema,
   agentRunExecutionSchema,
   parseAgentManifest,
   parseRunCheckpoint,
@@ -126,6 +127,7 @@ export const parseWorkerInvocation = (
   if (request.execution != null) {
     agentRunExecutionSchema.parse(request.execution);
   }
+  if (request.budget != null) agentRunBudgetSchema.parse(request.budget);
   if (request.configuration != null && !isObject(request.configuration)) {
     throw new Error("Worker request configuration must be an object.");
   }

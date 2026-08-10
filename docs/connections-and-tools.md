@@ -219,6 +219,7 @@ export const toolAdapter = {
     }
     const output = await lookupAuthorizedShipment(
       call.input.trackingNumber,
+      context.idempotencyKey,
       context.signal,
     );
     return { callId: call.id, name: call.name, output };
@@ -240,8 +241,15 @@ environment.
 Tool calls execute sequentially in model order. Set
 `limits.maxToolCallsPerIteration` to bound each model/tool cycle.
 
-The tool adapter is responsible for authorization, input validation beyond the
-declared schema, timeouts for non-MCP tools, idempotency, rate limits, and
+Before invocation, Agent Runtime checkpoints the tool intent and supplies a
+stable `context.idempotencyKey`. It reuses that key if recovery repeats the
+logical call, then checkpoints the returned result. Side-effecting application
+adapters must pass the key to an atomic deduplication mechanism in the target
+system. Configured MCP adapters forward it as
+`_meta["agent-runtime/idempotency-key"]`; the MCP server must honor that value.
+
+The tool adapter is also responsible for authorization, input validation
+beyond the declared schema, timeouts for non-MCP tools, rate limits, and
 redaction. Return errors as `ToolResult.error` when the model may recover;
 throw when the entire step must fail.
 
