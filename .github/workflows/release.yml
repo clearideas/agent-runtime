@@ -110,6 +110,10 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           NPM_CONFIG_PROVENANCE: "true"
 
+      - name: Push published package tags
+        if: ${{ steps.changesets.outputs.published == 'true' }}
+        run: git push origin --follow-tags
+
   documentation:
     name: Build and deploy documentation
     if: ${{ always() && !cancelled() && (needs.release.outputs.published == 'true' || inputs.deploy_documentation) }}
