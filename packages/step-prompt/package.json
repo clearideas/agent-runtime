@@ -1,6 +1,6 @@
 {
   "name": "@clearideas/agent-runtime-step-prompt",
-  "version": "0.3.1",
+  "version": "0.4.0",
   "description": "Streaming prompt and ordered tool-call executor for Clear Ideas Agent Runtime.",
   "license": "Apache-2.0",
   "author": "Clear Ideas Incorporated",
@@ -36,8 +36,8 @@
     "postpack": "node ../../scripts/cleanup-package-license.mjs"
   },
   "dependencies": {
-    "@clearideas/agent-runtime-contracts": "0.3.1",
-    "@clearideas/agent-runtime-core": "0.3.1"
+    "@clearideas/agent-runtime-contracts": "0.4.0",
+    "@clearideas/agent-runtime-core": "0.4.0"
   },
   "devDependencies": {
     "typescript": "^7.0.2",

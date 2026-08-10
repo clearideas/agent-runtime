@@ -105,6 +105,7 @@ jobs:
           version: npm run version-packages
           commit: "chore: version packages"
           title: "chore: version packages"
+          createGithubReleases: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           NPM_CONFIG_PROVENANCE: "true"
