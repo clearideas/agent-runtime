@@ -747,7 +747,26 @@ export interface AgentRunManifest {
   runId?: string;
   variables?: AgentVariableOverride[];
   execution?: AgentRunExecution;
+  budget?: AgentRunBudget;
 }
+
+export interface AgentRunBudget {
+  /** Cumulative reported model tokens allowed across all run attempts. */
+  maxTotalTokens: number;
+}
+
+export interface RunBudgetState extends AgentRunBudget {
+  consumedTokens: number;
+}
+
+export const agentRunBudgetSchema: z.ZodType<AgentRunBudget> = z.strictObject({
+  maxTotalTokens: z.number().int().positive().safe(),
+});
+
+export const runBudgetStateSchema: z.ZodType<RunBudgetState> = z.strictObject({
+  maxTotalTokens: z.number().int().positive().safe(),
+  consumedTokens: z.number().int().nonnegative().safe(),
+});
 
 export const AGENT_RUN_EXECUTION_MODES = ["sequential", "parallel"] as const;
 export type AgentRunExecutionMode = (typeof AGENT_RUN_EXECUTION_MODES)[number];
@@ -772,6 +791,7 @@ export const agentRunManifestSchema: z.ZodType<AgentRunManifest> =
     runId: z.string().trim().min(1).optional(),
     variables: agentVariableOverridesSchema.optional(),
     execution: agentRunExecutionSchema.optional(),
+    budget: agentRunBudgetSchema.optional(),
   });
 
 export interface ExecutionCursor {
@@ -814,6 +834,8 @@ export interface RunCheckpoint {
   activeStepArtifacts?: ArtifactRef[];
   /** Executor-owned, JSON-safe continuation data for an active nested step. */
   continuation?: JsonObject;
+  /** Cumulative model-token usage and the effective limit for this run. */
+  budget?: RunBudgetState;
   createdAt: string;
   metadata?: JsonObject;
 }
@@ -982,6 +1004,7 @@ export const runCheckpointSchema = z.strictObject({
   activeStepTranscript: z.array(transcriptItemSchema).optional(),
   activeStepArtifacts: z.array(artifactRefSchema).optional(),
   continuation: jsonObjectSchema.optional(),
+  budget: runBudgetStateSchema.optional(),
   createdAt: z.iso.datetime({ offset: true }),
   metadata: jsonObjectSchema.optional(),
 });

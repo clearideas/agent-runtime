@@ -1,6 +1,7 @@
 import type {
   ArtifactRef,
   AgentManifest,
+  AgentRunBudget,
   AgentRunExecution,
   AgentRunManifest,
   ExecutionCursor,
@@ -8,6 +9,7 @@ import type {
   JsonValue,
   ModelUsage,
   RunCheckpoint,
+  RunBudgetState,
   RunError,
   RunEvent,
   AgentStep,
@@ -19,6 +21,7 @@ import type {
   VariableState,
 } from "@clearideas/agent-runtime-contracts";
 import {
+  agentRunBudgetSchema,
   agentManifestSchema,
   parseAgentRunManifest,
   parseRunCheckpoint,
@@ -69,6 +72,7 @@ export interface StepExecutionContext {
   approvals?: ApprovalAdapter | undefined;
   sandbox?: SandboxAdapter | undefined;
   subRuns?: SubRunAdapter | undefined;
+  tokenBudget?: TokenBudgetContext | undefined;
   emit(type: string, data?: JsonObject): Promise<RunEvent>;
   /** Present when this step is resuming from a nested checkpoint. */
   resume?: {
@@ -89,6 +93,12 @@ export interface StepExecutionContext {
     expression: string,
     variables: Readonly<VariableState>,
   ): Promise<boolean>;
+}
+
+export interface TokenBudgetContext {
+  readonly maxTotalTokens: number;
+  readonly consumedTokens: number;
+  consume(usage: ModelUsage): RunBudgetState;
 }
 
 export interface NestedCheckpointInput {
@@ -152,6 +162,8 @@ export interface RunRequest {
   variables?: AgentVariableOverride[];
   /** Step scheduling for resolved-agent embedding and execution adapters. */
   execution?: AgentRunExecution;
+  /** Replaces the persisted cumulative token limit for this run or resume attempt. */
+  budget?: AgentRunBudget;
   signal?: AbortSignal;
   /** Resume from the latest committed checkpoint for runId. */
   resume?: boolean;
@@ -550,6 +562,60 @@ export const aggregateModelUsage = (
   return result;
 };
 
+const reportedTotalTokens = (usage: ModelUsage): number | undefined => {
+  if (usage.totalTokens != null) return usage.totalTokens;
+  if (usage.inputTokens == null && usage.outputTokens == null) return undefined;
+  return (usage.inputTokens ?? 0) + (usage.outputTokens ?? 0);
+};
+
+const consumedTokensFromTranscript = (transcript: TranscriptItem[]): number =>
+  transcript.reduce((total, item) => {
+    const reported = item.usage ? reportedTotalTokens(item.usage) : undefined;
+    return total + (reported ?? 0);
+  }, 0);
+
+class RunTokenBudget implements TokenBudgetContext {
+  readonly maxTotalTokens: number;
+  #consumedTokens: number;
+
+  constructor(state: RunBudgetState) {
+    this.maxTotalTokens = state.maxTotalTokens;
+    this.#consumedTokens = state.consumedTokens;
+  }
+
+  get consumedTokens(): number {
+    return this.#consumedTokens;
+  }
+
+  consume(usage: ModelUsage): RunBudgetState {
+    const tokens = reportedTotalTokens(usage);
+    if (tokens == null) {
+      throw new Error(
+        "A budgeted model call must report totalTokens or inputTokens/outputTokens",
+      );
+    }
+    if (!Number.isSafeInteger(tokens) || tokens < 0) {
+      throw new Error(
+        "Budgeted model token usage must be a non-negative safe integer",
+      );
+    }
+    this.#consumedTokens += tokens;
+    if (!Number.isSafeInteger(this.#consumedTokens)) {
+      throw new Error(
+        "Cumulative model token usage exceeds the safe integer range",
+      );
+    }
+    return this.snapshot();
+  }
+
+  snapshot(): RunBudgetState {
+    return {
+      maxTotalTokens: this.maxTotalTokens,
+      consumedTokens: this.#consumedTokens,
+    };
+  }
+}
+
 /**
  * Persistence-neutral Agent Runtime with ordered commits. Sequential runs
  * checkpoint each step; parallel runs checkpoint dependency-safe prompt waves.
@@ -564,6 +630,7 @@ export class AgentRuntime {
   readonly #eventTails = new Map<string, Promise<void>>();
   readonly #checkpointSequences = new Map<string, number>();
   readonly #runAttempts = new Map<string, number>();
+  readonly #runTokenBudgets = new Map<string, RunTokenBudget>();
   readonly #activeRunIds = new Set<string>();
 
   constructor(dependencies: AgentRuntimeDependencies) {
@@ -592,10 +659,11 @@ export class AgentRuntime {
         request.manifestReference ||
         request.variables ||
         request.runId ||
-        request.execution
+        request.execution ||
+        request.budget
       ) {
         throw new Error(
-          "agentRunManifest cannot be combined with resume, manifest, manifestReference, variables, runId, or execution",
+          "agentRunManifest cannot be combined with resume, manifest, manifestReference, variables, runId, execution, or budget",
         );
       }
       const agentRunManifest = parseAgentRunManifest(request.agentRunManifest);
@@ -610,6 +678,7 @@ export class AgentRuntime {
         ...(agentRunManifest.execution
           ? { execution: agentRunManifest.execution }
           : {}),
+        ...(agentRunManifest.budget ? { budget: agentRunManifest.budget } : {}),
       };
     }
     if (normalizedRequest.resume && !normalizedRequest.runId) {
@@ -635,6 +704,7 @@ export class AgentRuntime {
       this.#eventTails.delete(runId);
       this.#checkpointSequences.delete(runId);
       this.#runAttempts.delete(runId);
+      this.#runTokenBudgets.delete(runId);
     }
   }
 
@@ -676,6 +746,9 @@ export class AgentRuntime {
         `Manifest declares ${manifest.steps.length} steps, exceeding its ${manifest.limits.maxSteps}-step limit`,
       );
     }
+    const requestedBudget = request.budget
+      ? agentRunBudgetSchema.parse(request.budget)
+      : undefined;
     const latestCheckpoint = request.resume
       ? await this.#dependencies.runStore.loadLatestCheckpoint(runId)
       : null;
@@ -696,6 +769,20 @@ export class AgentRuntime {
         (await this.#manifestHasher.hash(manifest))
     ) {
       throw new Error(`Manifest does not match checkpoint for run ${runId}`);
+    }
+
+    const effectiveBudget = requestedBudget ?? latestCheckpoint?.budget;
+    if (effectiveBudget) {
+      const consumedTokens =
+        latestCheckpoint?.budget?.consumedTokens ??
+        consumedTokensFromTranscript(latestCheckpoint?.transcript ?? []);
+      this.#runTokenBudgets.set(
+        runId,
+        new RunTokenBudget({
+          maxTotalTokens: effectiveBudget.maxTotalTokens,
+          consumedTokens,
+        }),
+      );
     }
 
     const startedAt =
@@ -766,7 +853,9 @@ export class AgentRuntime {
       const executionWaves = buildExecutionWaves(
         manifest,
         startStepIndex,
-        request.execution,
+        this.#runTokenBudgets.has(runId)
+          ? { mode: "sequential" }
+          : request.execution,
         this.#dependencies.maxParallelSteps ?? 8,
       );
       for (const wave of executionWaves) {
@@ -1025,6 +1114,7 @@ export class AgentRuntime {
         approvals: this.#dependencies.approvals,
         sandbox: this.#dependencies.sandbox,
         subRuns: this.#dependencies.subRuns,
+        tokenBudget: this.#runTokenBudgets.get(input.runId),
         emit: (type, data) =>
           this.#emit(input.runId, type, data, step.id, step.id),
         ...(input.latestCheckpoint?.cursor.stepIndex === input.stepIndex
@@ -1224,6 +1314,7 @@ export class AgentRuntime {
       approvals: this.#dependencies.approvals,
       sandbox: this.#dependencies.sandbox,
       subRuns: this.#dependencies.subRuns,
+      tokenBudget: this.#runTokenBudgets.get(input.runId),
       emit: (type, data) =>
         this.#emit(input.runId, type, data, input.step.id, input.stepPath),
       ...(isResumingPath && input.latestCheckpoint
@@ -1321,6 +1412,9 @@ export class AgentRuntime {
         : {}),
       ...(input.continuation
         ? { continuation: structuredClone(input.continuation) }
+        : {}),
+      ...(this.#runTokenBudgets.get(input.runId)
+        ? { budget: this.#runTokenBudgets.get(input.runId)!.snapshot() }
         : {}),
       createdAt: this.#clock.now().toISOString(),
     };

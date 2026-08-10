@@ -44,6 +44,7 @@ The complete documentation is available at
 - Native authorization boundaries for credentials, connections, and tools
 - Native sandbox contracts for code execution and generated artifacts
 - Durable checkpoints, suspension, fresh-process resume, and cancellation
+- Cumulative model-token budgets with durable suspension and raised-limit resume
 - Local, child-process, and remote execution engines
 - Host-resolved Modal Sandbox networking with blocked, direct-domain, and
   proxy-only modes

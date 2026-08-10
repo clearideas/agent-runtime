@@ -70,6 +70,8 @@ variables:
 execution:
   mode: parallel
   maxConcurrency: 4
+budget:
+  maxTotalTokens: 100000
 ```
 
 | Field                      | Type                    | Notes                                               |
@@ -80,6 +82,7 @@ execution:
 | `variables`                | variable override array | optional runtime values                             |
 | `execution.mode`           | sequential or parallel  | optional; defaults to sequential                    |
 | `execution.maxConcurrency` | integer from 1 to 64    | optional requested limit; the host may impose a cap |
+| `budget.maxTotalTokens`    | positive integer        | optional cumulative model-token limit               |
 
 The TypeScript shape is:
 
@@ -88,6 +91,7 @@ The TypeScript shape is:
   schemaVersion: '1.0',
   agent: { ref: 'release-brief.agent.yaml' },
   execution: { mode: 'parallel', maxConcurrency: 4 },
+  budget: { maxTotalTokens: 100000 },
   variables: [
     { key: 'audience', value: 'partners' },
     { key: 'style', value: { tone: 'direct', maxWords: 120 } },
@@ -99,6 +103,15 @@ Each override contains only `key` and `value`. Keys must match declarations
 exactly. Object overrides replace the complete declared object; values are not
 deep-merged. Resume requests restore checkpointed state and do not accept new
 overrides.
+
+`budget.maxTotalTokens` is cumulative across resume attempts. Agent Runtime
+persists the effective limit and consumed reported tokens in every checkpoint.
+Before another model call, a run whose consumed tokens meet or exceed its limit
+suspends. Resume may provide a replacement limit; omitting it reuses the
+persisted limit, and a limit that is not higher than consumed usage suspends
+again. Budgeted model adapters must report `totalTokens`, or both `inputTokens`
+and `outputTokens`. Budgeted runs execute sequentially so concurrent calls
+cannot overspend one shared limit.
 
 ## Model reference
 

@@ -14,3 +14,9 @@ The runtime resolves manifest variable reads and outputs into dependency-aware
 execution waves. Runs are sequential by default. Parallel mode concurrently
 schedules eligible tool-free prompt branches and commits each wave in manifest
 order. Stateful steps and tool calls remain sequential.
+
+Run requests may set `budget.maxTotalTokens`. The runtime checkpoints the
+effective limit and cumulative provider-reported usage across attempts, and
+suspends before another model or pending tool call when the limit is exhausted.
+Resume may replace the limit with a higher value. Budgeted execution is
+sequential.

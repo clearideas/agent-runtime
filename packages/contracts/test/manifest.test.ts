@@ -388,6 +388,7 @@ describe("agent run manifest contracts", () => {
         runId: "release-brief-42",
         variables: [{ key: "audience", value: "partners" }],
         execution: { mode: "parallel", maxConcurrency: 4 },
+        budget: { maxTotalTokens: 10_000 },
       }),
     ).toEqual({
       schemaVersion: "1.0",
@@ -395,6 +396,7 @@ describe("agent run manifest contracts", () => {
       runId: "release-brief-42",
       variables: [{ key: "audience", value: "partners" }],
       execution: { mode: "parallel", maxConcurrency: 4 },
+      budget: { maxTotalTokens: 10_000 },
     });
   });
 
@@ -420,6 +422,25 @@ describe("agent run manifest contracts", () => {
         execution: { mode: "graph" },
       }).success,
     ).toBe(false);
+  });
+
+  it("requires a positive safe-integer token budget", () => {
+    expect(
+      safeParseAgentRunManifest({
+        schemaVersion: "1.0",
+        agent: { ref: "release-brief" },
+        budget: { maxTotalTokens: 1 },
+      }).success,
+    ).toBe(true);
+    for (const maxTotalTokens of [0, -1, 1.5, Number.MAX_SAFE_INTEGER + 1]) {
+      expect(
+        safeParseAgentRunManifest({
+          schemaVersion: "1.0",
+          agent: { ref: "release-brief" },
+          budget: { maxTotalTokens },
+        }).success,
+      ).toBe(false);
+    }
   });
 
   it("requires an agent reference and rejects agent-definition fields", () => {
@@ -456,6 +477,7 @@ describe("runner checkpoint contracts", () => {
         ...checkpoint,
         activeStepTranscript: [],
         activeStepArtifacts: [],
+        budget: { maxTotalTokens: 1_000, consumedTokens: 200 },
       }),
     ).toMatchObject(checkpoint);
   });

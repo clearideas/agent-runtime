@@ -59,6 +59,8 @@ agent:
 execution:
   mode: parallel
   maxConcurrency: 4
+budget:
+  maxTotalTokens: 100000
 variables:
   - key: topic
     value: Remote MCP clients
@@ -72,6 +74,12 @@ each wave in manifest order. Tool-enabled prompts, loops, approvals, webhooks,
 code, sub-runs, and steps with runtime extensions remain ordered. Tool calls
 within a prompt step also remain ordered.
 
+An optional `budget.maxTotalTokens` limits cumulative reported model tokens
+across all attempts. Once consumed usage reaches the limit, Agent Runtime saves
+the active prompt continuation and suspends before another model call. Because
+the budget is shared, budgeted runs execute sequentially even when parallel
+mode is requested.
+
 Use the embedding API to start the same run:
 
 ```ts
@@ -80,6 +88,7 @@ await agentRuntime.run({
     schemaVersion: "1.0",
     agent: { ref: "release-brief.agent.yaml" },
     execution: { mode: "parallel", maxConcurrency: 4 },
+    budget: { maxTotalTokens: 100000 },
     variables: [{ key: "audience", value: "partners" }],
   },
 });

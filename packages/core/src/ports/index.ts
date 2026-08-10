@@ -165,6 +165,8 @@ export interface ToolExecutionContext {
   runId: string;
   stepId: string;
   variables: Readonly<VariableState>;
+  /** Stable across recovery attempts for one logical tool call. */
+  idempotencyKey?: string;
   signal?: AbortSignal;
 }
 

@@ -104,7 +104,12 @@ describe("configured MCP tool adapter", () => {
     await expect(
       adapter.executeTool(
         { id: "call-1", name: "docs__search", input: { query: "terms" } },
-        { runId: "run-1", stepId: "answer", variables: {} },
+        {
+          runId: "run-1",
+          stepId: "answer",
+          variables: {},
+          idempotencyKey: "tool-key-1",
+        },
       ),
     ).resolves.toMatchObject({
       callId: "call-1",
@@ -114,6 +119,7 @@ describe("configured MCP tool adapter", () => {
     expect(mcp.callTool).toHaveBeenCalledWith({
       name: "search",
       arguments: { query: "terms" },
+      _meta: { "agent-runtime/idempotency-key": "tool-key-1" },
     });
   });
 

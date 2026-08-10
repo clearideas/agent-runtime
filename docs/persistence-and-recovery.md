@@ -39,7 +39,8 @@ A checkpoint contains:
 - execution cursor, including nested loop position;
 - variable state and completed step results;
 - transcript and artifact references;
-- active nested-step content and opaque continuation data.
+- active nested-step content and opaque continuation data;
+- the effective token limit and cumulative consumed tokens, when budgeted.
 
 Resume rejects a manifest whose hash differs from the checkpoint. Publish
 manifest changes as a new definition.
@@ -50,6 +51,7 @@ CLI:
 
 ```sh
 agent-runtime resume run_123 \
+  --max-total-tokens 150000 \
   --store-driver sqlite \
   --store ./.agent-runtime/runs.sqlite \
   --stream
@@ -62,6 +64,7 @@ await agentRuntime.run({
   runId: "run_123",
   resume: true,
   manifest,
+  budget: { maxTotalTokens: 150000 },
 });
 ```
 
@@ -69,11 +72,20 @@ Taking over a run still marked `running` requires
 `allowRunningTakeover: true` and confirmation that the previous lease or
 execution owner has expired.
 
+For a token-budget suspension, the resume limit replaces the persisted limit;
+it is not an additional allowance. Omitting the limit reuses the prior value.
+If the effective limit is not greater than cumulative consumed tokens, the run
+suspends again without issuing another model request or pending tool call.
+
 ## Suspension
 
-Approval and sub-run adapters can suspend a run. The checkpoint remains
-available while compute is released. Resume after the approval or child run is
-resolved.
+Approval and sub-run adapters, and cumulative token budgets, can suspend a run.
+The checkpoint remains available while compute is released. Prompt
+continuations retain model responses, pending tool intent, and completed tool
+results. Each logical tool call receives a stable idempotency key that is reused
+after recovery. Side-effecting adapters must atomically honor that key in the
+external system; checkpointing alone cannot provide exactly-once effects across
+the external effect/response boundary.
 
 ## Reconciliation
 

@@ -60,7 +60,13 @@ describe("AgentRuntime", () => {
       stepExecutors: [
         {
           type: "prompt",
-          execute: async ({ variables }) => ({ output: variables.audience }),
+          execute: async ({ variables, tokenBudget }) => {
+            expect(tokenBudget).toMatchObject({
+              maxTotalTokens: 1_000,
+              consumedTokens: 0,
+            });
+            return { output: variables.audience };
+          },
         },
       ],
     });
@@ -72,6 +78,7 @@ describe("AgentRuntime", () => {
           agent: { ref: "agents/release-brief.agent.yaml" },
           runId: "release-run-1",
           variables: [{ key: "audience", value: "partners" }],
+          budget: { maxTotalTokens: 1_000 },
         },
       }),
     ).resolves.toMatchObject({
@@ -823,6 +830,71 @@ describe("AgentRuntime", () => {
     expect(await store.loadRun("run-suspend")).toMatchObject({
       status: "completed",
       attempt: 2,
+    });
+  });
+
+  it("persists a cumulative token budget and requires a higher resume limit", async () => {
+    const store = new MemoryRunStore();
+    let executions = 0;
+    const executor: StepExecutor = {
+      type: "prompt",
+      execute: async (context) => {
+        executions += 1;
+        const budget = context.tokenBudget;
+        expect(budget).toBeDefined();
+        if (budget!.consumedTokens >= budget!.maxTotalTokens) {
+          throw new RunSuspendedError("token-budget", {
+            maxTotalTokens: budget!.maxTotalTokens,
+            consumedTokens: budget!.consumedTokens,
+          });
+        }
+        if (!context.resume) {
+          budget!.consume({ totalTokens: 10 });
+          await context.checkpoint!({
+            state: { count: 1 },
+            continuation: { phase: "after-model" },
+          });
+          throw new RunSuspendedError("token-budget");
+        }
+        return { output: "continued" };
+      },
+    };
+
+    const runner = () =>
+      new AgentRuntime({
+        runStore: store,
+        stepExecutors: [executor],
+        idGenerator: new SequenceIdGenerator(),
+      });
+
+    await expect(
+      runner().run({
+        manifest: manifest([step("budgeted")]),
+        runId: "run-budget",
+        budget: { maxTotalTokens: 10 },
+      }),
+    ).rejects.toMatchObject({ reason: "token-budget" });
+    expect(store.checkpoints.get("run-budget")?.at(-1)?.budget).toEqual({
+      maxTotalTokens: 10,
+      consumedTokens: 10,
+    });
+
+    await expect(
+      runner().run({ runId: "run-budget", resume: true }),
+    ).rejects.toMatchObject({ reason: "token-budget" });
+    expect(executions).toBe(2);
+
+    await expect(
+      runner().run({
+        runId: "run-budget",
+        resume: true,
+        budget: { maxTotalTokens: 11 },
+      }),
+    ).resolves.toMatchObject({ output: "continued" });
+    expect(executions).toBe(3);
+    expect(store.checkpoints.get("run-budget")?.at(-1)?.budget).toEqual({
+      maxTotalTokens: 11,
+      consumedTokens: 10,
     });
   });
 

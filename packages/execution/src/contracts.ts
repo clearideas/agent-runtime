@@ -1,5 +1,6 @@
 import type {
   AgentManifest,
+  AgentRunBudget,
   AgentRunExecution,
   JsonObject,
   RunCheckpoint,
@@ -40,6 +41,7 @@ export interface ExecutionRequest {
   variables?: AgentVariableOverride[];
   /** Step scheduling selected by the agent run manifest. */
   execution?: AgentRunExecution;
+  budget?: AgentRunBudget;
   idempotencyKey?: string;
   timeoutMs?: number;
   /** Inline declarative runtime configuration for self-contained remote invocations. */
