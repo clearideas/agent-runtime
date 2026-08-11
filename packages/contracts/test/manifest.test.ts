@@ -223,6 +223,50 @@ describe("agent manifest contracts", () => {
     expect(manifest.steps.map((step) => step.type)).toEqual(["loop", "loop"]);
   });
 
+  it("rejects excessive manifest nesting with a controlled validation error", () => {
+    let nestedStep: Record<string, unknown> = {
+      id: "leaf",
+      type: "approval",
+      prompt: "Approve",
+    };
+    for (let depth = 0; depth < 2_000; depth += 1) {
+      nestedStep = {
+        id: `loop-${depth}`,
+        type: "loop",
+        loop: {},
+        steps: [nestedStep],
+      };
+    }
+
+    const parsed = safeParseAgentManifest({
+      schemaVersion: "1.0",
+      steps: [nestedStep],
+    });
+
+    expect(parsed.success).toBe(false);
+    if (!parsed.success) {
+      expect(parsed.error.issues[0]?.message).toContain(
+        "manifest structure depth limit",
+      );
+    }
+
+    let nestedMetadata: Record<string, unknown> = {};
+    for (let depth = 0; depth < 2_000; depth += 1) {
+      nestedMetadata = { nested: nestedMetadata };
+    }
+    const metadataResult = safeParseAgentManifest({
+      schemaVersion: "1.0",
+      steps: [],
+      metadata: nestedMetadata,
+    });
+    expect(metadataResult.success).toBe(false);
+    if (!metadataResult.success) {
+      expect(metadataResult.error.issues[0]?.message).toContain(
+        "manifest structure depth limit",
+      );
+    }
+  });
+
   it("requires an exact supported schema version", () => {
     expect(
       safeParseAgentManifest({

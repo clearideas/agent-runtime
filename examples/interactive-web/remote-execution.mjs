@@ -180,7 +180,7 @@ export const createRemoteExecution = (options) => {
     setImmediate(() => {
       void executeWorkerInvocation(invocation, {
         storeDirectory: path.join(options.dataDirectory, executionId),
-        allowRequestConfiguration: true,
+        resolveConfigReference: options.resolveConfigReference,
         environment: options.environment ?? {},
         modelPolicy: options.modelPolicy,
         toolOptions: options.toolOptions,

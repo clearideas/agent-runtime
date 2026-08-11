@@ -1046,6 +1046,26 @@ export interface PortableWorkerOptions {
   onMessage(message: WorkerMessage): void | Promise<void>;
 }
 
+const assertSafeInlineWorkerConfiguration = (
+  config: AgentRuntimeConfig,
+): void => {
+  const customDestinationProvider = Object.entries(config.providers).find(
+    ([, definition]) => definition.baseURL != null,
+  );
+  if (customDestinationProvider) {
+    throw new Error(
+      `Inline worker configuration cannot define provider baseURL values; use a trusted configReference for provider "${customDestinationProvider[0]}".`,
+    );
+  }
+  if (Object.keys(config.connections).length > 0) {
+    throw new Error(
+      "Inline worker configuration cannot define MCP connections; use a trusted configReference.",
+    );
+  }
+};
+
+const MAXIMUM_WORKER_INPUT_BYTES = 16 * 1024 * 1024;
+
 class PortableWorkerEventSink implements EventSink {
   readonly #onMessage: PortableWorkerOptions["onMessage"];
 
@@ -1125,6 +1145,9 @@ export const executeWorkerInvocation = async (
               );
             })()
         : await resolveConfig(undefined, process.cwd());
+  if (requestSuppliedConfiguration) {
+    assertSafeInlineWorkerConfiguration(config);
+  }
   const configuredRuntime = composeRuntime(
     manifest,
     config,
@@ -1253,7 +1276,14 @@ export const executeWorkerInvocation = async (
 const readStandardInput = async (): Promise<string> => {
   process.stdin.setEncoding("utf8");
   let source = "";
-  for await (const chunk of process.stdin) source += chunk;
+  let byteLength = 0;
+  for await (const chunk of process.stdin) {
+    byteLength += Buffer.byteLength(chunk, "utf8");
+    if (byteLength > MAXIMUM_WORKER_INPUT_BYTES) {
+      throw new Error("Worker invocation exceeds the input size limit.");
+    }
+    source += chunk;
+  }
   return source;
 };
 

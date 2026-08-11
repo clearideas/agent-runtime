@@ -34,6 +34,7 @@ const highlightDirectory = path.dirname(
   require.resolve("@highlightjs/cdn-assets/package.json"),
 );
 const agentReference = "interactive-brief.agent.yaml";
+const runtimeConfigReference = "interactive-web-runtime";
 const context7Endpoint = "https://mcp.context7.com/mcp";
 
 const builtInProviderDrivers = {
@@ -299,6 +300,12 @@ export const createExampleApp = async (overrides = {}) => {
     workerToken: crypto.randomUUID(),
     callbackToken: crypto.randomUUID(),
     dataDirectory: path.join(options.dataDirectory, "remote"),
+    resolveConfigReference(reference) {
+      if (reference !== runtimeConfigReference) {
+        throw new Error("Runtime configuration is not authorized.");
+      }
+      return agentRuntimeConfig;
+    },
     environment: Object.fromEntries(
       [
         options.apiKeyEnvironment ??
@@ -389,7 +396,7 @@ export const createExampleApp = async (overrides = {}) => {
         runId,
         variables: agentRunManifest.variables,
         execution: agentRunManifest.execution,
-        configuration: json(agentRuntimeConfig),
+        configReference: runtimeConfigReference,
       });
       activeExecution = { client, handle };
       if (abortController.signal.aborted) await client.cancel(handle);
