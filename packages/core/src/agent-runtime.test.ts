@@ -405,6 +405,24 @@ describe("AgentRuntime", () => {
 
     await expect(
       runner.run({
+        runId: "too-many-nested-steps",
+        manifest: {
+          ...manifest([
+            {
+              id: "outer",
+              type: "loop",
+              loop: { maxIterations: 1 },
+              steps: [step("nested")],
+            },
+          ]),
+          limits: { maxSteps: 1 },
+        },
+      }),
+    ).rejects.toThrow("declares 2 steps, exceeding its 1-step limit");
+    expect(await store.loadRun("too-many-nested-steps")).toBeNull();
+
+    await expect(
+      runner.run({
         runId: "output-too-large",
         manifest: {
           ...manifest([step("only")]),

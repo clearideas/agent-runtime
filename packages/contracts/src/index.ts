@@ -685,7 +685,58 @@ const validateSiblingStepIds = (
   });
 };
 
-export const agentManifestSchema: z.ZodType<AgentManifest> = z
+const MAXIMUM_AGENT_MANIFEST_STRUCTURE_DEPTH = 128;
+const MAXIMUM_AGENT_MANIFEST_STRUCTURE_NODES = 100_000;
+
+const agentManifestStructureIssue = (input: unknown): string | undefined => {
+  const ancestors = new WeakSet<object>();
+  const stack: Array<{
+    value: unknown;
+    depth: number;
+    exiting: boolean;
+  }> = [{ value: input, depth: 0, exiting: false }];
+  let nodes = 0;
+
+  while (stack.length > 0) {
+    const frame = stack.pop()!;
+    if (frame.exiting) {
+      ancestors.delete(frame.value as object);
+      continue;
+    }
+
+    nodes += 1;
+    if (nodes > MAXIMUM_AGENT_MANIFEST_STRUCTURE_NODES) {
+      return `Agent manifest exceeds the ${MAXIMUM_AGENT_MANIFEST_STRUCTURE_NODES}-node structure limit.`;
+    }
+    if (frame.depth > MAXIMUM_AGENT_MANIFEST_STRUCTURE_DEPTH) {
+      return `Agent manifest exceeds the ${MAXIMUM_AGENT_MANIFEST_STRUCTURE_DEPTH}-level manifest structure depth limit.`;
+    }
+    if (frame.value == null || typeof frame.value !== "object") continue;
+    if (ancestors.has(frame.value)) {
+      return "Agent manifest cannot contain cyclic data.";
+    }
+
+    const children = Array.isArray(frame.value)
+      ? frame.value
+      : Object.values(frame.value);
+    if (nodes + children.length > MAXIMUM_AGENT_MANIFEST_STRUCTURE_NODES) {
+      return `Agent manifest exceeds the ${MAXIMUM_AGENT_MANIFEST_STRUCTURE_NODES}-node structure limit.`;
+    }
+    ancestors.add(frame.value);
+    stack.push({ ...frame, exiting: true });
+    for (let index = children.length - 1; index >= 0; index -= 1) {
+      stack.push({
+        value: children[index],
+        depth: frame.depth + 1,
+        exiting: false,
+      });
+    }
+  }
+
+  return undefined;
+};
+
+const agentManifestObjectSchema: z.ZodType<AgentManifest> = z
   .object({
     schemaVersion: z.literal(AGENT_MANIFEST_SCHEMA_VERSION),
     id: z.string().optional(),
@@ -738,6 +789,17 @@ export const agentManifestSchema: z.ZodType<AgentManifest> = z
       variableKeys.add(normalizedKey);
     });
   });
+
+export const agentManifestSchema: z.ZodType<AgentManifest> = z.preprocess(
+  (input, context) => {
+    const issue = agentManifestStructureIssue(input);
+    if (issue) {
+      context.addIssue({ code: "custom", message: issue, fatal: true });
+    }
+    return input;
+  },
+  agentManifestObjectSchema,
+) as z.ZodType<AgentManifest>;
 
 export interface AgentRunManifest {
   schemaVersion: typeof AGENT_RUN_MANIFEST_SCHEMA_VERSION;

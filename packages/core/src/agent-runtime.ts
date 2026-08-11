@@ -48,6 +48,17 @@ import { cryptoIdGenerator, systemClock } from "./ports/index.js";
 import { buildExecutionWaves } from "./execution-plan.js";
 import { applyStatePatch, snapshotState } from "./state.js";
 
+const countManifestSteps = (steps: readonly AgentStep[]): number => {
+  const pending = [...steps];
+  let count = 0;
+  while (pending.length > 0) {
+    const step = pending.pop()!;
+    count += 1;
+    if (step.type === "loop") pending.push(...step.steps);
+  }
+  return count;
+};
+
 export interface StepExecutionResult {
   output?: JsonValue;
   statePatch?: StatePatch;
@@ -738,12 +749,13 @@ export class AgentRuntime {
       throw new Error(`Agent manifest is invalid: ${reasons}`);
     }
     const manifest = parsedManifest.data;
+    const manifestStepCount = countManifestSteps(manifest.steps);
     if (
       manifest.limits?.maxSteps != null &&
-      manifest.steps.length > manifest.limits.maxSteps
+      manifestStepCount > manifest.limits.maxSteps
     ) {
       throw new Error(
-        `Manifest declares ${manifest.steps.length} steps, exceeding its ${manifest.limits.maxSteps}-step limit`,
+        `Manifest declares ${manifestStepCount} steps, exceeding its ${manifest.limits.maxSteps}-step limit`,
       );
     }
     const requestedBudget = request.budget

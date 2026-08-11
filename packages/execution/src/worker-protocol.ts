@@ -23,6 +23,10 @@ export interface WorkerInvocation {
   request: ExecutionRequest | ResumeExecutionRequest;
 }
 
+export const MAXIMUM_WORKER_INVOCATION_BYTES = 16 * 1024 * 1024;
+const MAXIMUM_WORKER_INVOCATION_STRUCTURE_DEPTH = 128;
+const MAXIMUM_WORKER_INVOCATION_STRUCTURE_NODES = 100_000;
+
 export type WorkerMessage =
   | {
       protocolVersion: typeof EXECUTION_PROTOCOL_VERSION;
@@ -65,6 +69,37 @@ export const serializeWorkerMessage = (message: WorkerMessage): string =>
 const isObject = (value: unknown): value is Record<string, unknown> =>
   value != null && typeof value === "object" && !Array.isArray(value);
 
+const assertWorkerInvocationStructure = (input: unknown): void => {
+  const seen = new WeakSet<object>();
+  const pending: Array<{ value: unknown; depth: number }> = [
+    { value: input, depth: 0 },
+  ];
+  let nodes = 0;
+
+  while (pending.length > 0) {
+    const { value, depth } = pending.pop()!;
+    nodes += 1;
+    if (nodes > MAXIMUM_WORKER_INVOCATION_STRUCTURE_NODES) {
+      throw new Error("Worker invocation exceeds the structure size limit.");
+    }
+    if (depth > MAXIMUM_WORKER_INVOCATION_STRUCTURE_DEPTH) {
+      throw new Error("Worker invocation exceeds the structure depth limit.");
+    }
+    if (value == null || typeof value !== "object") continue;
+    if (seen.has(value)) {
+      throw new Error("Worker invocation must be a non-cyclic JSON tree.");
+    }
+    seen.add(value);
+    const children = Array.isArray(value) ? value : Object.values(value);
+    if (nodes + children.length > MAXIMUM_WORKER_INVOCATION_STRUCTURE_NODES) {
+      throw new Error("Worker invocation exceeds the structure size limit.");
+    }
+    for (let index = children.length - 1; index >= 0; index -= 1) {
+      pending.push({ value: children[index], depth: depth + 1 });
+    }
+  }
+};
+
 const requireNonEmptyString = (value: unknown, label: string): void => {
   if (typeof value !== "string" || !value.trim())
     throw new Error(`${label} must be a non-empty string.`);
@@ -105,8 +140,15 @@ const validateResult = (value: unknown): void => {
 export const parseWorkerInvocation = (
   input: string | unknown,
 ): WorkerInvocation => {
+  if (
+    typeof input === "string" &&
+    new TextEncoder().encode(input).byteLength > MAXIMUM_WORKER_INVOCATION_BYTES
+  ) {
+    throw new Error("Worker invocation exceeds the input size limit.");
+  }
   const value =
     typeof input === "string" ? (JSON.parse(input) as unknown) : input;
+  assertWorkerInvocationStructure(value);
   if (!isObject(value)) throw new Error("Worker invocation must be an object.");
   if (value.protocolVersion !== EXECUTION_PROTOCOL_VERSION) {
     throw new Error(

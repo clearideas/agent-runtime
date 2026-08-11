@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { EXECUTION_PROTOCOL_VERSION } from "./contracts.js";
 import {
   createWorkerInvocation,
+  MAXIMUM_WORKER_INVOCATION_BYTES,
   parseWorkerInvocation,
   parseWorkerMessage,
   serializeWorkerMessage,
@@ -87,6 +88,34 @@ describe("portable worker protocol", () => {
         },
       }),
     ).toThrow();
+  });
+
+  it("rejects oversized serialized invocations before JSON parsing", () => {
+    expect(() =>
+      parseWorkerInvocation(" ".repeat(MAXIMUM_WORKER_INVOCATION_BYTES + 1)),
+    ).toThrow("Worker invocation exceeds the input size limit");
+  });
+
+  it("rejects deeply nested invocation values before recursive validation", () => {
+    let nestedValue: Record<string, unknown> = {};
+    for (let depth = 0; depth < 2_000; depth += 1) {
+      nestedValue = { nested: nestedValue };
+    }
+
+    expect(() =>
+      parseWorkerInvocation({
+        protocolVersion: EXECUTION_PROTOCOL_VERSION,
+        action: "run",
+        request: {
+          manifest: {
+            schemaVersion: "1.0",
+            variables: [{ key: "payload", type: "json" }],
+            steps: [],
+          },
+          variables: [{ key: "payload", value: nestedValue }],
+        },
+      }),
+    ).toThrow("Worker invocation exceeds the structure depth limit");
   });
 
   it("serializes NDJSON messages and rejects protocol drift", () => {
