@@ -42,7 +42,7 @@
   "devDependencies": {
     "@clearideas/agent-runtime-condition-jexl": "0.4.1",
     "typescript": "^7.0.2",
-    "vitest": "^4.0.18"
+    "vitest": "^4.1.11"
   },
   "engines": {
     "node": ">=24"
