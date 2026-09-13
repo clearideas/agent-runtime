@@ -44,8 +44,8 @@ jobs:
       - name: Build documentation site
         run: npm run docs:build
 
-      - name: Audit production dependencies
-        run: npm run audit:production
+      - name: Audit production and development dependencies
+        run: npm run audit:dependencies
 
       - name: Confirm clean generated state
         shell: bash

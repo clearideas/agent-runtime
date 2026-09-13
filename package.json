@@ -18,8 +18,9 @@
     "check:metadata": "node scripts/check-package-metadata.mjs",
     "check:tarballs": "node scripts/check-tarballs.mjs",
     "audit:production": "npm audit --omit=dev --audit-level=high",
-    "format": "prettier --write \"package.json\" \"tsconfig.json\" \"*.md\" \".changeset/**/*.{json,md}\" \".github/**/*.{yml,yaml,md}\" \"docs/**/*.{json,md}\" \"docs/.vitepress/**/*.{ts,js,css}\" \"examples/**/*.{json,md,ts,js,mjs,css,html}\" \"packages/**/*.{json,md,ts,js,mjs,cjs}\" \"scripts/*.mjs\"",
-    "format:check": "prettier --check \"package.json\" \"tsconfig.json\" \"*.md\" \".changeset/**/*.{json,md}\" \".github/**/*.{yml,yaml,md}\" \"docs/**/*.{json,md}\" \"docs/.vitepress/**/*.{ts,js,css}\" \"examples/**/*.{json,md,ts,js,mjs,css,html}\" \"packages/**/*.{json,md,ts,js,mjs,cjs}\" \"scripts/*.mjs\"",
+    "audit:dependencies": "npm audit --audit-level=moderate",
+    "format": "prettier --write \"package.json\" \"tsconfig.json\" \"*.md\" \".changeset/**/*.{json,md}\" \".github/**/*.{yml,yaml,md}\" \"docs/**/*.{json,md,mjs}\" \"docs/.vitepress/**/*.{ts,js,css}\" \"examples/**/*.{json,md,ts,js,mjs,css,html}\" \"packages/**/*.{json,md,ts,js,mjs,cjs}\" \"scripts/*.mjs\"",
+    "format:check": "prettier --check \"package.json\" \"tsconfig.json\" \"*.md\" \".changeset/**/*.{json,md}\" \".github/**/*.{yml,yaml,md}\" \"docs/**/*.{json,md,mjs}\" \"docs/.vitepress/**/*.{ts,js,css}\" \"examples/**/*.{json,md,ts,js,mjs,css,html}\" \"packages/**/*.{json,md,ts,js,mjs,cjs}\" \"scripts/*.mjs\"",
     "docs:dev": "npm run dev --workspace @clearideas/agent-runtime-docs",
     "docs:build": "npm run build --workspace @clearideas/agent-runtime-docs",
     "docs:check": "npm run check:docs",
@@ -35,7 +36,10 @@
   },
   "packageManager": "npm@11.8.0",
   "overrides": {
-    "@hono/node-server": "^2.0.12"
+    "@hono/node-server": "^2.0.12",
+    "vitepress": {
+      "vite": "^6.4.3"
+    }
   },
   "license": "Apache-2.0",
   "author": "Clear Ideas Incorporated",
@@ -48,8 +52,8 @@
   },
   "homepage": "https://github.com/clearideas/agent-runtime#readme",
   "devDependencies": {
-    "@changesets/cli": "^2.29.7",
-    "esbuild": "^0.28.0",
+    "@changesets/cli": "^3.0.1",
+    "esbuild": "^0.28.2",
     "prettier": "^3.8.3",
     "typescript": "^7.0.2"
   }

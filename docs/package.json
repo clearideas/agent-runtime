@@ -12,7 +12,8 @@
   "scripts": {
     "dev": "vitepress dev . --host 127.0.0.1",
     "build": "vitepress build .",
-    "preview": "vitepress preview . --host 127.0.0.1"
+    "preview": "vitepress preview . --host 127.0.0.1",
+    "test": "node --test dev-server.test.mjs"
   },
   "devDependencies": {
     "vitepress": "1.6.4"

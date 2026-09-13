@@ -99,20 +99,17 @@ jobs:
 
       - name: Create version pull request or publish approved packages
         id: changesets
-        uses: changesets/action@a45c4d594aa4e2c509dc14a9f2b3b67ba3780d0d # v1.9.0
+        uses: changesets/action@8488615a623b1b9c987934bb89eae8af6a946ac1 # v2.1.1
         with:
-          publish: npm run release:packages
-          version: npm run version-packages
-          commit: "chore: version packages"
-          title: "chore: version packages"
-          createGithubReleases: false
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          publish-script: npm run release:packages
+          version-script: npm run version-packages
+          commit-message: "chore: version packages"
+          pr-title: "chore: version packages"
+          create-github-releases: false
+          push-git-tags: true
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           NPM_CONFIG_PROVENANCE: "true"
-
-      - name: Push published package tags
-        if: ${{ steps.changesets.outputs.published == 'true' }}
-        run: git push origin --follow-tags
 
   documentation:
     name: Build and deploy documentation
@@ -147,7 +144,7 @@ jobs:
         run: npm run docs:build
 
       - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@e7f100cf4c008499ea8adda475de1042d6975c7b # v6.2.0
+        uses: aws-actions/configure-aws-credentials@e6de054238d6b7531b4efff3b6587d9aade6a06c # v6.2.3
         with:
           role-to-assume: ${{ vars.AWS_ROLE_ARN }}
           role-session-name: agent-runtime-documentation
