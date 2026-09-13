@@ -1,6 +1,6 @@
 {
   "name": "@clearideas/agent-runtime-contracts",
-  "version": "0.4.1",
+  "version": "0.4.2",
   "description": "Versioned, persistence-independent contracts for Clear Ideas Agent Runtime.",
   "license": "Apache-2.0",
   "author": "Clear Ideas Incorporated",
@@ -36,11 +36,11 @@
     "postpack": "node ../../scripts/cleanup-package-license.mjs"
   },
   "dependencies": {
-    "zod": "^4.4.3"
+    "zod": "^4.5.4"
   },
   "devDependencies": {
     "typescript": "^7.0.2",
-    "vitest": "^4.0.18"
+    "vitest": "^4.1.11"
   },
   "engines": {
     "node": ">=24"

@@ -1,6 +1,6 @@
 {
   "name": "@clearideas/agent-runtime-condition-jexl",
-  "version": "0.4.1",
+  "version": "0.4.2",
   "description": "JEXL condition evaluator for Clear Ideas Agent Runtime.",
   "license": "Apache-2.0",
   "author": "Clear Ideas Incorporated",
@@ -36,14 +36,14 @@
     "postpack": "node ../../scripts/cleanup-package-license.mjs"
   },
   "dependencies": {
-    "@clearideas/agent-runtime-contracts": "0.4.1",
-    "@clearideas/agent-runtime-core": "0.4.1",
+    "@clearideas/agent-runtime-contracts": "0.4.2",
+    "@clearideas/agent-runtime-core": "0.4.2",
     "jexl": "^2.3.0"
   },
   "devDependencies": {
     "@types/jexl": "^2.3.4",
     "typescript": "^7.0.2",
-    "vitest": "^4.0.18"
+    "vitest": "^4.1.11"
   },
   "engines": {
     "node": ">=24"

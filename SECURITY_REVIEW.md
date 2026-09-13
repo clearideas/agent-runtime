@@ -45,34 +45,71 @@ The production dependency audit reports no vulnerabilities.
 Reference:
 [GHSA-frvp-7c67-39w9](https://github.com/advisories/GHSA-frvp-7c67-39w9)
 
+## September 2026 GitHub dependency alerts
+
+Reviewed: September 13, 2026
+
+The local dependency update addresses all 17 open GitHub Dependabot alerts.
+GitHub will reassess them after the updated lockfile reaches the default branch;
+no alerts have been dismissed manually.
+
+| GitHub alerts      | Component                      | Local remediation                                                                                      |
+| ------------------ | ------------------------------ | ------------------------------------------------------------------------------------------------------ |
+| #12, #13, #15, #16 | fast-uri                       | Resolve 3.1.7 through the MCP SDK's Ajv dependency.                                                    |
+| #17, #18, #19      | Hono                           | Resolve 4.13.7 through the MCP SDK.                                                                    |
+| #14, #20           | qs                             | Resolve 6.16.0 through the MCP SDK's HTTP dependencies.                                                |
+| #21, #22           | Vitest and @vitest/mocker      | Resolve 4.1.11.                                                                                        |
+| #23, #24           | js-yaml                        | Changesets 3 removes both vulnerable transitive copies; js-yaml is absent from the workspace lockfile. |
+| #1, #2, #3, #4     | Documentation Vite and esbuild | Scope a Vite 6.4.3 override to VitePress; its esbuild resolves to 0.25.12.                             |
+
+Source: [GitHub Dependabot alerts](https://github.com/clearideas/agent-runtime/security/dependabot).
+The failing CI on PR #43 was the production audit rejecting fast-uri; that
+production dependency is now patched.
+
 ## Documentation development server advisories
 
-Reviewed: July 27, 2026
+Reviewed: September 13, 2026
 
-Status: confined to the local documentation development server.
+Status: affected dependency versions replaced locally.
 
-Dependabot reports three Vite advisories and one esbuild advisory through the
-documentation workspace:
+The affected advisories are:
 
-- `GHSA-v6wh-96g9-6wx3`
-- `GHSA-fx2h-pf6j-xcff`
-- `GHSA-4w7w-66w2-5vf9`
-- `GHSA-67mh-4wv8-2f99`
+- [GHSA-v6wh-96g9-6wx3](https://github.com/advisories/GHSA-v6wh-96g9-6wx3)
+- [GHSA-fx2h-pf6j-xcff](https://github.com/advisories/GHSA-fx2h-pf6j-xcff)
+- [GHSA-4w7w-66w2-5vf9](https://github.com/advisories/GHSA-4w7w-66w2-5vf9)
+- [GHSA-67mh-4wv8-2f99](https://github.com/advisories/GHSA-67mh-4wv8-2f99)
 
-The affected copies are development dependencies of
-`@clearideas/agent-runtime-docs`: VitePress 1.6.4 currently resolves Vite
-5.4.21 and esbuild 0.21.5. VitePress 1.6.4 is the latest stable release and
-declares Vite `^5.4.14`; the first Vite version containing all three fixes is
-6.4.3, outside that supported range. The workspace's other esbuild and Vite
-copies are already patched.
+VitePress 1.6.4 remains the latest stable release and declares Vite `^5.4.14`.
+The root manifest now overrides only VitePress's Vite dependency to `^6.4.3`,
+the first Vite 6 release containing all three Vite fixes. This also replaces
+esbuild 0.21.5 with 0.25.12. Vitest keeps its separate Vite 8 dependency.
 
-These dependencies are not included in any of the 18 npm package tarballs. CI
-builds the static documentation and does not start a development server. Local
-documentation `dev` and `preview` scripts explicitly bind to `127.0.0.1`, not
-to a network interface.
+This is a deliberate, tested exception to the previous wait-for-upstream
+policy. Loopback binding reduces network exposure but does not close the
+launch-editor vulnerability: an attacker-controlled website can target a
+localhost server on Windows and cause UNC filesystem access before an editor
+is opened. Replacing the bundled vulnerable implementation closes that route;
+merely changing the standalone launch-editor package does not.
 
-Do not force an unsupported Vite major into the stable VitePress dependency
-line solely to clear the alerts. Upgrade when VitePress publishes a stable
-release supporting a fully patched Vite version. Reassess sooner if the
-documentation development server is exposed beyond loopback or incorporated
-into a deployed service.
+The override is outside VitePress's declared Vite range. Its Vue plugin accepts
+Vite 6, and validation covers the documentation client/SSR build, browser
+navigation, local search, and Markdown hot reload. During development, new
+headings did not appear immediately in an already initialized search index on
+either the Vite 5 baseline or Vite 6 candidate; this is a retained behavior,
+not evidence of an upgrade regression. Windows-specific UNC, ADS, and 8.3
+filesystem behavior was not executed on the macOS validation host; those fixes
+are verified by the resolved upstream patched version and dependency audit.
+
+Keep local documentation scripts bound to `127.0.0.1`. CI and deployment build
+static files; the development server is not shipped in the 18 npm packages.
+CI now audits both production and development dependencies. Remove the scoped
+override when stable VitePress supports a fully patched Vite directly, and
+repeat the documentation compatibility checks when changing this override.
+
+Regression coverage in `docs/dev-server.test.mjs` resolves Vite and esbuild
+through VitePress. Both tests reproduce on Vite 5.4.21/esbuild 0.21.5 and pass
+on the patched versions: outside-root source-map contents are no longer
+returned, including encoded traversal attempts, and an arbitrary Origin no
+longer receives permissive CORS headers. Ordinary local map and file requests
+still succeed. `npm run validate`, `npm run docs:build`, a clean `npm ci`, and
+`npm run audit:dependencies` pass; the full audit reports zero vulnerabilities.
