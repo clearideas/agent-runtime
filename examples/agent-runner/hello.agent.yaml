@@ -1,0 +1,50 @@
+schemaVersion: "1.0"
+id: hello-brief
+name: Hello brief
+description: Turn a topic into a short explanation for a chosen audience.
+
+model:
+  ref: default
+
+variables:
+  - key: topic
+    type: string
+    value: durable agent checkpoints
+    description: The subject to explain.
+  - key: audience
+    type: string
+    value: application developers
+    description: The people who will read the explanation.
+  - key: concise
+    type: boolean
+    value: true
+    description: Keep the final explanation brief.
+
+steps:
+  - id: outline
+    type: prompt
+    systemPrompt: You explain technical ideas clearly.
+    prompt: Create a three-point outline about {{ topic }} for {{ audience }}.
+    outputVariable: outline
+
+  - id: write-concise
+    type: prompt
+    when: concise == true
+    systemPrompt: You write practical technical explanations.
+    prompt: |
+      Turn this outline into a concise explanation for {{ audience }}:
+
+      {{ outline }}
+    outputVariable: answer
+    includeInFinalOutput: true
+
+  - id: write-detailed
+    type: prompt
+    when: concise == false
+    systemPrompt: You write practical technical explanations.
+    prompt: |
+      Turn this outline into a detailed explanation for {{ audience }}:
+
+      {{ outline }}
+    outputVariable: answer
+    includeInFinalOutput: true
