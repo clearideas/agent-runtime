@@ -1,6 +1,6 @@
 {
   "name": "@clearideas/agent-runtime-core",
-  "version": "0.4.3",
+  "version": "0.5.0",
   "description": "Persistence-independent deterministic execution core for Clear Ideas Agent Runtime.",
   "license": "Apache-2.0",
   "author": "Clear Ideas Incorporated",
@@ -44,7 +44,7 @@
     "postpack": "node ../../scripts/cleanup-package-license.mjs"
   },
   "dependencies": {
-    "@clearideas/agent-runtime-contracts": "0.4.3",
+    "@clearideas/agent-runtime-contracts": "0.5.0",
     "yaml": "^2.9.1"
   },
   "devDependencies": {
