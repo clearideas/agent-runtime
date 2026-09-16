@@ -9,20 +9,47 @@ remote worker, or with host-provided adapters. Applications retain control of
 models, credentials, tools, persistence, compute, sandboxes, and telemetry.
 It is an independent open-source project licensed under Apache 2.0.
 
-## Install from npm
+## Try it in five minutes
 
-Install the standard TypeScript composition:
+Use Agent Runtime when you want declarative agents with checkpoints, tool
+execution, and observable progress while keeping control of providers and
+infrastructure. Start locally; use the same manifests when embedding in an app.
+
+**Prerequisites:** Node.js 24 or newer and an OpenAI API key for this example.
+No database or container runtime is required.
+
+```sh
+mkdir my-agent && cd my-agent
+npm init -y
+npm install --save-dev @clearideas/agent-runtime-cli
+export OPENAI_API_KEY="..."
+npx agent-runtime examples run variables --stream
+```
+
+Expect step progress followed by `PORTABLE_AGENT is ready.` (model wording can
+vary). Runs and checkpoints are saved under `.agent-runtime/`.
+
+Next, [create your own agent](https://agent-runtime.clearideas.com/quickstart).
+The quickstart includes a complete YAML manifest and troubleshooting.
+
+For TypeScript applications:
 
 ```sh
 npm install @clearideas/agent-runtime
 ```
 
-Or install the CLI locally and run it with `npx`:
+See [embedding](https://agent-runtime.clearideas.com/embedding) for a minimal host.
 
-```sh
-npm install --save-dev @clearideas/agent-runtime-cli
-npx agent-runtime examples list
-```
+## Learn three patterns
+
+From a source checkout, `npm ci && npm run build`, then try the
+[three runnable examples](examples/patterns/README.md):
+
+- **Prompt chain:** typed invocation variables and structured final output.
+- **Tool agent:** visible tool calls and recovery from a temporary read failure.
+- **Approval:** persist a suspended run and resume it in a new process.
+
+All three have a deterministic path that needs no credentials.
 
 ## Documentation
 
@@ -158,27 +185,9 @@ npm run changeset
 npm run version-packages
 ```
 
-The release workflow is manually dispatched, gated by the repository variable
-`NPM_RELEASES_ENABLED=true`, and protected by the `npm-production` GitHub
-environment. npm trusted publishing uses GitHub OIDC, so publishing does not
-require a long-lived npm token.
-
-All publishable packages use the `@clearideas` scope and explicitly target the
-npm registry. The repository `.npmrc`, each package's `publishConfig`,
-Changesets, and the release workflow all resolve or publish these packages
-through `https://registry.npmjs.org/` with public access and npm provenance. No
-Agent Runtime package is configured for GitHub Packages.
-
-The same workflow builds the VitePress documentation before publishing and
-deploys it to a private S3 origin behind CloudFront at
-[agent-runtime.clearideas.com](https://agent-runtime.clearideas.com/) after a
-successful npm publish or when documentation deployment is explicitly
-requested. The deployment job uses GitHub OIDC to assume a repository-scoped
-AWS role. It does not store long-lived AWS credentials in GitHub.
-
-Run `npm run release:check` to validate the complete package set without
-publishing. Official releases are produced only by the protected GitHub
-workflow.
+Releases use generated package changelogs and GitHub release notes. Publishing
+remains manually approved through the protected GitHub workflow; local checks
+do not publish. See [Contributing](CONTRIBUTING.md) for release validation.
 
 ## Project policies
 

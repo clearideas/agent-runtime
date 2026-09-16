@@ -15,6 +15,31 @@ npm install @clearideas/agent-runtime
 
 Requires Node.js 24 or newer.
 
+## Minimal TypeScript host
+
+Set `OPENAI_API_KEY`, save this as `agent.ts`, and run `node agent.ts`:
+
+```ts
+import { createAgentRuntime, defineAgent } from "@clearideas/agent-runtime";
+const manifest = defineAgent({
+  schemaVersion: "1.0",
+  model: { provider: "openai", model: "gpt-5.6" },
+  steps: [
+    {
+      id: "hello",
+      type: "prompt",
+      prompt: "Explain checkpoints in one sentence.",
+      includeInFinalOutput: true,
+    },
+  ],
+});
+console.log((await createAgentRuntime({ manifest }).run({})).output);
+```
+
+The default store is in memory. Pass a durable `runStore` to recover across
+processes. See [embedding](https://agent-runtime.clearideas.com/embedding) for
+adapter overrides, resource ownership, and installing individual packages.
+
 ## What is included
 
 The package exports the standard Agent Runtime composition:

@@ -29,18 +29,15 @@ repository build is required.
 
 ## 2. Set a provider key
 
-Choose one:
+This first run uses OpenAI. Set the matching key:
 
 ```sh
 export OPENAI_API_KEY="..."
-export ANTHROPIC_API_KEY="..."
-export GOOGLE_GENERATIVE_AI_API_KEY="..."
-export XAI_API_KEY="..."
-export GROQ_API_KEY="..."
-export COHERE_API_KEY="..."
 ```
 
-Agent Runtime selects the provider from the manifest's `provider` field.
+The supplied manifest selects `provider: openai`. To use another provider,
+change **both** its `provider` and `model`, then set that provider's key. See
+[Models and providers](./models-and-providers.md) for configuration.
 
 ## 3. Create an agent
 
@@ -54,6 +51,16 @@ Save this as `hello.agent.yaml`:
 npx agent-runtime validate ./hello.agent.yaml
 npx agent-runtime run ./hello.agent.yaml --stream --format pretty
 ```
+
+You should see a run ID, the `explain` step starting, streamed text about
+checkpoints, and `run completed`. The wording varies by model.
+
+If the run fails:
+
+- Missing key: set `OPENAI_API_KEY` in the same terminal used to run the CLI.
+- Model access error: use an OpenAI model available to your account in `model.model`.
+- Permission error: use `--store ./writable-directory` and check its permissions.
+- Node syntax or engine error: check `node --version`; Node.js 24 or newer is required.
 
 The default local files are:
 

@@ -45,6 +45,67 @@ describe("runner CLI", () => {
     await rm(directory, { recursive: true, force: true });
   });
 
+  it("warns when event persistence fails without losing successful output", async () => {
+    const file = path.join(directory, "agent.json");
+    const runtime = path.join(directory, "runtime.mjs");
+    await writeFile(
+      file,
+      JSON.stringify({
+        ...manifest,
+        model: { provider: "openai", model: "test" },
+      }),
+    );
+    await writeFile(
+      runtime,
+      `export const model = { generate: async () => ({ output: "ok", transcript: [] }) };`,
+    );
+    const code = await runCli(
+      [
+        "run",
+        file,
+        "--runtime-module",
+        runtime,
+        "--store",
+        path.join(directory, "store"),
+        "--events",
+        directory,
+      ],
+      io,
+    );
+    expect(code).toBe(0);
+    expect(stderr).toContain("Warning: event delivery failed");
+    expect(stderr.match(/Warning:/g)).toHaveLength(1);
+    expect(JSON.parse(stdout).status).toBe("completed");
+  });
+
+  it("shuts down module resources even when configuration fails and preserves the original error", async () => {
+    const file = path.join(directory, "agent.json");
+    const runtime = path.join(directory, "runtime.mjs");
+    const marker = path.join(directory, "closed");
+    await writeFile(file, JSON.stringify(manifest));
+    await writeFile(
+      runtime,
+      `import { writeFile } from "node:fs/promises"; export async function shutdown() { await writeFile(${JSON.stringify(marker)}, "closed"); throw new Error("cleanup failure"); }`,
+    );
+    const code = await runCli(
+      [
+        "run",
+        file,
+        "--runtime-module",
+        runtime,
+        "--store",
+        path.join(directory, "store"),
+        "--config",
+        path.join(directory, "missing.yaml"),
+      ],
+      io,
+    );
+    expect(code).toBe(1);
+    expect(await readFile(marker, "utf8")).toBe("closed");
+    expect(stderr).toContain("runtime shutdown failed");
+    expect(stderr).toContain("missing.yaml");
+  });
+
   it("validates a manifest and emits a machine-readable summary", async () => {
     const file = path.join(directory, "agent.json");
     await writeFile(file, JSON.stringify(manifest));
