@@ -1,6 +1,6 @@
 {
   "name": "@clearideas/agent-runtime-step-loop",
-  "version": "0.4.3",
+  "version": "0.5.0",
   "description": "Sequential condition and goal loop executor for Clear Ideas Agent Runtime.",
   "license": "Apache-2.0",
   "author": "Clear Ideas Incorporated",
@@ -36,11 +36,11 @@
     "postpack": "node ../../scripts/cleanup-package-license.mjs"
   },
   "dependencies": {
-    "@clearideas/agent-runtime-contracts": "0.4.3",
-    "@clearideas/agent-runtime-core": "0.4.3"
+    "@clearideas/agent-runtime-contracts": "0.5.0",
+    "@clearideas/agent-runtime-core": "0.5.0"
   },
   "devDependencies": {
-    "@clearideas/agent-runtime-condition-jexl": "0.4.3",
+    "@clearideas/agent-runtime-condition-jexl": "0.5.0",
     "typescript": "^7.0.2",
     "vitest": "^5.0.0"
   },
