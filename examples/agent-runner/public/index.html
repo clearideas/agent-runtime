@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Agent Runner</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <header>
+      <h1>Agent Runner</h1>
+      <p>Clear Ideas Agent Runtime host</p>
+    </header>
+
+    <main>
+      <section>
+        <h2>Manifest</h2>
+        <div class="row">
+          <select id="manifest-select" aria-label="Saved manifest"></select>
+          <button id="new-manifest-button" type="button">New</button>
+        </div>
+        <div id="manifest-source" aria-label="Manifest YAML or JSON"></div>
+        <div class="row">
+          <button id="save-manifest-button" type="button">Save manifest</button>
+          <span id="manifest-message"></span>
+        </div>
+      </section>
+
+      <section>
+        <div class="row heading-row">
+          <div>
+            <h2 id="manifest-name">Run agent</h2>
+            <p id="manifest-description"></p>
+          </div>
+          <strong id="run-status">Ready</strong>
+        </div>
+
+        <form id="run-form">
+          <div id="variable-fields"></div>
+          <button id="run-button" type="submit">Run agent</button>
+        </form>
+
+        <h3>Steps</h3>
+        <ol id="step-list"></ol>
+
+        <h3>Output</h3>
+        <pre id="run-output">Run the agent to see its output.</pre>
+        <p id="run-error" class="error" hidden></p>
+        <button id="resume-button" type="button" hidden>
+          Resume from checkpoint
+        </button>
+      </section>
+
+      <aside>
+        <h2>Recent runs</h2>
+        <div id="run-list"><p>No runs yet.</p></div>
+      </aside>
+    </main>
+
+    <script src="/vendor/ace.js"></script>
+    <script src="/app.js" type="module"></script>
+  </body>
+</html>

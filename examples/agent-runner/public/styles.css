@@ -1,0 +1,263 @@
+:root {
+  --brand: #4080f2;
+  --brand-hover: #326fd9;
+  --brand-active: #285fc2;
+  --background: #ffffff;
+  --background-alt: #f7f8fa;
+  --border: #e2e2e3;
+  --text: #3c3c43;
+  --muted: #67676c;
+  color: var(--text);
+  background: var(--background-alt);
+  font-family:
+    Inter,
+    ui-sans-serif,
+    system-ui,
+    -apple-system,
+    BlinkMacSystemFont,
+    "Segoe UI",
+    sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  max-width: 1500px;
+  margin: 0 auto;
+  padding: 28px 32px;
+  font-size: 17px;
+}
+
+header {
+  margin-bottom: 20px;
+}
+
+h1,
+h2,
+h3,
+p {
+  margin-top: 0;
+}
+
+header p,
+#manifest-description,
+#manifest-message {
+  color: var(--muted);
+}
+
+main {
+  display: grid;
+  grid-template-columns: minmax(400px, 0.85fr) minmax(600px, 1.15fr);
+  gap: 16px;
+  align-items: start;
+}
+
+main > section:first-of-type {
+  grid-column: 1;
+  grid-row: 2;
+}
+
+main > section:nth-of-type(2) {
+  grid-column: 2;
+  grid-row: 2;
+}
+
+aside {
+  display: flex;
+  grid-column: 1 / -1;
+  grid-row: 1;
+  align-items: center;
+  gap: 16px;
+  padding: 12px 18px;
+}
+
+aside h2 {
+  margin: 0;
+  white-space: nowrap;
+}
+
+section,
+aside {
+  padding: 18px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--background);
+}
+
+.row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.heading-row {
+  justify-content: space-between;
+}
+
+select,
+input,
+textarea,
+button {
+  font: inherit;
+}
+
+select,
+input,
+textarea {
+  width: 100%;
+  padding: 8px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+}
+
+button {
+  min-height: 40px;
+  padding: 8px 12px;
+  border: 1px solid var(--brand);
+  border-radius: 5px;
+  background: var(--brand);
+  color: white;
+  cursor: pointer;
+}
+
+button:hover {
+  border-color: var(--brand-hover);
+  background: var(--brand-hover);
+}
+
+button:active {
+  border-color: var(--brand-active);
+  background: var(--brand-active);
+}
+
+button:disabled {
+  cursor: wait;
+  opacity: 0.6;
+}
+
+#manifest-source {
+  height: 520px;
+  margin: 10px 0;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+}
+
+label {
+  display: block;
+  margin-bottom: 12px;
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+label input,
+label textarea {
+  display: block;
+  margin-top: 5px;
+  font-weight: normal;
+}
+
+label input[type="checkbox"] {
+  display: inline;
+  width: auto;
+  margin-left: 8px;
+}
+
+#run-button {
+  width: 100%;
+  margin-top: 4px;
+}
+
+#step-list {
+  min-height: 80px;
+  padding-left: 24px;
+}
+
+#step-list li {
+  margin: 7px 0;
+}
+
+.step-output {
+  max-height: 100px;
+  margin: 6px 0 14px;
+  padding: 8px;
+  overflow: auto;
+  overflow-wrap: anywhere;
+  border-left: 3px solid var(--brand);
+  background: var(--background-alt);
+  color: var(--text);
+  font-family: inherit;
+  font-size: 0.82rem;
+  white-space: pre-wrap;
+}
+
+#step-list li[data-status="completed"],
+#step-list li[data-status="restored"] {
+  color: var(--brand);
+}
+
+#step-list li[data-status="failed"] {
+  color: #a33232;
+}
+
+#run-output {
+  min-height: 160px;
+  max-height: 220px;
+  padding: 12px;
+  overflow: auto;
+  overflow-wrap: anywhere;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--background-alt);
+  font-family: inherit;
+  white-space: pre-wrap;
+}
+
+.error {
+  color: #a33232;
+}
+
+#run-list button {
+  width: auto;
+  min-width: 240px;
+  margin: 0;
+  border-color: var(--border);
+  background: var(--background);
+  color: inherit;
+  text-align: left;
+}
+
+#run-list {
+  display: flex;
+  flex: 1;
+  gap: 8px;
+  overflow-x: auto;
+}
+
+#run-list button:hover {
+  border-color: var(--brand);
+  background: var(--background-alt);
+}
+
+@media (max-width: 1100px) {
+  main {
+    grid-template-columns: 1fr;
+  }
+
+  main > section:first-of-type,
+  main > section:nth-of-type(2),
+  aside {
+    grid-column: auto;
+    grid-row: auto;
+  }
+
+  aside {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  #manifest-source {
+    height: 300px;
+  }
+}

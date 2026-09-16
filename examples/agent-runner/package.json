@@ -1,0 +1,30 @@
+{
+  "name": "@clearideas/agent-runtime-example-agent-runner",
+  "version": "0.1.0",
+  "private": true,
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/clearideas/agent-runtime.git",
+    "directory": "examples/agent-runner"
+  },
+  "type": "module",
+  "description": "A file-backed web host for adding and running agent manifests.",
+  "scripts": {
+    "start": "node server.ts",
+    "type-check": "tsc -p tsconfig.json",
+    "test": "npm run type-check && node --test server.test.ts"
+  },
+  "dependencies": {
+    "@clearideas/agent-runtime": "0.4.1",
+    "ace-builds": "^1.44.0",
+    "yaml": "^2.9.0"
+  },
+  "devDependencies": {
+    "@types/node": "^26.2.0",
+    "typescript": "^7.0.2"
+  },
+  "engines": {
+    "node": ">=24"
+  }
+}

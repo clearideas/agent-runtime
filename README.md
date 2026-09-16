@@ -120,6 +120,10 @@ npm run check:docs
 npm run check:tarballs
 ```
 
+For the smallest browser-hosting example, see the
+[Agent Runner example](examples/agent-runner/README.md) and its
+[code-first video walkthrough](examples/agent-runner/WALKTHROUGH.md).
+
 These commands are for contributors developing Agent Runtime itself. Users of
 the public packages can start with the
 [quickstart](https://agent-runtime.clearideas.com/quickstart), then see
