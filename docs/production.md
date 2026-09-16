@@ -126,3 +126,18 @@ manifest hash. Before rollout:
 3. canary the new worker against representative manifests;
 4. retain the previous worker through the canary and rollback window;
 5. never resume an old checkpoint with a changed manifest.
+
+## Diagnosing failures
+
+Adapters can throw `AgentRuntimeError(message, code, retryable, suggestedAction)`.
+Persisted errors preserve validated uppercase codes and explicit retryability;
+unclassified exceptions remain `AGENT_EXECUTION_FAILED` and non-retryable.
+Retryability is diagnostic metadata, not an instruction to repeat a side effect.
+Use idempotency and host policy before retrying. Keep messages and suggested
+remedies free of credentials and user content.
+
+The CLI warns once per failing event sink while allowing execution to continue.
+Embedded hosts can use `onEventSinkError(error, event, sink)` for alerts or select
+`eventSinkFailurePolicy: "fail-run"` for strict delivery before durable completion.
+A telemetry failure cannot roll back an already committed result. Pretty CLI
+output includes suspension reasons and webhook retry delays.

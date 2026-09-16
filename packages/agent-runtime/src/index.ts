@@ -8,3 +8,4 @@ export * from "@clearideas/agent-runtime-step-loop";
 export * from "@clearideas/agent-runtime-step-prompt";
 export * from "@clearideas/agent-runtime-step-standard";
 export * from "@clearideas/agent-runtime-store-local";
+export * from "./create-runtime.js";

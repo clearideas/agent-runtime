@@ -95,6 +95,7 @@ export default defineConfig({
           { text: "Interactive example", link: "/interactive-example" },
           { text: "Core concepts", link: "/concepts" },
           { text: "Build agents", link: "/build-agents" },
+          { text: "Three examples", link: "/examples" },
         ],
       },
       {

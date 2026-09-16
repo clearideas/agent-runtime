@@ -183,3 +183,24 @@ if (failures.length > 0) {
     `Package metadata is ready for public release (${names.size} public packages).\n`,
   );
 }
+
+const coreManifest = JSON.parse(
+  await readFile(
+    new URL("../packages/core/package.json", import.meta.url),
+    "utf8",
+  ),
+);
+const generatedVersion = await readFile(
+  new URL("../packages/core/src/version.ts", import.meta.url),
+  "utf8",
+);
+if (
+  !generatedVersion.includes(
+    `export const RUNTIME_VERSION = ${JSON.stringify(coreManifest.version)};`,
+  )
+) {
+  console.error(
+    "Core runtime version is stale. Run node scripts/generate-runtime-version.mjs.",
+  );
+  process.exitCode = 1;
+}

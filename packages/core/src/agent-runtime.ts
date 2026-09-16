@@ -1,3 +1,4 @@
+import { RUNTIME_VERSION } from "./version.js";
 import type {
   ArtifactRef,
   AgentManifest,
@@ -160,7 +161,7 @@ export interface AgentRuntimeDependencies {
   maxParallelSteps?: number;
   /** Event sinks are observational by default and cannot invalidate a commit. */
   eventSinkFailurePolicy?: "continue" | "fail-run";
-  onEventSinkError?: (error: unknown, event: RunEvent) => void;
+  onEventSinkError?: (error: unknown, event: RunEvent, sink: EventSink) => void;
 }
 
 export interface RunRequest {
@@ -259,13 +260,42 @@ export const defaultManifestHasher: ManifestHasher = {
   },
 };
 
+/** A classified adapter failure. Retrying still requires an idempotent operation. */
+export class AgentRuntimeError extends Error {
+  constructor(
+    message: string,
+    readonly code: string,
+    readonly retryable = false,
+    readonly suggestedAction?: string,
+  ) {
+    super(message);
+    this.name = "AgentRuntimeError";
+  }
+}
+
 const toRunError = (error: unknown): RunError => {
   const source = error instanceof Error ? error : new Error(String(error));
+  const classified = source as Error & { code?: unknown; retryable?: unknown };
+  const code =
+    typeof classified.code === "string" &&
+    /^[A-Z][A-Z0-9_]{0,79}$/.test(classified.code)
+      ? classified.code
+      : "AGENT_EXECUTION_FAILED";
   return {
-    code: "AGENT_EXECUTION_FAILED",
+    code,
     message: source.message,
-    retryable: false,
-    ...(source.name === "Error" ? {} : { details: { name: source.name } }),
+    retryable:
+      code !== "AGENT_EXECUTION_FAILED" && classified.retryable === true,
+    ...(source.name !== "Error" || source instanceof AgentRuntimeError
+      ? {
+          details: {
+            ...(source.name === "Error" ? {} : { name: source.name }),
+            ...(source instanceof AgentRuntimeError && source.suggestedAction
+              ? { suggestedAction: source.suggestedAction }
+              : {}),
+          },
+        }
+      : {}),
   };
 };
 
@@ -1410,7 +1440,7 @@ export class AgentRuntime {
       attempt: this.#runAttempts.get(input.runId) ?? 1,
       manifestHash: await this.#manifestHasher.hash(input.manifest),
       contractVersion: "1.0",
-      runtimeVersion: this.#dependencies.runtimeVersion ?? "0.1.0",
+      runtimeVersion: this.#dependencies.runtimeVersion ?? RUNTIME_VERSION,
       cursor: input.cursor ?? { stepIndex: input.nextStepIndex },
       state: structuredClone(input.variables),
       stepResults: structuredClone(input.stepResults),
@@ -1463,7 +1493,7 @@ export class AgentRuntime {
         try {
           await sink.emit(event);
         } catch (error) {
-          this.#dependencies.onEventSinkError?.(error, event);
+          this.#dependencies.onEventSinkError?.(error, event, sink);
           if (this.#dependencies.eventSinkFailurePolicy === "fail-run")
             throw error;
         }

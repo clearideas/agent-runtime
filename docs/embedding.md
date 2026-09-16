@@ -10,18 +10,9 @@ Applications can instantiate `AgentRuntime` and supply adapters directly.
 ## Minimal TypeScript host
 
 ```ts
-import {
-  AgentRuntime,
-  JexlConditionEvaluator,
-  LoopStepExecutor,
-  MemoryRunStore,
-  PromptStepExecutor,
-  composeRuntime,
-  emptyAgentRuntimeConfig,
-  parseAgentManifest,
-} from "@clearideas/agent-runtime";
+import { createAgentRuntime, defineAgent } from "@clearideas/agent-runtime";
 
-const manifest = parseAgentManifest({
+const manifest = defineAgent({
   schemaVersion: "1.0",
   model: { provider: "openai", model: "gpt-5.6" },
   variables: [{ key: "question", type: "string", requiresOverride: true }],
@@ -30,28 +21,34 @@ const manifest = parseAgentManifest({
       id: "answer",
       type: "prompt",
       prompt: "{{ question }}",
-      outputVariable: "answer",
       includeInFinalOutput: true,
     },
   ],
 });
-
-const adapters = composeRuntime(manifest, emptyAgentRuntimeConfig());
-const agentRuntime = new AgentRuntime({
-  runStore: new MemoryRunStore(),
-  stepExecutors: [new PromptStepExecutor(), new LoopStepExecutor()],
-  conditionEvaluator: new JexlConditionEvaluator(),
-  ...(adapters.model ? { model: adapters.model } : {}),
-  ...(adapters.tools ? { tools: adapters.tools } : {}),
-});
-
-const result = await agentRuntime.run({
-  manifest,
+const runtime = createAgentRuntime({ manifest });
+const result = await runtime.run({
   variables: [{ key: "question", value: "Why are checkpoints useful?" }],
 });
-
 console.log(result.output);
 ```
+
+Requires Node.js 24+ and `OPENAI_API_KEY`. Save as `agent.ts`, install
+`@clearideas/agent-runtime`, and run `node agent.ts`.
+
+`defineAgent` provides contextual TypeScript completion and validates the manifest.
+`createAgentRuntime` supplies memory persistence, prompt/loop/approval/code/sub-run
+executors, conditions, and configured model/tool adapters. Its manifest is the
+default source for `run()`. Supply a `runStore` for persistence across processes,
+`model` or `tools` to inject adapters, and `composition` for host authorization
+policies. Explicit dependency overrides take precedence. Webhooks require an
+explicitly authorized executor supplied through `stepExecutors`; sandbox and
+approval operations require host adapters. `stepExecutors` replaces the default set.
+
+Use `new AgentRuntime(...)` for full manual composition. A lean installation can
+use `@clearideas/agent-runtime-core`, `@clearideas/agent-runtime-step-prompt`,
+`@clearideas/agent-runtime-store-local`, and only the model adapter/provider needed
+by the application. The convenience package includes all built-in provider SDKs;
+subpath imports do not reduce installed dependencies.
 
 The [local execution guide](./local-execution.md) wraps execution in
 `InProcessExecutionEngine` and consumes events through `ExecutionClient`.
@@ -155,3 +152,12 @@ artifacts, and metadata.
 
 Custom step types require a corresponding manifest contract extension. Use
 namespaced `extensions` for optional host metadata.
+
+## Resource ownership
+
+The embedding application owns stores, exporters, and adapters it supplies.
+Abort active runs, await their completion, then close the store and flush/shut down
+telemetry. The CLI closes its own SQLite store. A CLI runtime module can export
+`shutdown()` to clean up resources it created; it is awaited once after execution
+or a subsequent setup failure. Cleanup errors warn without masking the run error.
+Embedded worker hosts retain ownership of their supplied adapters and stores.

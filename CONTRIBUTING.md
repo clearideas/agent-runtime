@@ -53,3 +53,18 @@ Pull requests should:
 By submitting a contribution, you agree that it may be licensed under the
 repository's [Apache License 2.0](LICENSE). The project name and marks are
 covered by [TRADEMARKS.md](TRADEMARKS.md).
+
+## Consumer and release checks
+
+Run `npm run check:consumer` after building. It packs the CLI and standard API
+with their local dependencies, installs them outside the workspace, checks a
+TypeScript consumer, and runs the API and CLI with deterministic adapters. It
+requires registry access for third-party dependencies and reports combined
+installed package count and disk size. `npm run check:tarballs` separately
+checks package contents and size limits.
+
+Changesets generates package changelogs, and the protected release workflow
+creates GitHub release notes. Write changesets around user-visible behavior,
+including migration and checkpoint compatibility notes when relevant. Do not
+run `version-packages` or publish while unrelated unreleased work is present.
+The version command regenerates core runtime version metadata automatically.

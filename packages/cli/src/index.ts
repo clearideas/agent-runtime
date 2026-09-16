@@ -125,6 +125,7 @@ interface ResolvedCliStoreLocation {
 
 interface ResolvedCliStore extends ResolvedCliStoreLocation {
   store: RunStore;
+  close(): void;
 }
 
 const resolveCliStoreLocation = (
@@ -156,14 +157,18 @@ const resolveCliStore = async (
   parsed: ParsedOptions,
 ): Promise<ResolvedCliStore> => {
   const resolved = resolveCliStoreLocation(parsed);
+  const store =
+    resolved.driver === "sqlite"
+      ? new (
+          await import("@clearideas/agent-runtime-store-sqlite")
+        ).SqliteRunStore(resolved.location)
+      : new FileRunStore(resolved.location);
   return {
     ...resolved,
-    store:
-      resolved.driver === "sqlite"
-        ? new (
-            await import("@clearideas/agent-runtime-store-sqlite")
-          ).SqliteRunStore(resolved.location)
-        : new FileRunStore(resolved.location),
+    store,
+    close: () => {
+      if ("close" in store) store.close();
+    },
   };
 };
 
@@ -279,17 +284,21 @@ const inspect = async (args: string[], io: CliIo): Promise<void> => {
   );
   const runId = requireOnePositional(parsed, "run id");
   const resolved = await resolveCliStore(parsed);
-  const store =
-    (await loadRuntimeStore(parsed.options.get("runtime-module"), {
-      runId,
-      storeDirectory: resolved.baseDirectory,
-      storeDriver: resolved.driver,
-      storeLocation: resolved.location,
-    })) ?? resolved.store;
-  const run = await store.loadRun(runId);
-  if (!run) throw new Error(`Run not found: ${runId}`);
-  const checkpoint = await store.loadLatestCheckpoint(runId);
-  io.stdout(`${JSON.stringify({ run, checkpoint }, null, 2)}\n`);
+  try {
+    const store =
+      (await loadRuntimeStore(parsed.options.get("runtime-module"), {
+        runId,
+        storeDirectory: resolved.baseDirectory,
+        storeDriver: resolved.driver,
+        storeLocation: resolved.location,
+      })) ?? resolved.store;
+    const run = await store.loadRun(runId);
+    if (!run) throw new Error(`Run not found: ${runId}`);
+    const checkpoint = await store.loadLatestCheckpoint(runId);
+    io.stdout(`${JSON.stringify({ run, checkpoint }, null, 2)}\n`);
+  } finally {
+    resolved.close();
+  }
 };
 
 const events = async (args: string[], io: CliIo): Promise<void> => {
@@ -321,6 +330,8 @@ const events = async (args: string[], io: CliIo): Promise<void> => {
 
 /** Adapters a local runtime module may contribute to CLI execution. */
 export interface CliRuntime {
+  /** Called once after execution, including failed setup. Own only module-created resources. */
+  shutdown?: () => void | Promise<void>;
   runStore?: RunStore;
   artifactStore?: ArtifactStore;
   model?: ModelAdapter;
@@ -373,6 +384,8 @@ const adapterMethod = (value: unknown, name: string): boolean =>
   typeof (value as Record<string, unknown>)[name] === "function";
 
 const validateRuntime = (runtime: CliRuntime): CliRuntime => {
+  if (runtime.shutdown !== undefined && typeof runtime.shutdown !== "function")
+    throw new Error("Runtime shutdown must be a function.");
   if (
     runtime.runStore &&
     (!adapterMethod(runtime.runStore, "createRun") ||
@@ -443,6 +456,7 @@ const validateRuntime = (runtime: CliRuntime): CliRuntime => {
 };
 
 const normalizeRuntime = (runtime: CliRuntimeModule): CliRuntime => ({
+  ...(runtime.shutdown ? { shutdown: runtime.shutdown } : {}),
   ...((runtime.runStore ?? runtime.store)
     ? { runStore: runtime.runStore ?? runtime.store }
     : {}),
@@ -743,6 +757,10 @@ class CliStreamingEventSink implements EventSink {
           return `✓ run completed (${event.runId})`;
         case "run.failed":
           return `✗ run failed (${event.runId})`;
+        case "run.suspended":
+          return `Ⅱ run suspended (${event.runId}): ${String(event.data?.reason ?? "awaiting input")}; resume with agent-runtime resume ${event.runId}`;
+        case "webhook.retry.scheduled":
+          return `  webhook retry: ${String(event.data?.reason ?? "transient failure")}, waiting ${String(event.data?.delayMs ?? "unknown")}ms`;
         case "run.cancelled":
           return `■ run cancelled (${event.runId})`;
         default:
@@ -818,187 +836,217 @@ const execute = async (
     : undefined;
 
   const resolvedStore = await resolveCliStore(parsed);
-  const storeDirectory = resolvedStore.baseDirectory;
-  const runId =
-    command === "resume"
-      ? target
-      : (agentRunManifest?.runId ?? parsed.options.get("run-id"));
-  const maxTotalTokens = positiveSafeIntegerOption(parsed, "max-total-tokens");
-  const runtimeModulePath = parsed.options.get("runtime-module");
-  const runtimeStore =
-    command === "resume"
-      ? await loadRuntimeStore(runtimeModulePath, {
-          runId: target,
-          storeDirectory,
-          storeDriver: resolvedStore.driver,
-          storeLocation: resolvedStore.location,
-        })
-      : undefined;
-  const store = runtimeStore ?? resolvedStore.store;
-  let manifest: AgentManifest;
-  const variableOverrides =
-    command === "run" && parsed.options.has("variables")
-      ? parseAgentVariableOverrides(
-          JSON.parse(
-            await readFile(
-              path.resolve(parsed.options.get("variables")!),
-              "utf8",
-            ),
-          ),
-        )
-      : undefined;
-  let configSearchDirectory = process.cwd();
-  if (command === "run") {
-    const manifestFile = path.resolve(target);
-    configSearchDirectory = path.dirname(manifestFile);
-    manifest = await new FileAgentManifestSource(
-      path.dirname(manifestFile),
-      path.basename(manifestFile),
-    ).loadManifest();
-  } else if (
-    command === "run-manifest" &&
-    agentRunManifest &&
-    agentManifestSource
-  ) {
-    configSearchDirectory = path.dirname(agentRunManifestFile!);
-    manifest = await agentManifestSource.loadManifest(
-      agentRunManifest.agent.ref,
-    );
-  } else {
-    const record = await store.loadRun(target);
-    if (!record) throw new Error(`Run not found: ${target}`);
-    manifest = record.manifest;
-  }
-
-  const eventsOption = parsed.options.get("events");
-  const eventFile =
-    eventsOption === "none"
-      ? undefined
-      : path.resolve(eventsOption ?? path.join(storeDirectory, "events.jsonl"));
-  const artifactsOption = parsed.options.get("artifacts");
-  const artifactDirectory =
-    artifactsOption === "none"
-      ? undefined
-      : path.resolve(artifactsOption ?? storeDirectory);
-  const context: CliRuntimeContext = {
-    manifest,
-    ...(runId ? { runId } : {}),
-    storeDirectory,
-    storeDriver: resolvedStore.driver,
-    storeLocation: resolvedStore.location,
-    ...(eventFile ? { eventFile } : {}),
-    ...(artifactDirectory ? { artifactDirectory } : {}),
-  };
-  const loadedModuleRuntime = await loadRuntime(runtimeModulePath, context);
-  const moduleRuntime = runtimeStore
-    ? validateRuntime({ ...loadedModuleRuntime, runStore: runtimeStore })
-    : loadedModuleRuntime;
-  const config = await resolveConfig(
-    parsed.options.get("config"),
-    configSearchDirectory,
-  );
-  const configuredRuntime = composeRuntime(
-    manifest,
-    config,
-    {},
-    {
-      model: !moduleRuntime.model,
-      tools: !moduleRuntime.tools,
-      ...(moduleRuntime.connectionCredentials
-        ? { connectionCredentials: moduleRuntime.connectionCredentials }
-        : {}),
-    },
-  );
-  const runtime = mergeRuntimes(configuredRuntime, moduleRuntime);
-  const jsonlSink = eventFile ? new JsonlEventSink(eventFile) : undefined;
-  const requestedFormat =
-    parsed.options.get("format") ??
-    (parsed.options.has("stream") ? "pretty" : "json");
-  if (!["json", "pretty", "ndjson"].includes(requestedFormat)) {
-    throw new Error("--format must be json, pretty, or ndjson.");
-  }
-  const outputFormat = requestedFormat as CliOutputFormat;
-  const streamingSink =
-    outputFormat === "json"
-      ? undefined
-      : new CliStreamingEventSink(
-          io,
-          outputFormat,
-          parsed.options.has("show-reasoning"),
-        );
-  const runner = new AgentRuntime({
-    runStore: runtime.runStore ?? store,
-    ...(agentManifestSource ? { agentManifestSource } : {}),
-    stepExecutors: resolveStepExecutors(runtime, { allowUnsafeWebhooks: true }),
-    conditionEvaluator: new JexlConditionEvaluator(),
-    eventSinks: [
-      ...(jsonlSink ? [new SafeLocalEventSink(jsonlSink)] : []),
-      ...(streamingSink ? [streamingSink] : []),
-      ...(runtime.eventSinks ?? []),
-    ],
-    ...(runtime.model ? { model: runtime.model } : {}),
-    ...(runtime.tools ? { tools: runtime.tools } : {}),
-    ...(runtime.approvals ? { approvals: runtime.approvals } : {}),
-    ...(runtime.sandbox ? { sandbox: runtime.sandbox } : {}),
-    ...(runtime.subRuns ? { subRuns: runtime.subRuns } : {}),
-    ...(runtime.artifactStore
-      ? { artifacts: runtime.artifactStore }
-      : artifactDirectory
-        ? { artifacts: new FileArtifactStore(artifactDirectory) }
-        : {}),
-  });
-
+  let shutdown: CliRuntime["shutdown"];
   try {
-    const result = await runner.run(
-      command === "run-manifest" && agentRunManifest
-        ? {
-            agentRunManifest,
-            ...(signal ? { signal } : {}),
-          }
-        : {
-            manifest,
-            ...(runId ? { runId } : {}),
-            ...(variableOverrides ? { variables: variableOverrides } : {}),
-            ...(maxTotalTokens ? { budget: { maxTotalTokens } } : {}),
-            ...(signal ? { signal } : {}),
-            ...(command === "resume" ? { resume: true } : {}),
-          },
+    const storeDirectory = resolvedStore.baseDirectory;
+    const runId =
+      command === "resume"
+        ? target
+        : (agentRunManifest?.runId ?? parsed.options.get("run-id"));
+    const maxTotalTokens = positiveSafeIntegerOption(
+      parsed,
+      "max-total-tokens",
     );
-    // Deliberately exclude variables, transcript and model output. They may
-    // contain secrets; inspect is an explicit command for persisted details.
-    if (outputFormat === "ndjson") {
-      io.stdout(
-        `${JSON.stringify({
-          type: "result",
-          result,
-        })}\n`,
-      );
-    } else if (outputFormat === "pretty") {
-      if (streamingSink?.streamedText) io.stdout("\n");
-      else if (result.output !== undefined) {
-        io.stdout(
-          `${typeof result.output === "string" ? result.output : JSON.stringify(result.output, null, 2)}\n`,
-        );
-      }
-      io.stderr(
-        `run ${result.runId}: ${result.stepResults.length} step(s), ${result.artifacts.length} artifact(s)\n`,
+    const runtimeModulePath = parsed.options.get("runtime-module");
+    const runtimeStore =
+      command === "resume"
+        ? await loadRuntimeStore(runtimeModulePath, {
+            runId: target,
+            storeDirectory,
+            storeDriver: resolvedStore.driver,
+            storeLocation: resolvedStore.location,
+          })
+        : undefined;
+    const store = runtimeStore ?? resolvedStore.store;
+    let manifest: AgentManifest;
+    const variableOverrides =
+      command === "run" && parsed.options.has("variables")
+        ? parseAgentVariableOverrides(
+            JSON.parse(
+              await readFile(
+                path.resolve(parsed.options.get("variables")!),
+                "utf8",
+              ),
+            ),
+          )
+        : undefined;
+    let configSearchDirectory = process.cwd();
+    if (command === "run") {
+      const manifestFile = path.resolve(target);
+      configSearchDirectory = path.dirname(manifestFile);
+      manifest = await new FileAgentManifestSource(
+        path.dirname(manifestFile),
+        path.basename(manifestFile),
+      ).loadManifest();
+    } else if (
+      command === "run-manifest" &&
+      agentRunManifest &&
+      agentManifestSource
+    ) {
+      configSearchDirectory = path.dirname(agentRunManifestFile!);
+      manifest = await agentManifestSource.loadManifest(
+        agentRunManifest.agent.ref,
       );
     } else {
-      io.stdout(
-        `${JSON.stringify(
-          {
-            runId: result.runId,
-            status: "completed",
-            stepCount: result.stepResults.length,
-            artifactCount: result.artifacts.length,
-          },
-          null,
-          2,
-        )}\n`,
+      const record = await store.loadRun(target);
+      if (!record) throw new Error(`Run not found: ${target}`);
+      manifest = record.manifest;
+    }
+
+    const eventsOption = parsed.options.get("events");
+    const eventFile =
+      eventsOption === "none"
+        ? undefined
+        : path.resolve(
+            eventsOption ?? path.join(storeDirectory, "events.jsonl"),
+          );
+    const artifactsOption = parsed.options.get("artifacts");
+    const artifactDirectory =
+      artifactsOption === "none"
+        ? undefined
+        : path.resolve(artifactsOption ?? storeDirectory);
+    const context: CliRuntimeContext = {
+      manifest,
+      ...(runId ? { runId } : {}),
+      storeDirectory,
+      storeDriver: resolvedStore.driver,
+      storeLocation: resolvedStore.location,
+      ...(eventFile ? { eventFile } : {}),
+      ...(artifactDirectory ? { artifactDirectory } : {}),
+    };
+    const loadedModuleRuntime = await loadRuntime(runtimeModulePath, context);
+    shutdown = loadedModuleRuntime.shutdown;
+    const moduleRuntime = runtimeStore
+      ? validateRuntime({ ...loadedModuleRuntime, runStore: runtimeStore })
+      : loadedModuleRuntime;
+    const config = await resolveConfig(
+      parsed.options.get("config"),
+      configSearchDirectory,
+    );
+    const configuredRuntime = composeRuntime(
+      manifest,
+      config,
+      {},
+      {
+        model: !moduleRuntime.model,
+        tools: !moduleRuntime.tools,
+        ...(moduleRuntime.connectionCredentials
+          ? { connectionCredentials: moduleRuntime.connectionCredentials }
+          : {}),
+      },
+    );
+    const runtime = mergeRuntimes(configuredRuntime, moduleRuntime);
+    const jsonlSink = eventFile ? new JsonlEventSink(eventFile) : undefined;
+    const requestedFormat =
+      parsed.options.get("format") ??
+      (parsed.options.has("stream") ? "pretty" : "json");
+    if (!["json", "pretty", "ndjson"].includes(requestedFormat)) {
+      throw new Error("--format must be json, pretty, or ndjson.");
+    }
+    const outputFormat = requestedFormat as CliOutputFormat;
+    const streamingSink =
+      outputFormat === "json"
+        ? undefined
+        : new CliStreamingEventSink(
+            io,
+            outputFormat,
+            parsed.options.has("show-reasoning"),
+          );
+    const warnedSinks = new Set<EventSink>();
+    const runner = new AgentRuntime({
+      onEventSinkError(_error, _event, sink) {
+        if (warnedSinks.has(sink)) return;
+        warnedSinks.add(sink);
+        io.stderr(
+          `Warning: event delivery failed for ${sink instanceof SafeLocalEventSink ? `local log ${eventFile}` : sink.constructor.name}. Check permissions and available disk space. Execution continues.\n`,
+        );
+      },
+      runStore: runtime.runStore ?? store,
+      ...(agentManifestSource ? { agentManifestSource } : {}),
+      stepExecutors: resolveStepExecutors(runtime, {
+        allowUnsafeWebhooks: true,
+      }),
+      conditionEvaluator: new JexlConditionEvaluator(),
+      eventSinks: [
+        ...(jsonlSink ? [new SafeLocalEventSink(jsonlSink)] : []),
+        ...(streamingSink ? [streamingSink] : []),
+        ...(runtime.eventSinks ?? []),
+      ],
+      ...(runtime.model ? { model: runtime.model } : {}),
+      ...(runtime.tools ? { tools: runtime.tools } : {}),
+      ...(runtime.approvals ? { approvals: runtime.approvals } : {}),
+      ...(runtime.sandbox ? { sandbox: runtime.sandbox } : {}),
+      ...(runtime.subRuns ? { subRuns: runtime.subRuns } : {}),
+      ...(runtime.artifactStore
+        ? { artifacts: runtime.artifactStore }
+        : artifactDirectory
+          ? { artifacts: new FileArtifactStore(artifactDirectory) }
+          : {}),
+    });
+
+    try {
+      const result = await runner.run(
+        command === "run-manifest" && agentRunManifest
+          ? {
+              agentRunManifest,
+              ...(signal ? { signal } : {}),
+            }
+          : {
+              manifest,
+              ...(runId ? { runId } : {}),
+              ...(variableOverrides ? { variables: variableOverrides } : {}),
+              ...(maxTotalTokens ? { budget: { maxTotalTokens } } : {}),
+              ...(signal ? { signal } : {}),
+              ...(command === "resume" ? { resume: true } : {}),
+            },
       );
+      // Deliberately exclude variables, transcript and model output. They may
+      // contain secrets; inspect is an explicit command for persisted details.
+      if (outputFormat === "ndjson") {
+        io.stdout(
+          `${JSON.stringify({
+            type: "result",
+            result,
+          })}\n`,
+        );
+      } else if (outputFormat === "pretty") {
+        if (streamingSink?.streamedText) io.stdout("\n");
+        else if (result.output !== undefined) {
+          io.stdout(
+            `${typeof result.output === "string" ? result.output : JSON.stringify(result.output, null, 2)}\n`,
+          );
+        }
+        io.stderr(
+          `run ${result.runId}: ${result.stepResults.length} step(s), ${result.artifacts.length} artifact(s)\n`,
+        );
+      } else {
+        io.stdout(
+          `${JSON.stringify(
+            {
+              runId: result.runId,
+              status: "completed",
+              stepCount: result.stepResults.length,
+              artifactCount: result.artifacts.length,
+            },
+            null,
+            2,
+          )}\n`,
+        );
+      }
+    } finally {
+      await jsonlSink?.flush();
     }
   } finally {
-    await jsonlSink?.flush();
+    try {
+      await shutdown?.();
+    } catch {
+      io.stderr("Warning: runtime shutdown failed. Check adapter cleanup.\n");
+    }
+    try {
+      resolvedStore.close();
+    } catch {
+      io.stderr("Warning: local store cleanup failed.\n");
+    }
   }
 };
 
@@ -1190,87 +1238,97 @@ export const executeWorkerInvocation = async (
           await import("@clearideas/agent-runtime-store-sqlite")
         ).SqliteRunStore(storeLocation)
       : new FileRunStore(storeLocation));
-  const artifacts =
-    runtime.artifactStore ?? new FileArtifactStore(storeDirectory);
+  try {
+    const artifacts =
+      runtime.artifactStore ?? new FileArtifactStore(storeDirectory);
 
-  if (
-    invocation.action === "resume" &&
-    "checkpoint" in request &&
-    request.checkpoint
-  ) {
-    const existing = await store.loadRun(request.runId);
-    if (!existing) {
-      const checkpointAttempt =
-        request.checkpoint.attempt ?? request.attempt - 1;
-      const importedCheckpoint = {
-        ...request.checkpoint,
-        ...(request.checkpoint.sequence === 1
-          ? {}
-          : {
-              id: `${request.checkpoint.id}:imported`,
-              sequence: 1,
-              metadata: {
-                ...(request.checkpoint.metadata ?? {}),
-                importedCheckpointId: request.checkpoint.id,
-                importedCheckpointSequence: request.checkpoint.sequence,
-              },
-            }),
-      };
-      await store.createRun({
-        runId: request.runId,
-        manifest,
-        status: "suspended",
-        attempt: checkpointAttempt,
-        state: structuredClone(importedCheckpoint.state),
-        createdAt: importedCheckpoint.createdAt,
-        updatedAt: importedCheckpoint.createdAt,
-      });
-      // A transferred checkpoint is a complete snapshot, not a partial log.
-      // Rebase its local sequence when the destination store has no history;
-      // preserve the source cursor in metadata for audit/debugging.
-      await store.saveCheckpoint(importedCheckpoint);
+    if (
+      invocation.action === "resume" &&
+      "checkpoint" in request &&
+      request.checkpoint
+    ) {
+      const existing = await store.loadRun(request.runId);
+      if (!existing) {
+        const checkpointAttempt =
+          request.checkpoint.attempt ?? request.attempt - 1;
+        const importedCheckpoint = {
+          ...request.checkpoint,
+          ...(request.checkpoint.sequence === 1
+            ? {}
+            : {
+                id: `${request.checkpoint.id}:imported`,
+                sequence: 1,
+                metadata: {
+                  ...(request.checkpoint.metadata ?? {}),
+                  importedCheckpointId: request.checkpoint.id,
+                  importedCheckpointSequence: request.checkpoint.sequence,
+                },
+              }),
+        };
+        await store.createRun({
+          runId: request.runId,
+          manifest,
+          status: "suspended",
+          attempt: checkpointAttempt,
+          state: structuredClone(importedCheckpoint.state),
+          createdAt: importedCheckpoint.createdAt,
+          updatedAt: importedCheckpoint.createdAt,
+        });
+        // A transferred checkpoint is a complete snapshot, not a partial log.
+        // Rebase its local sequence when the destination store has no history;
+        // preserve the source cursor in metadata for audit/debugging.
+        await store.saveCheckpoint(importedCheckpoint);
+      }
     }
-  }
 
-  const runner = new AgentRuntime({
-    runStore: store,
-    // Webhook execution is host-supplied in worker mode so destination policy
-    // cannot be bypassed by a remote manifest.
-    stepExecutors: resolveStepExecutors(runtime),
-    conditionEvaluator: new JexlConditionEvaluator(),
-    eventSinks: [
-      new PortableWorkerEventSink(options.onMessage),
-      ...(runtime.eventSinks ?? []),
-    ],
-    ...(runtime.model ? { model: runtime.model } : {}),
-    ...(runtime.tools ? { tools: runtime.tools } : {}),
-    ...(runtime.approvals ? { approvals: runtime.approvals } : {}),
-    ...(runtime.sandbox ? { sandbox: runtime.sandbox } : {}),
-    ...(runtime.subRuns ? { subRuns: runtime.subRuns } : {}),
-    artifacts,
-    ...(options.maxParallelSteps
-      ? { maxParallelSteps: options.maxParallelSteps }
-      : {}),
-    ...(options.eventSinkFailurePolicy
-      ? { eventSinkFailurePolicy: options.eventSinkFailurePolicy }
-      : {}),
-  });
-  return runner.run({
-    manifest,
-    ...(request.runId ? { runId: request.runId } : {}),
-    ...(invocationVariables ? { variables: invocationVariables } : {}),
-    ...(request.execution ? { execution: request.execution } : {}),
-    ...(request.budget ? { budget: request.budget } : {}),
-    ...(options.signal ? { signal: options.signal } : {}),
-    ...(invocation.action === "resume"
-      ? {
-          resume: true,
-          ...("allowRunningTakeover" in request && request.allowRunningTakeover
-            ? { allowRunningTakeover: true }
-            : {}),
-        }
-      : {}),
-  });
+    const runner = new AgentRuntime({
+      runStore: store,
+      // Webhook execution is host-supplied in worker mode so destination policy
+      // cannot be bypassed by a remote manifest.
+      stepExecutors: resolveStepExecutors(runtime),
+      conditionEvaluator: new JexlConditionEvaluator(),
+      eventSinks: [
+        new PortableWorkerEventSink(options.onMessage),
+        ...(runtime.eventSinks ?? []),
+      ],
+      ...(runtime.model ? { model: runtime.model } : {}),
+      ...(runtime.tools ? { tools: runtime.tools } : {}),
+      ...(runtime.approvals ? { approvals: runtime.approvals } : {}),
+      ...(runtime.sandbox ? { sandbox: runtime.sandbox } : {}),
+      ...(runtime.subRuns ? { subRuns: runtime.subRuns } : {}),
+      artifacts,
+      ...(options.maxParallelSteps
+        ? { maxParallelSteps: options.maxParallelSteps }
+        : {}),
+      ...(options.eventSinkFailurePolicy
+        ? { eventSinkFailurePolicy: options.eventSinkFailurePolicy }
+        : {}),
+    });
+    return await runner.run({
+      manifest,
+      ...(request.runId ? { runId: request.runId } : {}),
+      ...(invocationVariables ? { variables: invocationVariables } : {}),
+      ...(request.execution ? { execution: request.execution } : {}),
+      ...(request.budget ? { budget: request.budget } : {}),
+      ...(options.signal ? { signal: options.signal } : {}),
+      ...(invocation.action === "resume"
+        ? {
+            resume: true,
+            ...("allowRunningTakeover" in request &&
+            request.allowRunningTakeover
+              ? { allowRunningTakeover: true }
+              : {}),
+          }
+        : {}),
+    });
+  } finally {
+    if (
+      !runtime.runStore &&
+      "close" in store &&
+      typeof store.close === "function"
+    )
+      store.close();
+  }
 };
 
 const readStandardInput = async (): Promise<string> => {

@@ -59,6 +59,9 @@ jobs:
       - name: Validate release candidate
         run: npm run validate
 
+      - name: Test packed consumer installation
+        run: npm run check:consumer
+
       - name: Build documentation site
         run: npm run docs:build
 
@@ -106,7 +109,7 @@ jobs:
           version-script: npm run version-packages
           commit-message: "chore: version packages"
           pr-title: "chore: version packages"
-          create-github-releases: false
+          create-github-releases: true
           push-git-tags: true
         env:
           NPM_CONFIG_PROVENANCE: "true"

@@ -16,7 +16,7 @@
     "test": "npm run type-check && node --test server.test.ts"
   },
   "dependencies": {
-    "@clearideas/agent-runtime": "0.4.1",
+    "@clearideas/agent-runtime": "0.4.3",
     "ace-builds": "^1.44.0",
     "yaml": "^2.9.0"
   },

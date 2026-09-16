@@ -10,9 +10,9 @@
     "examples/interactive-web"
   ],
   "scripts": {
-    "build": "tsc -b tsconfig.json --force",
-    "type-check": "tsc -b tsconfig.json --pretty false",
-    "test": "npm run test --workspaces --if-present",
+    "build": "node scripts/generate-runtime-version.mjs && tsc -b tsconfig.json --force",
+    "type-check": "node scripts/generate-runtime-version.mjs && tsc -b tsconfig.json --pretty false",
+    "test": "npm run test --workspaces --if-present && npm run test:examples",
     "check:boundaries": "node scripts/check-package-boundaries.mjs",
     "check:docs": "node scripts/check-docs.mjs",
     "check:metadata": "node scripts/check-package-metadata.mjs",
@@ -27,9 +27,11 @@
     "example:web": "npm run start --workspace @clearideas/agent-runtime-example-interactive-web",
     "validate": "npm run format:check && npm run check:metadata && npm run check:boundaries && npm run build && npm test && npm run check:docs && npm run check:tarballs",
     "changeset": "changeset",
-    "version-packages": "changeset version",
+    "version-packages": "changeset version && node scripts/generate-runtime-version.mjs",
     "release:check": "npm run validate",
-    "release:packages": "changeset publish"
+    "release:packages": "changeset publish",
+    "test:examples": "node --test examples/patterns/patterns.test.mjs",
+    "check:consumer": "node scripts/check-consumer.mjs"
   },
   "engines": {
     "node": ">=24"
