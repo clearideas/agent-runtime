@@ -20,7 +20,7 @@
     "@opentelemetry/sdk-node": "^0.222.0",
     "@opentelemetry/sdk-trace-node": "^2.10.0",
     "dompurify": "^3.4.15",
-    "marked": "^18.0.12"
+    "marked": "^18.0.13"
   },
   "engines": {
     "node": ">=24"
