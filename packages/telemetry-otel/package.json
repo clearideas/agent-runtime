@@ -40,7 +40,7 @@
     "@clearideas/agent-runtime-core": "0.5.0"
   },
   "peerDependencies": {
-    "@opentelemetry/api": ">=1 <2"
+    "@opentelemetry/api": "^1.9.1"
   },
   "devDependencies": {
     "typescript": "^7.0.2",
