@@ -72,3 +72,27 @@ jobs:
         working-directory: examples/agent-runner
       - run: npm test
         working-directory: examples/agent-runner
+
+  sandbox-linux:
+    name: Linux workspace and sandbox execution
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: 24
+          cache: npm
+      - name: Install sandbox test dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes bubblewrap python3
+          # Enable user namespaces on this disposable runner for isolation tests.
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+      - run: npm ci
+      - run: npm run build
+      - name: Require a working sandbox before running execution tests
+        run: |
+          node --input-type=module -e 'import { BubblewrapSandboxProvider } from "./packages/sandbox/dist/index.js"; await new BubblewrapSandboxProvider().probe();'
+      - run: npm test --workspace @clearideas/agent-runtime-sandbox
+      - run: npm test --workspace @clearideas/agent-runtime
