@@ -1,0 +1,55 @@
+schemaVersion: '1.0'
+id: workspace-review
+name: Code base review with workspace tools
+
+model:
+  provider: openai
+  model: gpt-5.6
+
+variables:
+  - key: focus
+    type: string
+    value: error handling in the HTTP client
+
+workspaces:
+  # The host defines "source-code" and "notes" in agent-runtime.config.yaml.
+  # The agent may narrow the configured mode and tools; it can never widen them.
+  - ref: source-code
+    alias: code
+    mode: read
+    tools: [list_files, read_file, search_files, pytest]
+  - ref: notes
+    mode: read_write
+    required: false
+
+steps:
+  - id: survey
+    type: prompt
+    systemPrompt: >-
+      You review a code base exposed through workspace tools. List files,
+      search for symbols, and read only what you need. Run the test suite
+      with code__pytest before drawing conclusions.
+    prompt: Summarize how the code base handles {{ focus }}. Cite file paths.
+    tools: [code__list_files, code__search_files, code__read_file, code__pytest]
+    outputVariable: survey
+
+  - id: record
+    type: prompt
+    prompt: >-
+      Write the review below to review.md in the notes workspace, then reply
+      with the path you wrote.
+
+      {{ survey }}
+    tools: [notes__write_file]
+    includeInFinalOutput: true
+
+  - id: verify
+    type: code
+    language: python
+    workspaces: [code, notes]
+    code: |
+      import json, os, pathlib
+      mounts = json.load(open(os.environ["AGENT_WORKSPACES_FILE"]))["mounts"]
+      review = pathlib.Path(mounts["notes"]["path"]) / "review.md"
+      print(json.dumps({"reviewBytes": review.stat().st_size}))
+    outputVariable: verification

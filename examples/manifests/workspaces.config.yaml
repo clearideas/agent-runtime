@@ -1,0 +1,49 @@
+version: '1.0'
+
+models:
+  quality:
+    provider: openai
+    model: gpt-5.6
+
+# Workspaces are host-owned file collections such as a code base or a document
+# store. Every model operation on them runs inside the run sandbox below.
+workspaces:
+  source-code:
+    driver: local
+    root: ./repo # relative to this configuration file
+    mode: read
+    include: ['src/**', 'tests/**', '**/*.md', 'package.json']
+    exclude: ['**/node_modules/**', '**/dist/**']
+    maxFiles: 5000
+    maxFileBytes: 1048576
+
+  notes:
+    driver: local
+    root:
+      env: AGENT_NOTES_ROOT
+    mode: read_write
+    maxFileBytes: 262144
+
+# One isolated sandbox per run attempt. bubblewrap needs no container daemon;
+# use driver: docker with an image for container-based isolation.
+sandbox:
+  driver: bubblewrap
+  limits:
+    commandTimeoutMs: 60000
+    maxCommandsPerRun: 200
+    maxTotalSandboxSeconds: 900
+  commands:
+    pytest:
+      description: Run the Python test suite.
+      program: python3
+      args:
+        maxCount: 8
+        allowPatterns: ['^-m$']
+        denyPatterns: ['^-c$']
+    extract_text:
+      description: Extract text from a PDF document.
+      argv: ['pdftotext', '-layout', '{file}', '-']
+      inputs: ['**/*.pdf']
+      workspaces: [source-code]
+  shell:
+    enabled: false

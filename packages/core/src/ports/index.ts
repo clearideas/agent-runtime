@@ -1,5 +1,6 @@
 import type {
   AgentManifest,
+  AgentWorkspaceBinding,
   ArtifactRef,
   JsonObject,
   JsonValue,
@@ -9,10 +10,12 @@ import type {
   RunError,
   RunEvent,
   AgentVariableOverride,
+  SandboxCommandRecord,
   ToolCall,
   ToolResult,
   TranscriptItem,
   VariableState,
+  WorkspaceMode,
 } from "@clearideas/agent-runtime-contracts";
 
 /** Loads an agent manifest without coupling execution to files, HTTP, or a database. */
@@ -100,6 +103,174 @@ export interface ArtifactStore {
   get(ref: ArtifactRef): Promise<ArtifactData>;
 }
 
+const WORKSPACE_PATH_SEGMENT = /^[A-Za-z0-9][A-Za-z0-9._-]*$/u;
+export const MAXIMUM_WORKSPACE_PATH_LENGTH = 1024;
+export const MAXIMUM_WORKSPACE_PATH_DEPTH = 64;
+
+/**
+ * Workspace paths are relative POSIX paths whose segments contain only
+ * letters, digits, dots, underscores, and hyphens and never start with a dot.
+ * Traversal, absolute paths, and hidden entries are unaddressable.
+ */
+export const isSafeWorkspacePath = (value: string): boolean => {
+  if (value.length === 0 || value.length > MAXIMUM_WORKSPACE_PATH_LENGTH)
+    return false;
+  const segments = value.split("/");
+  return (
+    segments.length <= MAXIMUM_WORKSPACE_PATH_DEPTH &&
+    segments.every((segment) => WORKSPACE_PATH_SEGMENT.test(segment))
+  );
+};
+
+export const assertWorkspacePath = (
+  value: string,
+  label = "Workspace path",
+): string => {
+  if (!isSafeWorkspacePath(value)) {
+    throw new Error(
+      `${label} must be a relative POSIX path with safe segments: ${value}`,
+    );
+  }
+  return value;
+};
+
+export interface WorkspaceEntry {
+  path: string;
+  size: number;
+  modifiedAt?: string;
+  sha256?: string;
+}
+
+export interface WorkspaceLimits {
+  maxFiles?: number;
+  maxFileBytes?: number;
+  maxTotalBytes?: number;
+}
+
+/**
+ * A durable, host-owned collection of files such as a code base or document
+ * store. Stores enumerate and move opaque bytes; they never interpret
+ * content. Implementations confine every path beneath their root, never
+ * follow symbolic links, expose only visible files, and refuse writes unless
+ * their mode is read_write.
+ */
+export interface WorkspaceStore {
+  readonly mode: WorkspaceMode;
+  readonly limits?: WorkspaceLimits;
+  /** Present when a provider may bind the directory read-only instead of staging it. */
+  readonly attachable?: { kind: "local-directory"; root: string };
+  entries(options?: { signal?: AbortSignal }): Promise<WorkspaceEntry[]>;
+  read(path: string, options?: { signal?: AbortSignal }): Promise<Uint8Array>;
+  write?(
+    path: string,
+    data: Uint8Array,
+    options?: { signal?: AbortSignal },
+  ): Promise<WorkspaceEntry>;
+  delete?(path: string, options?: { signal?: AbortSignal }): Promise<void>;
+}
+
+export interface WorkspaceResolutionContext {
+  runId?: string;
+  signal?: AbortSignal;
+}
+
+/** Resolves manifest workspace bindings to host-authorized stores. */
+export interface WorkspaceProvider {
+  resolveWorkspace(
+    binding: AgentWorkspaceBinding,
+    context?: WorkspaceResolutionContext,
+  ): Promise<WorkspaceStore | undefined>;
+}
+
+/** A manifest binding resolved against the host with its effective privileges. */
+export interface ResolvedWorkspace {
+  binding: AgentWorkspaceBinding;
+  alias: string;
+  mode: WorkspaceMode;
+  store: WorkspaceStore;
+}
+
+/** Narrow a store to the effective mode; a read binding never exposes writes. */
+export const restrictWorkspace = (
+  store: WorkspaceStore,
+  mode: WorkspaceMode,
+): WorkspaceStore => {
+  if (store.mode === "read" && mode === "read_write") {
+    throw new Error("A read-only workspace cannot be elevated to read_write.");
+  }
+  if (mode === "read_write") return store;
+  return {
+    mode: "read",
+    ...(store.limits ? { limits: store.limits } : {}),
+    ...(store.attachable ? { attachable: store.attachable } : {}),
+    entries: (options) => store.entries(options),
+    read: (path, options) => store.read(path, options),
+  };
+};
+
+export interface SandboxBudgetState {
+  commandsUsed: number;
+  sandboxSecondsUsed: number;
+}
+
+export interface RunSandboxOpenRequest {
+  runId: string;
+  attempt: number;
+  workspaces: readonly ResolvedWorkspace[];
+  emit(type: string, data?: JsonObject, stepId?: string): Promise<RunEvent>;
+  artifacts?: ArtifactStore;
+  /** Cumulative usage restored from the latest checkpoint on resume. */
+  budget?: SandboxBudgetState;
+  signal?: AbortSignal;
+}
+
+export interface RunSandboxCommandRequest {
+  stepId: string;
+  toolCallId?: string;
+  idempotencyKey?: string;
+  /** Binding alias the command targets; required for builtin, command, and shell. */
+  alias?: string;
+  kind: "builtin" | "command" | "shell" | "code";
+  name: string;
+  /** Tool arguments, or code-step inputs for kind code. */
+  arguments: JsonObject;
+  signal?: AbortSignal;
+}
+
+export interface RunSandboxCommandResult {
+  record: SandboxCommandRecord;
+  /** Structured output for builtin operations and code steps. */
+  output?: JsonValue;
+  stdout: string;
+  stderr: string;
+  artifacts?: ArtifactRef[];
+}
+
+/**
+ * One isolated environment per run attempt in which every workspace
+ * operation executes. Sessions serialize commands, report each one through
+ * events, and never outlive the attempt.
+ */
+export interface RunSandboxSession {
+  readonly id: string;
+  execute(request: RunSandboxCommandRequest): Promise<RunSandboxCommandResult>;
+  budget(): SandboxBudgetState;
+  /** Final sync-back and termination. Idempotent. */
+  close(
+    reason: "completed" | "failed" | "cancelled" | "suspended",
+  ): Promise<void>;
+}
+
+export interface RunSandboxProvider {
+  /** Describe the tools a binding exposes after host policy; no sandbox is opened. */
+  tools(workspace: ResolvedWorkspace): Promise<AgentTool[]>;
+  /** Fail fast before a run is created when a session could not be opened. */
+  validate(
+    request: Omit<RunSandboxOpenRequest, "emit" | "artifacts">,
+  ): Promise<void>;
+  open(request: RunSandboxOpenRequest): Promise<RunSandboxSession>;
+}
+
 /** Event sinks are observers; they do not own durable execution state. */
 export interface EventSink {
   emit(event: RunEvent): Promise<void> | void;
@@ -167,6 +338,10 @@ export interface ToolExecutionContext {
   variables: Readonly<VariableState>;
   /** Stable across recovery attempts for one logical tool call. */
   idempotencyKey?: string;
+  /** Workspaces bound by the manifest and resolved for this run. */
+  workspaces?: readonly ResolvedWorkspace[];
+  /** Opens (once) and returns the run sandbox session for this run. */
+  runSandbox?: () => Promise<RunSandboxSession>;
   signal?: AbortSignal;
 }
 

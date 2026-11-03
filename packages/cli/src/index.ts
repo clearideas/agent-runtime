@@ -18,12 +18,15 @@ import {
   type EventSink,
   type ModelAdapter,
   AgentRuntime,
+  type RunSandboxProvider,
   type RunStore,
   type SandboxAdapter,
   type StepExecutor,
   type SubRunAdapter,
   type ToolAdapter,
+  type WorkspaceProvider,
 } from "@clearideas/agent-runtime-core";
+import type { SandboxProvider } from "@clearideas/agent-runtime-sandbox";
 import {
   EXECUTION_PROTOCOL_VERSION,
   parseWorkerInvocation,
@@ -41,6 +44,7 @@ import {
   type ConfiguredMcpToolAdapterOptions,
   type ModelAuthorizationPolicy,
   validateRuntimeConfiguration,
+  type WorkspaceCompositionOptions,
 } from "@clearideas/agent-runtime-config";
 import { LoopStepExecutor } from "@clearideas/agent-runtime-step-loop";
 import { PromptStepExecutor } from "@clearideas/agent-runtime-step-prompt";
@@ -270,6 +274,8 @@ const validateConfig = async (args: string[], io: CliIo): Promise<void> => {
         providerCount: Object.keys(config.providers).length,
         modelCount: Object.keys(config.models).length,
         connectionCount: Object.keys(config.connections).length,
+        workspaceCount: Object.keys(config.workspaces ?? {}).length,
+        ...(config.sandbox ? { sandbox: config.sandbox.driver } : {}),
       },
       null,
       2,
@@ -340,6 +346,12 @@ export interface CliRuntime {
   approvals?: ApprovalAdapter;
   sandbox?: SandboxAdapter;
   subRuns?: SubRunAdapter;
+  /** Resolves manifest workspace bindings instead of the configuration's `workspaces` section. */
+  workspaces?: WorkspaceProvider;
+  /** Opens run sandboxes instead of the configuration's `sandbox` section. */
+  runSandbox?: RunSandboxProvider;
+  /** Backs `sandbox.driver: host` in the configuration. */
+  sandboxProvider?: SandboxProvider;
   eventSinks?: EventSink[];
   stepExecutors?: StepExecutor[];
 }
@@ -365,6 +377,8 @@ export interface CliRuntimeModule extends CliRuntime {
   approvalAdapter?: ApprovalAdapter;
   sandboxAdapter?: SandboxAdapter;
   subRunAdapter?: SubRunAdapter;
+  workspaceProvider?: WorkspaceProvider;
+  runSandboxProvider?: RunSandboxProvider;
   eventSink?: EventSink;
   executors?: StepExecutor[];
 }
@@ -433,6 +447,34 @@ const validateRuntime = (runtime: CliRuntime): CliRuntime => {
   if (runtime.subRuns && !adapterMethod(runtime.subRuns, "execute"))
     throw new Error("Runtime subRuns must implement SubRunAdapter.execute().");
   if (
+    runtime.workspaces &&
+    !adapterMethod(runtime.workspaces, "resolveWorkspace")
+  ) {
+    throw new Error(
+      "Runtime workspaces must implement WorkspaceProvider.resolveWorkspace().",
+    );
+  }
+  if (
+    runtime.runSandbox &&
+    (!adapterMethod(runtime.runSandbox, "open") ||
+      !adapterMethod(runtime.runSandbox, "validate") ||
+      !adapterMethod(runtime.runSandbox, "tools"))
+  ) {
+    throw new Error(
+      "Runtime runSandbox must implement RunSandboxProvider.tools(), validate(), and open().",
+    );
+  }
+  if (
+    runtime.sandboxProvider &&
+    (!adapterMethod(runtime.sandboxProvider, "create") ||
+      !adapterMethod(runtime.sandboxProvider, "execute") ||
+      !adapterMethod(runtime.sandboxProvider, "terminate"))
+  ) {
+    throw new Error(
+      "Runtime sandboxProvider must implement the SandboxProvider lifecycle methods.",
+    );
+  }
+  if (
     runtime.eventSinks &&
     (!Array.isArray(runtime.eventSinks) ||
       runtime.eventSinks.some((sink) => !adapterMethod(sink, "emit")))
@@ -483,6 +525,15 @@ const normalizeRuntime = (runtime: CliRuntimeModule): CliRuntime => ({
     : {}),
   ...((runtime.subRuns ?? runtime.subRunAdapter)
     ? { subRuns: runtime.subRuns ?? runtime.subRunAdapter }
+    : {}),
+  ...((runtime.workspaces ?? runtime.workspaceProvider)
+    ? { workspaces: runtime.workspaces ?? runtime.workspaceProvider }
+    : {}),
+  ...((runtime.runSandbox ?? runtime.runSandboxProvider)
+    ? { runSandbox: runtime.runSandbox ?? runtime.runSandboxProvider }
+    : {}),
+  ...(runtime.sandboxProvider
+    ? { sandboxProvider: runtime.sandboxProvider }
     : {}),
   ...((runtime.eventSinks?.length ?? 0) > 0 || runtime.eventSink
     ? {
@@ -609,6 +660,22 @@ const resolveConfig = async (
     }
   }
   return emptyAgentRuntimeConfig();
+};
+
+/** Host-supplied workspace and sandbox adapters take precedence over configuration. */
+const workspaceCompositionOptions = (
+  ...runtimes: CliRuntime[]
+): WorkspaceCompositionOptions => {
+  const options: WorkspaceCompositionOptions = {};
+  for (const runtime of runtimes) {
+    if (runtime.workspaces && !options.provider)
+      options.provider = runtime.workspaces;
+    if (runtime.runSandbox && !options.runSandbox)
+      options.runSandbox = runtime.runSandbox;
+    if (runtime.sandboxProvider && !options.sandboxProvider)
+      options.sandboxProvider = runtime.sandboxProvider;
+  }
+  return options;
 };
 
 const mergeRuntimes = (
@@ -933,6 +1000,7 @@ const execute = async (
         ...(moduleRuntime.connectionCredentials
           ? { connectionCredentials: moduleRuntime.connectionCredentials }
           : {}),
+        workspaceOptions: workspaceCompositionOptions(moduleRuntime),
       },
     );
     const runtime = mergeRuntimes(configuredRuntime, moduleRuntime);
@@ -977,6 +1045,8 @@ const execute = async (
       ...(runtime.approvals ? { approvals: runtime.approvals } : {}),
       ...(runtime.sandbox ? { sandbox: runtime.sandbox } : {}),
       ...(runtime.subRuns ? { subRuns: runtime.subRuns } : {}),
+      ...(runtime.workspaces ? { workspaces: runtime.workspaces } : {}),
+      ...(runtime.runSandbox ? { runSandbox: runtime.runSandbox } : {}),
       ...(runtime.artifactStore
         ? { artifacts: runtime.artifactStore }
         : artifactDirectory
@@ -1087,6 +1157,8 @@ export interface PortableWorkerOptions {
   modelPolicy?: ModelAuthorizationPolicy;
   /** Host policy and credentials applied to configured MCP adapters. */
   toolOptions?: ConfiguredMcpToolAdapterOptions;
+  /** Host policy, hooks, and providers applied to configured workspaces and the run sandbox. */
+  workspaceOptions?: WorkspaceCompositionOptions;
   /** Host-supplied adapters for embedded workers such as managed compute runtimes. */
   runtime?: CliRuntime;
   eventSinkFailurePolicy?: "continue" | "fail-run";
@@ -1108,6 +1180,11 @@ const assertSafeInlineWorkerConfiguration = (
   if (Object.keys(config.connections).length > 0) {
     throw new Error(
       "Inline worker configuration cannot define MCP connections; use a trusted configReference.",
+    );
+  }
+  if (Object.keys(config.workspaces ?? {}).length > 0 || config.sandbox) {
+    throw new Error(
+      "Inline worker configuration cannot define workspaces or a sandbox; use a trusted configReference.",
     );
   }
 };
@@ -1207,6 +1284,10 @@ export const executeWorkerInvocation = async (
     {
       model: !moduleRuntime.model && !hostRuntime.model,
       tools: !moduleRuntime.tools && !hostRuntime.tools,
+      workspaceOptions: {
+        ...options.workspaceOptions,
+        ...workspaceCompositionOptions(hostRuntime, moduleRuntime),
+      },
       ...(options.modelPolicy ? { modelPolicy: options.modelPolicy } : {}),
       ...(options.toolOptions ||
       hostRuntime.connectionCredentials ||
@@ -1296,6 +1377,8 @@ export const executeWorkerInvocation = async (
       ...(runtime.approvals ? { approvals: runtime.approvals } : {}),
       ...(runtime.sandbox ? { sandbox: runtime.sandbox } : {}),
       ...(runtime.subRuns ? { subRuns: runtime.subRuns } : {}),
+      ...(runtime.workspaces ? { workspaces: runtime.workspaces } : {}),
+      ...(runtime.runSandbox ? { runSandbox: runtime.runSandbox } : {}),
       artifacts,
       ...(options.maxParallelSteps
         ? { maxParallelSteps: options.maxParallelSteps }

@@ -1,6 +1,8 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 
+import { WORKSPACE_MODES } from "@clearideas/agent-runtime-contracts";
+import { resolveRunSandboxPolicy } from "@clearideas/agent-runtime-sandbox";
 import { parse as parseYaml } from "yaml";
 import { z } from "zod";
 
@@ -112,6 +114,151 @@ export type McpConnectionDefinition = z.infer<
 >;
 export type ConnectionDefinition = McpConnectionDefinition;
 
+const positiveIntegerSchema = z.number().int().positive().safe();
+const commandNameSchema = z.string().regex(/^[a-z][a-z0-9_]*$/u);
+
+export const workspaceDefinitionSchema = z.discriminatedUnion("driver", [
+  z.strictObject({
+    driver: z.literal("local"),
+    /** Host directory; literal paths loaded from a file resolve against that file. */
+    root: valueSourceSchema,
+    mode: z.enum(WORKSPACE_MODES).default("read"),
+    include: z.array(z.string().trim().min(1)).optional(),
+    exclude: z.array(z.string().trim().min(1)).optional(),
+    maxFiles: positiveIntegerSchema.optional(),
+    maxFileBytes: positiveIntegerSchema.optional(),
+    maxTotalBytes: positiveIntegerSchema.optional(),
+    /** auto: bind read-only when the provider supports it; never: always stage a copy. */
+    attach: z.enum(["auto", "never"]).default("auto"),
+  }),
+  z.strictObject({
+    /** The host supplies the store through composition options. */
+    driver: z.literal("host"),
+    mode: z.enum(WORKSPACE_MODES).default("read"),
+    attach: z.enum(["auto", "never"]).default("auto"),
+  }),
+]);
+
+export type WorkspaceDefinition = z.infer<typeof workspaceDefinitionSchema>;
+
+export const sandboxCommandDefinitionSchema = z
+  .strictObject({
+    description: z.string().optional(),
+    argv: z.array(z.string().min(1)).min(1).optional(),
+    program: z.string().min(1).optional(),
+    args: z
+      .strictObject({
+        maxCount: z.number().int().nonnegative().optional(),
+        allowPatterns: z.array(z.string().min(1)).optional(),
+        denyPatterns: z.array(z.string().min(1)).optional(),
+      })
+      .optional(),
+    inputs: z.array(z.string().min(1)).optional(),
+    workspaces: z.array(nameSchema).optional(),
+    modes: z.array(z.enum(WORKSPACE_MODES)).min(1).optional(),
+    timeoutMs: positiveIntegerSchema.optional(),
+  })
+  .refine((entry) => (entry.argv == null) !== (entry.program == null), {
+    message: "A sandbox command requires exactly one of argv or program.",
+  });
+
+export type SandboxCommandDefinition = z.infer<
+  typeof sandboxCommandDefinitionSchema
+>;
+
+export const sandboxLimitsSchema = z.strictObject({
+  memoryMb: positiveIntegerSchema.optional(),
+  cpuCount: z.number().positive().max(1024).optional(),
+  processLimit: positiveIntegerSchema.optional(),
+  workspaceTmpfsMb: positiveIntegerSchema.optional(),
+  commandTimeoutMs: positiveIntegerSchema.optional(),
+  maxCommandTimeoutMs: positiveIntegerSchema.optional(),
+  maxCommandsPerRun: positiveIntegerSchema.optional(),
+  maxTotalSandboxSeconds: positiveIntegerSchema.optional(),
+  maxStdoutBytes: positiveIntegerSchema.optional(),
+  maxStderrBytes: positiveIntegerSchema.optional(),
+  maxArgs: positiveIntegerSchema.optional(),
+  maxArgBytes: positiveIntegerSchema.optional(),
+  maxTotalStagedBytes: positiveIntegerSchema.optional(),
+  maxOutputFiles: positiveIntegerSchema.optional(),
+  maxOutputBytes: positiveIntegerSchema.optional(),
+});
+
+export const sandboxDefinitionSchema = z
+  .strictObject({
+    /** docker and bubblewrap are created from configuration; host uses a SandboxProvider supplied by code. */
+    driver: z.enum(["docker", "bubblewrap", "host"]),
+    /** Container image for docker and host drivers. */
+    image: z.string().min(1).optional(),
+    /** Docker image allowlist; defaults to [image]. */
+    allowedImages: z.array(z.string().min(1)).optional(),
+    /** Host directories bound read-only by the bubblewrap driver. */
+    binds: z.array(z.string().min(1)).optional(),
+    helper: z
+      .strictObject({
+        command: z.array(z.string().min(1)).min(1).optional(),
+        source: z
+          .union([
+            z.literal("bundled"),
+            z.strictObject({ path: z.string().min(1) }),
+          ])
+          .optional(),
+      })
+      .optional(),
+    limits: sandboxLimitsSchema.optional(),
+    commands: z
+      .record(commandNameSchema, sandboxCommandDefinitionSchema)
+      .default({}),
+    shell: z
+      .strictObject({
+        enabled: z.boolean().default(false),
+        program: z.array(z.string().min(1)).min(1).optional(),
+        timeoutMs: positiveIntegerSchema.optional(),
+        modes: z.array(z.enum(WORKSPACE_MODES)).min(1).optional(),
+      })
+      .default({ enabled: false }),
+    /** Environment variable names code steps may forward into the run sandbox. */
+    allowedEnvironment: z
+      .array(z.string().regex(/^[A-Za-z_][A-Za-z0-9_]*$/u))
+      .optional(),
+  })
+  .superRefine((sandbox, context) => {
+    if (sandbox.driver === "docker" && !sandbox.image) {
+      context.addIssue({
+        code: "custom",
+        message: "Docker sandboxes require an image.",
+        path: ["image"],
+      });
+    }
+    if (
+      sandbox.driver === "docker" &&
+      sandbox.image &&
+      sandbox.allowedImages &&
+      !sandbox.allowedImages.includes(sandbox.image)
+    ) {
+      context.addIssue({
+        code: "custom",
+        message: "The sandbox image must be included in allowedImages.",
+        path: ["allowedImages"],
+      });
+    }
+    try {
+      resolveRunSandboxPolicy({
+        commands: sandbox.commands,
+        shell: sandbox.shell,
+        ...(sandbox.limits ? { limits: sandbox.limits } : {}),
+      });
+    } catch (error) {
+      context.addIssue({
+        code: "custom",
+        message: error instanceof Error ? error.message : String(error),
+        path: ["commands"],
+      });
+    }
+  });
+
+export type SandboxDefinition = z.infer<typeof sandboxDefinitionSchema>;
+
 export const agentRuntimeConfigSchema = z
   .strictObject({
     version: z.literal(AGENT_RUNTIME_CONFIG_SCHEMA_VERSION),
@@ -120,8 +267,23 @@ export const agentRuntimeConfigSchema = z
     connections: z
       .record(nameSchema, mcpConnectionDefinitionSchema)
       .default({}),
+    workspaces: z.record(nameSchema, workspaceDefinitionSchema).default({}),
+    sandbox: sandboxDefinitionSchema.optional(),
   })
   .superRefine((config, context) => {
+    for (const [name, entry] of Object.entries(
+      config.sandbox?.commands ?? {},
+    )) {
+      for (const workspace of entry.workspaces ?? []) {
+        if (!config.workspaces[workspace]) {
+          context.addIssue({
+            code: "custom",
+            message: `Sandbox command "${name}" references unknown workspace "${workspace}".`,
+            path: ["sandbox", "commands", name, "workspaces"],
+          });
+        }
+      }
+    }
     for (const [name, model] of Object.entries(config.models)) {
       if (
         !config.providers[model.provider] &&
@@ -226,13 +388,50 @@ export const loadAgentRuntimeConfig = async (
       `Could not parse Agent Runtime configuration ${absolute}: ${error instanceof Error ? error.message : String(error)}`,
     );
   }
+  let config: AgentRuntimeConfig;
   try {
-    return parseAgentRuntimeConfig(parsed);
+    config = parseAgentRuntimeConfig(parsed);
   } catch (error) {
     throw new Error(
       `Invalid Agent Runtime configuration ${absolute}: ${error instanceof Error ? error.message : String(error)}`,
     );
   }
+  return resolveConfigurationPaths(config, path.dirname(absolute));
+};
+
+/**
+ * Resolve literal workspace roots and helper paths against the directory of
+ * the configuration file they were loaded from. Environment references are
+ * resolved later, at composition time.
+ */
+export const resolveConfigurationPaths = (
+  config: AgentRuntimeConfig,
+  baseDirectory: string,
+): AgentRuntimeConfig => {
+  const workspaces = Object.fromEntries(
+    Object.entries(config.workspaces ?? {}).map(([name, definition]) => [
+      name,
+      definition.driver === "local" && typeof definition.root === "string"
+        ? { ...definition, root: path.resolve(baseDirectory, definition.root) }
+        : definition,
+    ]),
+  );
+  const helperSource = config.sandbox?.helper?.source;
+  const sandbox =
+    config.sandbox && helperSource && typeof helperSource === "object"
+      ? {
+          ...config.sandbox,
+          helper: {
+            ...config.sandbox.helper,
+            source: { path: path.resolve(baseDirectory, helperSource.path) },
+          },
+        }
+      : config.sandbox;
+  return {
+    ...config,
+    workspaces,
+    ...(sandbox ? { sandbox } : {}),
+  };
 };
 
 export const emptyAgentRuntimeConfig = (): AgentRuntimeConfig =>

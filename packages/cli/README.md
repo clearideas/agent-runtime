@@ -47,7 +47,9 @@ The Ollama configuration uses its OpenAI-compatible endpoint at
 The CLI automatically loads `agent-runtime.config.yaml`, `agent-runtime.config.yml`,
 or `agent-runtime.config.json` beside the agent manifest.
 Use `--config` to select another file. The CLI configures built-in providers,
-model profiles, and MCP connections without a JavaScript runtime module.
+model profiles, MCP connections, host workspaces, and the run sandbox
+(`sandbox.driver: bubblewrap` or `docker`) without a JavaScript runtime
+module.
 
 ```yaml
 version: "1.0"

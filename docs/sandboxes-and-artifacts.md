@@ -40,6 +40,19 @@ const sandbox = new ProviderSandboxAdapter({
 
 `DockerSandboxProvider` enforces no network, a read-only root filesystem, an
 isolated `/workspace` tmpfs, image allowlisting, and resource limits.
+`BubblewrapSandboxProvider` provides equivalent isolation on Linux without a
+container daemon through user, PID, IPC, UTS, cgroup, and network namespaces
+and `prlimit` resource limits.
+
+## The run sandbox
+
+Workspace-bound runs use one sandbox per run attempt instead of one per
+operation. `ProviderRunSandbox` opens it on the first step that needs it,
+stages bound workspaces, executes every workspace command under the host
+command policy, syncs read-write mounts back after each command, and
+terminates it when the run ends or suspends. A code step that lists
+`workspaces` executes inside it. See
+[Workspaces and the run sandbox](./workspaces.md).
 
 ## Other sandbox providers
 

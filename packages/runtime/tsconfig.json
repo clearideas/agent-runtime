@@ -20,6 +20,10 @@
       "@clearideas/agent-runtime-core/ports": ["../core/dist/ports/index.d.ts"],
       "@clearideas/agent-runtime-model-ai-sdk": [
         "../model-ai-sdk/dist/index.d.ts"
+      ],
+      "@clearideas/agent-runtime-sandbox": ["../sandbox/dist/index.d.ts"],
+      "@clearideas/agent-runtime-store-local": [
+        "../store-local/dist/index.d.ts"
       ]
     }
   },
@@ -28,6 +32,8 @@
   "references": [
     { "path": "../contracts" },
     { "path": "../core" },
-    { "path": "../model-ai-sdk" }
+    { "path": "../model-ai-sdk" },
+    { "path": "../sandbox" },
+    { "path": "../store-local" }
   ]
 }

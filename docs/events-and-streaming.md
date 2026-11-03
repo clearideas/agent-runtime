@@ -138,6 +138,7 @@ The supported event families are:
 | Loop        | `loop.iteration.started`, `loop.iteration.completed`, `loop.iteration.skipped`, `loop.goal.met`                |
 | Standard    | approval, webhook, code execution, and sub-run lifecycle events                                                |
 | Storage     | `checkpoint.saved`, `artifact.created`                                                                         |
+| Workspaces  | `workspace.bound`, `sandbox.opened`, `sandbox.command.started`, `sandbox.command.completed`, `sandbox.closed`  |
 | Diagnostics | `diagnostic`                                                                                                   |
 
 Consumers must ignore unknown event types so compatible additions do not break

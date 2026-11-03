@@ -26,6 +26,9 @@ includes:
 
 - host-defined MCP connection modes and tool allowlists that a manifest may
   narrow but not expand;
+- host-defined workspaces whose every model operation executes as one
+  policy-admitted, reported command inside an isolated per-run sandbox; the
+  agent process never interprets workspace content;
 - credential references, OAuth credential providers, authorization hooks, and
   retry-after-refresh behavior;
 - sandbox contracts, bounded artifact collection, and Docker defaults with no
@@ -38,8 +41,9 @@ Treat manifests as untrusted input unless only trusted operators can create
 them, and configure deployment-specific permissions in host policy. Remote
 workers reject request-supplied runtime and configuration filesystem paths
 unless host callbacks resolve opaque IDs. Inline configuration requires an
-explicit environment allowlist. Worker hosts must supply a webhook executor
-with destination authorization when webhook steps are enabled.
+explicit environment allowlist and cannot define MCP connections, workspaces,
+or a sandbox. Worker hosts must supply a webhook executor with destination
+authorization when webhook steps are enabled.
 
 ## Secrets
 
@@ -76,6 +80,8 @@ Set manifest limits and enforce host ceilings that an agent cannot raise:
 - input/output token and byte limits;
 - provider, tool, webhook, sandbox, and run timeouts;
 - artifact file count and aggregate size;
+- workspace staging size, per-command timeouts, sandbox command and
+  second budgets, and output ceilings;
 - per-tenant concurrency and spend budgets.
 
 Enforce billing and authorization limits in the host application or provider

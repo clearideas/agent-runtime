@@ -21,6 +21,7 @@
     { "path": "../core" },
     { "path": "../execution" },
     { "path": "../model-ai-sdk" },
+    { "path": "../sandbox" },
     { "path": "../step-loop" },
     { "path": "../step-prompt" },
     { "path": "../step-standard" },

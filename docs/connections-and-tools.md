@@ -173,6 +173,14 @@ Agent Runtime uses the MCP SDK client-credentials provider for token discovery,
 acquisition, and refresh. Client identifiers and secrets must use environment
 references.
 
+## Workspace tools
+
+Workspaces expose host-owned file collections through an in-process MCP server
+that relays every call into an isolated per-run sandbox. They use the same
+alias-prefixed tool names, the same read/read_write narrowing rules, and the
+same authorization hooks as remote connections. See
+[Workspaces and the run sandbox](./workspaces.md).
+
 ## Application tools
 
 Application-native tools implement `ToolAdapter`:

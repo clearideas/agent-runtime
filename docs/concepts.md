@@ -31,7 +31,10 @@ connections:
 
 - provider definitions describe how to reach model APIs;
 - model profiles select a provider, model identifier, defaults, and declared capabilities;
-- connection definitions describe MCP endpoints and host-authorized tools.
+- connection definitions describe MCP endpoints and host-authorized tools;
+- workspace definitions describe host-owned file collections, and the sandbox
+  section describes the isolated environment and command policy under which
+  agents may operate on them.
 
 Secret fields contain environment-variable references.
 
@@ -56,7 +59,7 @@ The built-in step types are:
 | `loop`     | collection or goal-driven sequential repetition | condition evaluator for conditions/goals |
 | `webhook`  | bounded HTTP request with retry support         | authorized `fetch`/egress                |
 | `approval` | request and resolve human approval              | approval adapter                         |
-| `code`     | execute code in an isolated environment         | sandbox adapter                          |
+| `code`     | execute code in an isolated environment         | sandbox adapter, or the run sandbox      |
 | `sub-run`  | invoke another manifest with isolated state     | sub-run adapter                          |
 
 Every step accepts `when`, `outputVariable`, `includeInFinalOutput`, `metadata`,
@@ -72,6 +75,14 @@ increments the attempt, and continues from the latest checkpoint.
 
 Each resume increments the attempt number. A durable store rejects writes from
 an older attempt after the resumed attempt takes ownership.
+
+## Workspaces and the run sandbox
+
+A workspace is a durable, host-owned file collection bound by the manifest.
+Every model operation on it executes as one command inside a per-run sandbox
+under a host command policy, and every command is reported and recorded. The
+agent process never interprets workspace content. See
+[Workspaces and the run sandbox](./workspaces.md).
 
 ## Events and transcript
 
@@ -93,7 +104,9 @@ authoritative record.
 | `EventSink`                    | event delivery                              |
 | `ArtifactStore`                | artifact bytes and metadata                 |
 | `ApprovalAdapter`              | human approval requests                     |
-| `SandboxAdapter`               | isolated code execution                     |
+| `SandboxAdapter`               | isolated per-step code execution            |
+| `WorkspaceProvider`            | host workspace resolution                   |
+| `RunSandboxProvider`           | per-run sandbox for workspace commands      |
 | `SubRunAdapter`                | child agent execution                       |
 | `ExecutionEngine`              | local or remote run lifecycle               |
 | `RemoteComputeLauncher`        | remote compute submission and cancellation  |

@@ -1,13 +1,15 @@
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { spawnSync } from "node:child_process";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { pathToFileURL } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 import type {
   RunEvent,
   AgentManifest,
 } from "@clearideas/agent-runtime-contracts";
 import { createWorkerInvocation } from "@clearideas/agent-runtime-execution";
+import { BubblewrapSandboxProvider } from "@clearideas/agent-runtime-sandbox";
 import { FileRunStore } from "@clearideas/agent-runtime-store-local";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -18,6 +20,131 @@ const manifest: AgentManifest = {
   id: "local-agent",
   name: "Local agent",
   steps: [{ id: "draft", type: "prompt", prompt: "Draft a response." }],
+};
+
+/** The helper and the host-process test provider run POSIX commands; skip elsewhere. */
+const hasPython =
+  process.platform !== "win32" &&
+  spawnSync("python3", ["--version"]).status === 0;
+const hasBubblewrap = await new BubblewrapSandboxProvider().probe().then(
+  () => true,
+  () => false,
+);
+
+/** A scripted model that drives workspace tools and reports their results. */
+const sandboxTestingModule = pathToFileURL(
+  path.resolve(
+    path.dirname(fileURLToPath(import.meta.url)),
+    "../../sandbox/dist/testing/index.js",
+  ),
+).href;
+const workspaceModelModule = `
+import { HostProcessTestProvider } from ${JSON.stringify(sandboxTestingModule)};
+export const sandboxProvider = new HostProcessTestProvider();
+const script = [
+  { name: "docs__search_files", input: { query: "hello" } },
+  { name: "docs__read_file", input: { path: "secret.env" } },
+  { name: "docs__read_file", input: { path: "../escape" } },
+  { name: "notes__write_file", input: { path: "review.md", content: "# Review\\nlooks good\\n" } },
+  { name: "notes__wc", input: { file: "review.md" } },
+];
+let round = 0;
+export const modelAdapter = {
+  generate: async (request) => {
+    const step = script[round];
+    round += 1;
+    if (step) {
+      const call = { id: "call-" + round, ...step };
+      return {
+        transcript: [{ id: "t" + round, type: "tool-call", role: "assistant", content: [{ type: "tool-call", call }], createdAt: new Date().toISOString() }],
+        toolCalls: [call],
+      };
+    }
+    const results = request.messages.filter((m) => m.role === "tool").map((m) => m.content[0].result);
+    return {
+      output: JSON.stringify({
+        tools: request.tools.map((tool) => tool.name),
+        results: results.map((r) => ({ name: r.name, ok: !r.error, code: r.error?.code, output: r.output, command: r.metadata?.command?.id })),
+      }),
+      transcript: [],
+    };
+  },
+};
+`;
+
+const writeWorkspaceFixture = async (
+  directory: string,
+  driver: "host" | "bubblewrap",
+) => {
+  const knowledge = path.join(directory, "knowledge");
+  const notes = path.join(directory, "notes");
+  await mkdir(path.join(knowledge, "guides"), { recursive: true });
+  await mkdir(notes, { recursive: true });
+  await writeFile(
+    path.join(knowledge, "guides", "intro.md"),
+    "# Intro\nhello workspace\n",
+  );
+  await writeFile(path.join(knowledge, "secret.env"), "TOKEN=1\n");
+  const manifestFile = path.join(directory, "agent.yaml");
+  const configFile = path.join(directory, "agent-runtime.config.yaml");
+  const runtime = path.join(directory, "runtime.mjs");
+  await writeFile(
+    manifestFile,
+    [
+      'schemaVersion: "1.0"',
+      "model:",
+      "  provider: test",
+      "  model: local",
+      "workspaces:",
+      "  - ref: knowledge",
+      "    alias: docs",
+      "    mode: read",
+      "  - ref: notes",
+      "    mode: read_write",
+      "steps:",
+      "  - id: answer",
+      "    type: prompt",
+      "    prompt: Read the intro guide.",
+      "    tools: [docs__search_files, docs__read_file, notes__write_file, notes__wc]",
+      "    outputVariable: answer",
+      "    includeInFinalOutput: true",
+      "  - id: verify",
+      "    type: code",
+      "    language: python",
+      "    workspaces: [notes]",
+      "    code: |",
+      "      import json, os",
+      "      index = json.load(open(os.environ['AGENT_WORKSPACES_FILE']))",
+      "      root = os.path.dirname(os.environ['AGENT_WORKSPACES_FILE'])",
+      "      print(open(root + '/mounts/notes/review.md').read().strip().splitlines()[-1])",
+      "    outputVariable: verification",
+      "",
+    ].join("\n"),
+  );
+  await writeFile(
+    configFile,
+    [
+      'version: "1.0"',
+      "workspaces:",
+      "  knowledge:",
+      "    driver: local",
+      "    root: ./knowledge",
+      "    mode: read_write",
+      "    include: ['**/*.md']",
+      "  notes:",
+      "    driver: local",
+      "    root: ./notes",
+      "    mode: read_write",
+      "sandbox:",
+      `  driver: ${driver}`,
+      "  commands:",
+      "    wc:",
+      "      argv: ['wc', '-l', '{file}']",
+      "",
+    ].join("\n"),
+  );
+  await writeFile(runtime, workspaceModelModule);
+  return { manifestFile, configFile, runtime, knowledge, notes };
 };
 
 describe("runner CLI", () => {
@@ -681,6 +808,196 @@ describe("runner CLI", () => {
     expect(stderr).toBe("");
   });
 
+  it.skipIf(!hasPython)(
+    "serves configured workspaces through the run sandbox and records every command",
+    { timeout: 60_000 },
+    async () => {
+      const fixture = await writeWorkspaceFixture(directory, "host");
+      const eventsFile = path.join(directory, "events.jsonl");
+      const exit = await runCli(
+        [
+          "run",
+          fixture.manifestFile,
+          "--store",
+          path.join(directory, "state"),
+          "--runtime-module",
+          fixture.runtime,
+          "--events",
+          eventsFile,
+          "--format",
+          "ndjson",
+        ],
+        io,
+      );
+      expect(stderr).toBe("");
+      expect(exit).toBe(0);
+      const lines = stdout
+        .split("\n")
+        .filter(Boolean)
+        .map(
+          (line) =>
+            JSON.parse(line) as {
+              type: string;
+              result?: { output?: unknown; state: Record<string, unknown> };
+            },
+        );
+      const result = lines.find((line) => line.type === "result")?.result;
+      const answer = JSON.parse(String(result?.state.answer)) as {
+        tools: string[];
+        results: Array<{
+          name: string;
+          ok: boolean;
+          code?: string;
+          output?: unknown;
+          command?: string;
+        }>;
+      };
+      expect(answer.tools).toEqual([
+        "docs__search_files",
+        "docs__read_file",
+        "notes__write_file",
+        "notes__wc",
+      ]);
+      expect(answer.results).toEqual([
+        {
+          name: "docs__search_files",
+          ok: true,
+          output: {
+            matches: [
+              { path: "guides/intro.md", line: 2, text: "hello workspace" },
+            ],
+            truncated: false,
+          },
+          command: "cmd-1-1",
+        },
+        { name: "docs__read_file", ok: false, code: "workspace_path_invalid" },
+        { name: "docs__read_file", ok: false, code: "workspace_path_invalid" },
+        {
+          name: "notes__write_file",
+          ok: true,
+          output: expect.objectContaining({ path: "review.md" }),
+          command: "cmd-1-3",
+        },
+        {
+          name: "notes__wc",
+          ok: true,
+          output: expect.objectContaining({
+            exitCode: 0,
+            stdout: expect.stringContaining("2"),
+          }),
+          command: "cmd-1-4",
+        },
+      ]);
+      expect(result?.state.verification).toBe("looks good\n");
+      expect(
+        await readFile(path.join(fixture.notes, "review.md"), "utf8"),
+      ).toBe("# Review\nlooks good\n");
+      expect(stdout).not.toContain("TOKEN=1");
+
+      const events = (await readFile(eventsFile, "utf8"))
+        .split("\n")
+        .filter(Boolean)
+        .map((line) => JSON.parse(line) as RunEvent);
+      const types = events.map((event) => event.type);
+      expect(types.filter((type) => type === "workspace.bound")).toHaveLength(
+        2,
+      );
+      expect(types).toContain("sandbox.opened");
+      expect(
+        types.filter((type) => type === "sandbox.command.completed"),
+      ).toHaveLength(5);
+      expect(types.at(-2)).toBe("sandbox.closed");
+      const write = events.find(
+        (event) =>
+          event.type === "sandbox.command.completed" &&
+          event.data?.name === "write_file",
+      );
+      expect(write?.data).toMatchObject({
+        kind: "builtin",
+        alias: "notes",
+        argv: expect.arrayContaining(["write", "--path", "review.md"]),
+        filesChanged: [
+          expect.objectContaining({ path: "review.md", action: "created" }),
+        ],
+      });
+      const code = events.find(
+        (event) =>
+          event.type === "sandbox.command.completed" &&
+          event.data?.kind === "code",
+      );
+      expect(code?.stepId).toBe("verify");
+
+      stdout = "";
+      await expect(
+        runCli(["config", "validate", fixture.configFile], io),
+      ).resolves.toBe(0);
+      expect(JSON.parse(stdout)).toMatchObject({
+        workspaceCount: 2,
+        sandbox: "host",
+      });
+      stdout = "";
+      await expect(
+        runCli(
+          ["validate", fixture.manifestFile, "--config", fixture.configFile],
+          io,
+        ),
+      ).resolves.toBe(1);
+      expect(stderr).toContain('Unknown model provider "test"');
+    },
+  );
+
+  it.skipIf(!hasPython || !hasBubblewrap)(
+    "runs workspace agents under bubblewrap isolation from configuration alone",
+    { timeout: 60_000 },
+    async () => {
+      const fixture = await writeWorkspaceFixture(directory, "bubblewrap");
+      await writeFile(
+        fixture.manifestFile,
+        (await readFile(fixture.manifestFile, "utf8")).replace(
+          "root = os.path.dirname(os.environ['AGENT_WORKSPACES_FILE'])",
+          "root = '/workspace'",
+        ),
+      );
+      await expect(
+        runCli(
+          [
+            "run",
+            fixture.manifestFile,
+            "--store",
+            path.join(directory, "state"),
+            "--runtime-module",
+            fixture.runtime,
+            "--format",
+            "ndjson",
+          ],
+          io,
+        ),
+      ).resolves.toBe(0);
+      const result = stdout
+        .split("\n")
+        .filter(Boolean)
+        .map(
+          (line) =>
+            JSON.parse(line) as {
+              type: string;
+              result?: { state: Record<string, unknown> };
+              event?: RunEvent;
+            },
+        )
+        .find((line) => line.type === "result")?.result;
+      expect(result?.state.verification).toBe("looks good\n");
+      const opened = stdout
+        .split("\n")
+        .filter(Boolean)
+        .map((line) => JSON.parse(line) as { type: string; event?: RunEvent })
+        .find((line) => line.event?.type === "sandbox.opened")?.event;
+      expect(opened?.data).toMatchObject({ provider: "bubblewrap" });
+      expect(
+        await readFile(path.join(fixture.notes, "review.md"), "utf8"),
+      ).toBe("# Review\nlooks good\n");
+    },
+  );
+
   it("keeps streamed content out of the default local lifecycle log", async () => {
     const file = path.join(directory, "stream-agent.json");
     const runtime = path.join(directory, "stream-runtime.mjs");
@@ -1045,6 +1362,39 @@ describe("runner CLI", () => {
       ),
     ).rejects.toThrow(
       "Inline worker configuration cannot define MCP connections",
+    );
+  });
+
+  it("rejects workspaces and sandboxes in inline worker configuration", async () => {
+    await expect(
+      executeWorkerInvocation(
+        createWorkerInvocation({
+          runId: "worker-inline-workspace-run",
+          manifest: {
+            ...manifest,
+            model: { provider: "host", model: "test" },
+            workspaces: [{ ref: "host-files" }],
+          },
+          configuration: {
+            version: "1.0",
+            providers: {},
+            models: {},
+            connections: {},
+            workspaces: {
+              "host-files": { driver: "local", root: "/", mode: "read_write" },
+            },
+            sandbox: { driver: "bubblewrap", shell: { enabled: true } },
+          },
+        }),
+        {
+          storeDirectory: path.join(directory, "worker-inline-workspace"),
+          allowRequestConfiguration: true,
+          environment: {},
+          onMessage: () => undefined,
+        },
+      ),
+    ).rejects.toThrow(
+      "Inline worker configuration cannot define workspaces or a sandbox",
     );
   });
 

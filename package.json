@@ -12,7 +12,8 @@
   "scripts": {
     "build": "node scripts/generate-runtime-version.mjs && tsc -b tsconfig.json --force",
     "type-check": "node scripts/generate-runtime-version.mjs && tsc -b tsconfig.json --pretty false",
-    "test": "npm run test --workspaces --if-present && npm run test:examples",
+    "test": "node scripts/run-tests.mjs",
+    "test:verbose": "npm run test --workspaces --if-present && npm run test:examples",
     "check:boundaries": "node scripts/check-package-boundaries.mjs",
     "check:docs": "node scripts/check-docs.mjs",
     "check:metadata": "node scripts/check-package-metadata.mjs",
