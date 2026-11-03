@@ -46,6 +46,11 @@ An override replaces the variable's complete value. Dot notation such as
 variable key or an override syntax. `outputVariable` creates a top-level
 execution-state value; it does not accept a dotted path.
 
+Variables are the run's memory. Each prompt step builds its model input from
+its own prompts and the current variables; earlier steps' conversations are
+not replayed. [Memory and context](./memory-and-context.md) covers carrying
+context across steps, loop iterations, and runs.
+
 ## Steps
 
 The built-in step types are:
