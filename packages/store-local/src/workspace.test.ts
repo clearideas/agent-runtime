@@ -199,9 +199,11 @@ describe("LocalDirectoryWorkspace", () => {
     await expect(workspace.read("docs/new/file.md")).rejects.toThrow(
       /not available/u,
     );
-    await expect(workspace.delete("link.txt")).rejects.toThrow(
-      /symbolic link/u,
-    );
+    if (symlinksSupported) {
+      await expect(workspace.delete("link.txt")).rejects.toThrow(
+        /symbolic link/u,
+      );
+    }
     await expect(
       readFile(path.join(outside, "secret.txt"), "utf8"),
     ).resolves.toBe("outside\n");
