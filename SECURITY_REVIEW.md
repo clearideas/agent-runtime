@@ -1,5 +1,33 @@
 # Security review record
 
+## November 2026 dependency audit remediation
+
+Reviewed: November 3, 2026
+
+Status: patched dependencies prepared for review; merge and release pending.
+
+The workspace audit reported 21 affected packages, including three critical
+and ten high-severity results. Require MCP SDK 1.32.2, Zod 4.6.6, and the
+interactive example's DOMPurify 3.4.17 or newer. Refresh the affected
+transitive HTTP, URI, sanitizer, Vue, and test-tool dependencies within their
+supported dependency ranges. Both production and full workspace audits now
+report zero vulnerabilities.
+
+Keep stable VitePress 1.6.4 and raise its scoped Vite override to 6.4.5, retaining
+the Vite 6 major supported by its Vue plugin. This replaces the affected
+bundled editor middleware as well as the older documentation-server fixes.
+The Hono Node adapter override now requires at least 2.1.3. Audit severity gates
+and loopback-only documentation-server bindings remain enabled.
+
+The affected runtime entry points are configured MCP client discovery/calls
+and public manifest/configuration validation; the interactive example sanitizes
+rendered Markdown with DOMPurify. No runtime API, manifest format, or checkpoint
+contract changes. Regression coverage uses the real installed MCP SDK over HTTP
+to check authenticated discovery/calls, idempotency metadata, and rejection of
+302/307/308 redirects without forwarding credentials or request bodies. Existing
+contract, documentation-server, consumer-installation, and documentation-build
+checks cover legitimate workflows and compatibility.
+
 ## GHSA-7p8r-x3mc-p8w7
 
 Reviewed: August 6, 2026
