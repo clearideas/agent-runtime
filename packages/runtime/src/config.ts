@@ -6,6 +6,8 @@ import { resolveRunSandboxPolicy } from "@clearideas/agent-runtime-sandbox";
 import { parse as parseYaml } from "yaml";
 import { z } from "zod";
 
+import { mcpToolDigestPattern } from "./mcp-integrity.js";
+
 export const AGENT_RUNTIME_CONFIG_SCHEMA_VERSION = "1.0" as const;
 
 const nameSchema = z
@@ -93,6 +95,23 @@ export const mcpConnectionAuthSchema = z.discriminatedUnion("type", [
 
 export type McpConnectionAuth = z.infer<typeof mcpConnectionAuthSchema>;
 
+/**
+ * Host-approved tool metadata digests. When present, every tool the
+ * connection exposes to a model must match its digest; an unpinned or
+ * changed definition follows `onFailure`.
+ */
+export const mcpToolIntegritySchema = z.strictObject({
+  digests: z.record(
+    z.string().min(1),
+    z
+      .string()
+      .regex(mcpToolDigestPattern, "Expected a sha256:<64 hex> tool digest."),
+  ),
+  onFailure: z.enum(["fail", "exclude"]).default("fail"),
+});
+
+export type McpToolIntegrity = z.infer<typeof mcpToolIntegritySchema>;
+
 export const mcpConnectionDefinitionSchema = z.strictObject({
   driver: z.literal("mcp"),
   transport: z.literal("streamable-http").default("streamable-http"),
@@ -107,6 +126,7 @@ export const mcpConnectionDefinitionSchema = z.strictObject({
   required: z.boolean().default(false),
   connectTimeoutMs: z.number().int().positive().default(10_000),
   toolTimeoutMs: z.number().int().positive().default(30_000),
+  toolIntegrity: mcpToolIntegritySchema.optional(),
 });
 
 export type McpConnectionDefinition = z.infer<
@@ -313,6 +333,15 @@ export const agentRuntimeConfigSchema = z
             code: "custom",
             message: `Connection "${name}" readTools must be included in tools.`,
             path: ["connections", name, "readTools"],
+          });
+        }
+      }
+      for (const tool of Object.keys(connection.toolIntegrity?.digests ?? {})) {
+        if (!allowedTools.has(tool)) {
+          context.addIssue({
+            code: "custom",
+            message: `Connection "${name}" toolIntegrity.digests may only name tools included in tools.`,
+            path: ["connections", name, "toolIntegrity", "digests", tool],
           });
         }
       }

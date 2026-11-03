@@ -21,6 +21,8 @@ export {
   mcpConnectionAuthSchema,
   type McpConnectionDefinition,
   type McpConnectionAuth,
+  type McpToolIntegrity,
+  mcpToolIntegritySchema,
   type ModelCapabilities,
   parseAgentRuntimeConfig,
   type ProviderDefinition,
@@ -43,10 +45,23 @@ export {
   createConfiguredRunSandbox,
 } from "./run-sandbox.js";
 export {
+  canonicalizeMcpToolMetadata,
+  computeMcpToolDigest,
+  MCP_TOOL_DIGEST_ALGORITHM,
+  MCP_TOOL_DIGEST_PREFIX,
+  mcpToolDigestPattern,
+  McpToolIntegrityError,
+  type McpToolIntegrityFailureReason,
+  type McpToolMetadata,
+} from "./mcp-integrity.js";
+export {
   ConfiguredMcpToolAdapter,
   type ConfiguredMcpToolAdapterOptions,
   ConnectionAuthorizationRequiredError,
   createConfiguredToolAdapter,
+  discoverMcpConnectionTools,
+  type McpDiscoveredTool,
+  type VerifyToolMetadataInput,
 } from "./mcp-tools.js";
 export {
   createConfiguredModelAdapter,

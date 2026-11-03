@@ -15,6 +15,7 @@ The CLI stores run state and events locally by default.
 ```sh
 npx agent-runtime validate ./agent.yaml
 npx agent-runtime config validate ./agent-runtime.config.yaml
+npx agent-runtime connections inspect ./agent-runtime.config.yaml --format yaml
 npx agent-runtime run ./agent.yaml --config ./agent-runtime.config.yaml --store ./.agent-runtime
 npx agent-runtime run ./agent.yaml --max-total-tokens 100000 --store ./.agent-runtime
 npx agent-runtime resume run_123 --max-total-tokens 150000 --store ./.agent-runtime
@@ -104,6 +105,16 @@ steps:
 Configuration files contain secret references, not secret values. Native
 provider drivers use their conventional environment variables by default.
 An agent cannot elevate a connection beyond the host-configured mode.
+
+MCP tool descriptions and schemas are supplied by the server and reach the
+model. To pin the definitions you reviewed, run
+`connections inspect <config> --format yaml`, check the printed tools, and
+paste the `toolIntegrity` block into the connection. Discovery then refuses a
+changed or unpinned tool before any model sees it (`onFailure: fail`, the
+default) or drops only that tool (`onFailure: exclude`). The default JSON
+format includes full tool metadata, digests, and `verified`, `mismatch`, or
+`unpinned` status. Use `--connection <name>` for one connection and
+`--runtime-module` to supply `connectionCredentials` for OAuth connections.
 
 ## Local storage and output
 

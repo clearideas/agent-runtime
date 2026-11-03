@@ -33,3 +33,14 @@ test("approval resumes in a fresh process with the same persisted manifest", () 
     rmSync(directory, { recursive: true, force: true });
   }
 });
+test("tool integrity verifies pinned MCP metadata before a model sees it", () => {
+  assert.match(run("tool-integrity.mjs"), /using notes__search/);
+  assert.throws(
+    () => run("tool-integrity.mjs", ["--tamper"]),
+    (error) => /Run refused: mismatch for tool "changelog"/.test(error.stdout),
+  );
+  assert.match(
+    run("tool-integrity.mjs", ["--tamper", "--exclude"]),
+    /using notes__search/,
+  );
+});

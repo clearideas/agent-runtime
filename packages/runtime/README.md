@@ -70,6 +70,35 @@ function-name restrictions. Prompt tool idempotency keys are forwarded as
 `_meta["agent-runtime/idempotency-key"]`; side-effecting MCP servers must honor
 that metadata to deduplicate recovery attempts.
 
+Tool descriptions and input schemas come from the MCP server and are forwarded
+to the model. Pin the definitions the host approved so a changed definition
+cannot reach a model:
+
+```yaml
+connections:
+  documents:
+    driver: mcp
+    url: https://mcp.example.com
+    tools: [search, read]
+    readTools: [search, read]
+    toolIntegrity:
+      digests:
+        search: sha256:550b84bb56a184c2f6d7d0eb1af6d08031657a045b6afdc0643440928bb93296
+        read: sha256:c11cd404a1aa53e45645cb8c72d9666650d467adb681b670bed066d2e459dff7
+      onFailure: fail # or exclude
+```
+
+`agent-runtime connections inspect <config> --format yaml` prints this block
+after discovery. Programmatically, `discoverMcpConnectionTools` returns each
+tool with its digest, `computeMcpToolDigest` produces the digest for a stored
+definition, and a `verifyToolMetadata` tool option lets a host compare against
+its own approval record. Verification failures raise `McpToolIntegrityError`
+from discovery, even for optional connections. Digests are one-way: keep the
+digest in configuration and the verbatim metadata in the host's own connection
+record, so approved definitions can be displayed and digests recomputed. The
+`sha256:` prefix fixes the canonicalization rules; any future change uses a new
+prefix and keeps verifying existing pins.
+
 MCP authentication modes are `none`, `bearer`, `oauth`, and
 `client_credentials`. OAuth connections obtain request headers from a
 `ConnectionCredentialProvider` passed to `composeRuntime`:
@@ -100,7 +129,7 @@ const runtime = composeRuntime(
 
 On an unauthorized response, the adapter invalidates the credential, requests
 it again with `forceRefresh: true`, and retries once. The provider returns
-`authorization_required` when user consent is needed.
+`authorization_required` when interactive consent is needed.
 
 The default MCP transport rejects redirects. Hosts that supply a custom
 `fetch` implementation through `toolOptions` must validate every redirect and

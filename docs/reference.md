@@ -201,6 +201,25 @@ selects `bubblewrap`, `docker`, or `host`, and declares the helper, limits,
 `commands`, and `shell` policy for the run sandbox. Manifests that bind a
 workspace require a `sandbox` section.
 
+MCP tool metadata verification (optional):
+
+```ts
+toolIntegrity?: {
+  digests: Record<string, string>; // tool name → "sha256:<hex>"
+  onFailure?: "fail" | "exclude"; // default "fail"
+}
+```
+
+Digests are produced by `computeMcpToolDigest` over the canonical form of
+`name`, `title`, `description`, `inputSchema`, and `annotations`
+(`canonicalizeMcpToolMetadata`). The `sha256:` prefix identifies those rules
+and is stable; a rules change would introduce a new prefix while existing pins
+continue to verify. `discoverMcpConnectionTools` lists a
+connection's tools with digests and integrity status; `McpToolIntegrityError`
+reports `mismatch`, `unpinned`, or `rejected` definitions. The
+`verifyToolMetadata` tool option lets a host apply its own approval record.
+See [connections and tools](./connections-and-tools.md#verifying-mcp-tool-metadata).
+
 ## Adapter interfaces
 
 | Adapter interface              | Responsibility                                     |
