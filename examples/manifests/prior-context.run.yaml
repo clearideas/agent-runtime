@@ -1,0 +1,14 @@
+schemaVersion: '1.0'
+agent:
+  ref: prior-context.agent.yaml
+variables:
+  - key: priorContext
+    value:
+      summary: Two earlier sessions scoped the migration and chose SQLite for local persistence.
+      decisions:
+        - Use SQLite for the local run store.
+        - Keep manifests in version control.
+      openItems:
+        - Decide how remote workers receive credentials.
+  - key: task
+    value: Propose how remote workers should receive credentials.

@@ -182,6 +182,11 @@ data, and stops when the goal expression becomes true.
 
 Set `maxIterations` to bound the loop when the goal condition is not reached.
 
+The `review` variable is rewritten every iteration, so the loop carries a
+bounded amount of state forward regardless of iteration count. See
+[Memory and context](./memory-and-context.md#loop-memory) for running
+summaries and other ways to carry context.
+
 ## Tool-using agents
 
 Tools let a model retrieve data or perform host-authorized actions.
@@ -239,5 +244,6 @@ tool calls remain sequential.
 - Learn manifest behavior in the [Manifest guide](./manifests.md).
 - See every supported field in the [Contract reference](./reference.md).
 - Configure hosted and local models in [Models and providers](./models-and-providers.md).
+- Carry context across steps, loops, and runs with [Memory and context](./memory-and-context.md).
 - Stream updates to an interface with [Events and streaming](./events-and-streaming.md).
 - Add Agent Runtime to an application with [Embed Agent Runtime](./embedding.md).

@@ -1,0 +1,49 @@
+schemaVersion: '1.0'
+id: prior-context
+name: Prior context injection
+description: Continue work using context the host assembled from earlier runs.
+
+model:
+  provider: openai
+  model: gpt-5.6
+
+variables:
+  - key: priorContext
+    type: object
+    requiresOverride: true
+    description: >-
+      Host-assembled context from earlier runs: a summary, decisions already
+      made, and open items.
+  - key: task
+    type: string
+    requiresOverride: true
+
+steps:
+  - id: continue
+    type: prompt
+    systemPrompt: >-
+      You are continuing work that began in earlier sessions.
+      Summary so far: {{ priorContext.summary }}
+      Decisions already made: {{ priorContext.decisions }}
+      Do not revisit settled decisions unless the task requires it.
+    prompt: |-
+      Open items: {{ priorContext.openItems }}
+
+      Task: {{ task }}
+    outputSchema:
+      type: object
+      additionalProperties: false
+      required: [result, newDecisions, remainingItems]
+      properties:
+        result:
+          type: string
+        newDecisions:
+          type: array
+          items:
+            type: string
+        remainingItems:
+          type: array
+          items:
+            type: string
+    outputVariable: outcome
+    includeInFinalOutput: true

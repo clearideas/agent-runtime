@@ -1,0 +1,77 @@
+schemaVersion: '1.0'
+id: rolling-summary
+name: Rolling summary loop
+description: Review a collection while maintaining a bounded running summary.
+
+model:
+  provider: openai
+  model: gpt-5.6
+
+variables:
+  - key: tickets
+    type: array
+    value:
+      - Checkout fails when the coupon field is empty.
+      - Password reset email arrives after twenty minutes.
+      - Invoice PDF shows the previous billing address.
+  - key: runningSummary
+    type: string
+    value: No tickets reviewed yet.
+
+steps:
+  - id: review
+    type: loop
+    loop:
+      source: tickets
+      itemVariable: ticket
+      indexVariable: position
+      outputMode: array
+      maxIterations: 50
+    steps:
+      - id: classify
+        type: prompt
+        systemPrompt: >-
+          Classify support tickets. Use the running summary to stay
+          consistent with earlier decisions.
+        prompt: |-
+          Running summary of earlier tickets:
+          {{ runningSummary }}
+
+          Ticket {{ position }}:
+          {{ ticket }}
+        outputSchema:
+          type: object
+          additionalProperties: false
+          required: [category, severity]
+          properties:
+            category:
+              type: string
+              enum: [billing, authentication, checkout, other]
+            severity:
+              type: string
+              enum: [low, medium, high]
+        outputVariable: classification
+
+      - id: refresh-summary
+        type: prompt
+        systemPrompt: >-
+          Maintain a running summary under 120 words. Keep category counts
+          and any pattern worth remembering. Drop details that no longer
+          matter.
+        prompt: |-
+          Current summary:
+          {{ runningSummary }}
+
+          Newest ticket: {{ ticket }}
+          Classification: {{ classification }}
+
+          Return the updated summary only.
+        outputVariable: runningSummary
+
+  - id: report
+    type: prompt
+    prompt: |-
+      Write a short report for the support lead from this summary:
+
+      {{ runningSummary }}
+    includeInFinalOutput: true

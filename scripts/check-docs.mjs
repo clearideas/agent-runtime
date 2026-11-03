@@ -27,6 +27,7 @@ const requiredPages = [
   "models-and-providers.md",
   "connections-and-tools.md",
   "workspaces.md",
+  "memory-and-context.md",
   "events-and-streaming.md",
   "embedding.md",
   "persistence-and-recovery.md",

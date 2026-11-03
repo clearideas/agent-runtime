@@ -1,0 +1,25 @@
+version: '1.0'
+providers:
+  openai:
+    driver: openai
+    apiKey:
+      env: OPENAI_API_KEY
+models:
+  default:
+    provider: openai
+    model: gpt-5.6
+connections:
+  memory:
+    driver: mcp
+    transport: streamable-http
+    url:
+      env: MEMORY_MCP_URL
+    auth:
+      type: bearer
+      token:
+        env: MEMORY_MCP_TOKEN
+    mode: read_write
+    tools: [recall, store]
+    readTools: [recall]
+    required: true
+    toolTimeoutMs: 10000
