@@ -26,6 +26,8 @@ includes:
 
 - host-defined MCP connection modes and tool allowlists that a manifest may
   narrow but not expand;
+- optional pinning of MCP tool descriptions and schemas to host-approved
+  digests, verified before a definition reaches a model;
 - credential references, OAuth credential providers, authorization hooks, and
   retry-after-refresh behavior;
 - sandbox contracts, bounded artifact collection, and Docker defaults with no
@@ -35,7 +37,11 @@ includes:
   request-supplied runtime paths.
 
 Treat manifests as untrusted input unless only trusted operators can create
-them, and configure deployment-specific permissions in host policy. Remote
+them, and configure deployment-specific permissions in host policy. Treat MCP
+servers as untrusted too: record the approved tool metadata when a
+connection is created and pin it with `toolIntegrity` or verify it with
+`verifyToolMetadata`, so a server cannot later inject instructions through a
+tool description or schema. Remote
 workers reject request-supplied runtime and configuration filesystem paths
 unless host callbacks resolve opaque IDs. Inline configuration requires an
 explicit environment allowlist. Worker hosts must supply a webhook executor

@@ -1,5 +1,53 @@
 # Security review record
 
+## MCP tool metadata prompt injection
+
+Integration reviewed: November 3, 2026
+
+Status: remediation prepared on a review branch; merge and release pending.
+
+Scope: `@clearideas/agent-runtime-config` (`ConfiguredMcpToolAdapter`) and
+`@clearideas/agent-runtime-cli`. No advisory; internal review.
+
+`ConfiguredMcpToolAdapter.listTools()` copied each allowlisted tool's
+`description` (or `title`) and its complete `inputSchema` from the server's
+`tools/list` response into the `AgentTool` definitions that
+`PromptStepExecutor` passes to the model adapter. Both fields are rendered into
+the model's context by every supported provider, including nested property
+descriptions inside the schema. Discovery ran against the server before every
+prompt step that names a connection tool, so a server could present one
+definition when the host reviewed the connection and another at run
+time. The existing controls (`tools` and `readTools` allowlists, aliasing,
+redirect rejection, `authorizeConnection`, and `authorizeTool`) operate on tool
+names and calls and did not inspect metadata content. A proof of concept
+against a local Streamable HTTP server confirmed that a description changed
+after review reached `ModelRequest.tools` unchanged.
+
+Impact: a compromised, malicious, or intercepted MCP server (plain `http:` is
+accepted) could inject instructions that steer the model, including calls to
+other authorized tools and exfiltration through its own tool arguments. The
+allowlist bounded which tools could be called, not what the model was
+persuaded to do with them. Tool results were already documented as untrusted
+and are unchanged by this review.
+
+Remediation: connections accept an optional `toolIntegrity` block pinning a
+`sha256` digest per tool, computed by the exported `computeMcpToolDigest` over
+a canonical form of `name`, `title`, `description`, `inputSchema`, and
+`annotations`. At discovery, every tool exposed to a model must match its
+digest; a changed definition (`mismatch`) or an exposed tool without a digest
+(`unpinned`) throws `McpToolIntegrityError` even for optional connections, or
+is dropped when the host selects `onFailure: exclude`. A `verifyToolMetadata`
+tool option lets hosts compare against their own approval record.
+`discoverMcpConnectionTools` and `agent-runtime connections inspect` produce
+the digests from a reviewed discovery. The feature is opt-in; connections
+without `toolIntegrity` or a callback behave as before. Discovery now also
+follows `tools/list` pagination so later pages are not silently omitted.
+
+Regression coverage in `packages/runtime/src/mcp-integrity.test.ts`,
+`packages/runtime/src/mcp-tools.test.ts`, `packages/cli/src/index.test.ts`, and
+`examples/patterns/tool-integrity.mjs` covers canonicalization, matching,
+mismatch, unpinned, exclusion, host rejection, pagination, and the CLI output.
+
 ## GHSA-7p8r-x3mc-p8w7
 
 Reviewed: August 6, 2026

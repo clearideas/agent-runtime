@@ -193,6 +193,61 @@ describe("runner runtime configuration", () => {
     ).toThrow("cannot define both auth and bearerToken");
   });
 
+  it("accepts host-approved tool digests and rejects pins for unknown tools or malformed digests", () => {
+    const digest = `sha256:${"ab".repeat(32)}`;
+    const connection = {
+      driver: "mcp",
+      url: "https://mcp.example.com",
+      tools: ["search", "delete"],
+      readTools: ["search"],
+    };
+    expect(
+      parseAgentRuntimeConfig({
+        version: "1.0",
+        connections: {
+          documents: {
+            ...connection,
+            toolIntegrity: { digests: { search: digest } },
+          },
+        },
+      }).connections.documents?.toolIntegrity,
+    ).toEqual({ digests: { search: digest }, onFailure: "fail" });
+
+    expect(() =>
+      parseAgentRuntimeConfig({
+        version: "1.0",
+        connections: {
+          documents: {
+            ...connection,
+            toolIntegrity: { digests: { serach: digest } },
+          },
+        },
+      }),
+    ).toThrow("toolIntegrity.digests may only name tools included in tools");
+    expect(() =>
+      parseAgentRuntimeConfig({
+        version: "1.0",
+        connections: {
+          documents: {
+            ...connection,
+            toolIntegrity: { digests: { search: "md5:abc" } },
+          },
+        },
+      }),
+    ).toThrow("sha256");
+    expect(() =>
+      parseAgentRuntimeConfig({
+        version: "1.0",
+        connections: {
+          documents: {
+            ...connection,
+            toolIntegrity: { digests: {}, onFailure: "warn" },
+          },
+        },
+      }),
+    ).toThrow();
+  });
+
   it("rejects missing profiles, capability mismatches, and connection elevation", () => {
     const config = parseAgentRuntimeConfig({
       version: "1.0",

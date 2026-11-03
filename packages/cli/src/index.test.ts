@@ -7,6 +7,7 @@ import type {
   RunEvent,
   AgentManifest,
 } from "@clearideas/agent-runtime-contracts";
+import { computeMcpToolDigest } from "@clearideas/agent-runtime-config";
 import { createWorkerInvocation } from "@clearideas/agent-runtime-execution";
 import { FileRunStore } from "@clearideas/agent-runtime-store-local";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -433,6 +434,120 @@ describe("runner CLI", () => {
       state: { answer: "local response" },
     });
     expect(stdout).not.toContain("local response");
+  });
+
+  it("inspects configured MCP connections and prints host-approvable tool digests", async () => {
+    const tools = [
+      {
+        name: "search",
+        description: "Search documents.\nSecond line is omitted from comments.",
+        inputSchema: {
+          type: "object",
+          properties: { query: { type: "string" } },
+        },
+      },
+      { name: "export", title: "Export", inputSchema: { type: "object" } },
+    ];
+    const searchDigest = computeMcpToolDigest(tools[0]!);
+    const seenHeaders: Record<string, string>[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_input: unknown, init?: RequestInit) => {
+        if (init?.method !== "POST") return new Response(null, { status: 405 });
+        seenHeaders.push(
+          Object.fromEntries(new Headers(init.headers ?? {}).entries()),
+        );
+        const message = JSON.parse(String(init.body)) as {
+          id?: number;
+          method?: string;
+          params?: { protocolVersion?: string };
+        };
+        if (message.method === "initialize") {
+          return Response.json({
+            jsonrpc: "2.0",
+            id: message.id,
+            result: {
+              protocolVersion: message.params?.protocolVersion,
+              capabilities: { tools: {} },
+              serverInfo: { name: "stub", version: "1" },
+            },
+          });
+        }
+        if (message.method?.startsWith("notifications/"))
+          return new Response(null, { status: 202 });
+        return Response.json({
+          jsonrpc: "2.0",
+          id: message.id,
+          result: { tools },
+        });
+      }),
+    );
+    const configFile = path.join(directory, "agent-runtime.config.yaml");
+    await writeFile(
+      configFile,
+      `version: "1.0"\nconnections:\n  documents:\n    driver: mcp\n    url: https://mcp.test/mcp\n    auth:\n      type: oauth\n    tools: [search]\n    readTools: [search]\n    toolIntegrity:\n      digests:\n        search: sha256:${"0".repeat(64)}\n`,
+    );
+    const runtime = path.join(directory, "runtime.mjs");
+    await writeFile(
+      runtime,
+      `export const connectionCredentials = { getCredential: async () => ({ status: "ready", headers: { Authorization: "Bearer inspected" } }) };`,
+    );
+
+    await expect(
+      runCli(
+        ["connections", "inspect", configFile, "--runtime-module", runtime],
+        io,
+      ),
+    ).resolves.toBe(0);
+    const report = JSON.parse(stdout) as {
+      connections: Record<
+        string,
+        { tools: Record<string, unknown>[]; toolIntegrity: unknown }
+      >;
+    };
+    expect(report.connections.documents).toMatchObject({
+      tools: [
+        {
+          name: "search",
+          digest: searchDigest,
+          allowed: true,
+          integrity: { status: "mismatch" },
+        },
+        { name: "export", title: "Export", allowed: false },
+      ],
+      toolIntegrity: { digests: { search: searchDigest } },
+    });
+    expect(seenHeaders[0]?.authorization).toBe("Bearer inspected");
+
+    stdout = "";
+    await expect(
+      runCli(
+        [
+          "connections",
+          "inspect",
+          configFile,
+          "--connection",
+          "documents",
+          "--format",
+          "yaml",
+          "--runtime-module",
+          runtime,
+        ],
+        io,
+      ),
+    ).resolves.toBe(0);
+    expect(stdout).toBe(
+      `connections:\n  documents:\n    toolIntegrity:\n      digests:\n        # Search documents.\n        search: ${searchDigest}\n`,
+    );
+
+    stderr = "";
+    await expect(
+      runCli(
+        ["connections", "inspect", configFile, "--connection", "missing"],
+        io,
+      ),
+    ).resolves.toBe(1);
+    expect(stderr).toContain('Unknown connection "missing"');
   });
 
   it("inspects durable run and checkpoint state", async () => {

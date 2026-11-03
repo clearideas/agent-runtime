@@ -34,11 +34,13 @@ import {
 } from "@clearideas/agent-runtime-execution";
 import {
   composeRuntime,
+  discoverMcpConnectionTools,
   emptyAgentRuntimeConfig,
   loadAgentRuntimeConfig,
   parseAgentRuntimeConfig,
   type AgentRuntimeConfig,
   type ConfiguredMcpToolAdapterOptions,
+  type McpDiscoveredTool,
   type ModelAuthorizationPolicy,
   validateRuntimeConfiguration,
 } from "@clearideas/agent-runtime-config";
@@ -57,6 +59,7 @@ import {
   FileRunStore,
   JsonlEventSink,
 } from "@clearideas/agent-runtime-store-local";
+import { Document as YamlDocument, YAMLMap, isPair, isScalar } from "yaml";
 
 export interface CliIo {
   stdout: (text: string) => void;
@@ -73,6 +76,7 @@ const usage = `Clear Ideas Agent Runtime
 Usage:
   agent-runtime validate <manifest.json|manifest.yaml> [--config <config.yaml>]
   agent-runtime config validate <config.json|config.yaml>
+  agent-runtime connections inspect <config.json|config.yaml> [--connection <name>] [--runtime-module <local-js-file>] [--format <json|yaml>]
   agent-runtime run <manifest.json|manifest.yaml> [--variables <overrides.json>] [--max-total-tokens <count>] [--config <config.yaml>] [--run-id <id>] [--store <path>] [--store-driver <file|sqlite>] [--events <file|none>] [--artifacts <directory|none>] [--runtime-module <local-js-file>] [--stream] [--format <json|pretty|ndjson>] [--show-reasoning]
   agent-runtime run-manifest <run.json|run.yaml> [--config <config.yaml>] [--store <path>] [--store-driver <file|sqlite>] [--events <file|none>] [--artifacts <directory|none>] [--runtime-module <local-js-file>] [--stream] [--format <json|pretty|ndjson>] [--show-reasoning]
   agent-runtime resume <run-id> [--max-total-tokens <count>] [--config <config.yaml>] [--store <path>] [--store-driver <file|sqlite>] [--events <file|none>] [--artifacts <directory|none>] [--runtime-module <local-js-file>] [--stream] [--format <json|pretty|ndjson>] [--show-reasoning]
@@ -270,6 +274,131 @@ const validateConfig = async (args: string[], io: CliIo): Promise<void> => {
         providerCount: Object.keys(config.providers).length,
         modelCount: Object.keys(config.models).length,
         connectionCount: Object.keys(config.connections).length,
+      },
+      null,
+      2,
+    )}\n`,
+  );
+};
+
+const firstLine = (value: string | undefined): string | undefined =>
+  value?.split(/\r?\n/u)[0]?.trim().slice(0, 100);
+
+/** Renders a paste-ready toolIntegrity block with tool descriptions as comments. */
+const toolIntegrityYaml = (
+  discovered: Record<string, McpDiscoveredTool[]>,
+): string => {
+  const document = new YamlDocument({
+    connections: Object.fromEntries(
+      Object.entries(discovered).map(([name, tools]) => [
+        name,
+        {
+          toolIntegrity: {
+            digests: Object.fromEntries(
+              tools
+                .filter((tool) => tool.allowed)
+                .map((tool) => [tool.name, tool.digest]),
+            ),
+          },
+        },
+      ]),
+    ),
+  });
+  for (const [name, tools] of Object.entries(discovered)) {
+    const digests = document.getIn([
+      "connections",
+      name,
+      "toolIntegrity",
+      "digests",
+    ]);
+    if (!(digests instanceof YAMLMap)) continue;
+    for (const item of digests.items) {
+      if (!isPair(item)) continue;
+      const key: unknown = item.key;
+      if (!isScalar(key)) continue;
+      const tool = tools.find((candidate) => candidate.name === key.value);
+      const summary = firstLine(tool?.description ?? tool?.title);
+      if (summary) key.commentBefore = ` ${summary}`;
+    }
+  }
+  return document.toString({ lineWidth: 0 });
+};
+
+const inspectConnections = async (args: string[], io: CliIo): Promise<void> => {
+  const [subcommand, ...subcommandArgs] = args;
+  if (subcommand !== "inspect")
+    throw new Error(
+      "Expected connections inspect <Agent Runtime config path>.",
+    );
+  const parsed = parseOptions(
+    subcommandArgs,
+    new Set(["connection", "runtime-module", "format"]),
+  );
+  const file = path.resolve(
+    requireOnePositional(parsed, "Agent Runtime config path"),
+  );
+  const format = parsed.options.get("format") ?? "json";
+  if (format !== "json" && format !== "yaml")
+    throw new Error("--format must be json or yaml.");
+  const config = await loadAgentRuntimeConfig(file);
+  const requested = parsed.options.get("connection");
+  const names = requested ? [requested] : Object.keys(config.connections);
+  for (const name of names) {
+    if (!config.connections[name])
+      throw new Error(`Unknown connection "${name}".`);
+  }
+  const runtimeModulePath = parsed.options.get("runtime-module");
+  const moduleRuntime = await loadRuntime(runtimeModulePath, {
+    manifest: {
+      schemaVersion: "1.0",
+      connections: names.map((ref) => ({ ref })),
+      steps: [],
+    },
+    storeDirectory: resolveCliStoreLocation(parsed).baseDirectory,
+  });
+  let shutdownError: unknown;
+  const discovered: Record<string, McpDiscoveredTool[]> = {};
+  try {
+    for (const name of names) {
+      discovered[name] = await discoverMcpConnectionTools(
+        config,
+        name,
+        {},
+        moduleRuntime.connectionCredentials
+          ? { credentialProvider: moduleRuntime.connectionCredentials }
+          : {},
+      );
+    }
+  } finally {
+    try {
+      await moduleRuntime.shutdown?.();
+    } catch (error) {
+      shutdownError = error;
+    }
+  }
+  if (shutdownError) throw shutdownError;
+  if (format === "yaml") {
+    io.stdout(toolIntegrityYaml(discovered));
+    return;
+  }
+  io.stdout(
+    `${JSON.stringify(
+      {
+        connections: Object.fromEntries(
+          Object.entries(discovered).map(([name, tools]) => [
+            name,
+            {
+              tools,
+              toolIntegrity: {
+                digests: Object.fromEntries(
+                  tools
+                    .filter((tool) => tool.allowed)
+                    .map((tool) => [tool.name, tool.digest]),
+                ),
+              },
+            },
+          ]),
+        ),
       },
       null,
       2,
@@ -1459,6 +1588,8 @@ export const runCli = async (
   try {
     if (command === "validate") await validateManifest(commandArgs, io);
     else if (command === "config") await validateConfig(commandArgs, io);
+    else if (command === "connections")
+      await inspectConnections(commandArgs, io);
     else if (command === "inspect") await inspect(commandArgs, io);
     else if (command === "events") await events(commandArgs, io);
     else if (command === "examples")

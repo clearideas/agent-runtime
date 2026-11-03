@@ -1,4 +1,4 @@
-# Three agent patterns
+# Four agent patterns
 
 Requirements: Node.js 24+, npm 11. From the repository root:
 
@@ -60,5 +60,25 @@ If the run already exists, use a new directory for both commands:
 DEMO_STORE=.agent-runtime/another-approval node examples/patterns/approval.mjs
 DEMO_STORE=.agent-runtime/another-approval node examples/patterns/approval.mjs --approve
 ```
+
+## 4. Release notes: verified MCP tool metadata
+
+```sh
+node examples/patterns/tool-integrity.mjs
+node examples/patterns/tool-integrity.mjs --tamper
+node examples/patterns/tool-integrity.mjs --tamper --exclude
+```
+
+The script starts a local MCP endpoint and pins the digests of the two tool
+definitions the host approved. The first command prints
+`Release status found using notes__search.` The second simulates a server that
+changes a tool description after approval; discovery refuses the run with
+`Run refused: mismatch for tool "changelog"`, and the injected description is
+shown on stderr before any model sees it. The third selects
+`onFailure: exclude`, which drops only the changed tool and completes the run
+with the verified one. Read [tool-integrity.mjs](tool-integrity.mjs): the
+digests come from `computeMcpToolDigest`, the same function
+`agent-runtime connections inspect` uses to print a `toolIntegrity` block for
+a configured connection. No model key is needed.
 
 Run all deterministic examples with `npm run test:examples`.

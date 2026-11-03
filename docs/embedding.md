@@ -83,7 +83,11 @@ const runtime = composeRuntime(
 
 The authorization callbacks run before MCP discovery and before each tool
 call. Throw from a callback to deny access. Agent bindings may only reduce the
-host configuration's connection mode and tool allowlists.
+host configuration's connection mode and tool allowlists. A
+`verifyToolMetadata` callback, or a `toolIntegrity` block in the connection
+configuration, checks discovered tool descriptions and schemas against
+host-approved digests; see
+[verifying MCP tool metadata](./connections-and-tools.md#verifying-mcp-tool-metadata).
 
 Pass the resulting adapters to `AgentRuntime`.
 
