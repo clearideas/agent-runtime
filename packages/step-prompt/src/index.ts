@@ -595,7 +595,7 @@ export class PromptStepExecutor implements StepExecutor<PromptStep> {
       }
       if (toolCallCount + (calls.length - nextToolIndex) > maxToolCalls) {
         throw new Error(
-          `Prompt step ${context.step.id} exceeded its ${maxToolCalls} tool-call limit`,
+          `Prompt step ${context.step.id} exceeded its ${maxToolCalls} tool-call limit across the prompt step`,
         );
       }
 

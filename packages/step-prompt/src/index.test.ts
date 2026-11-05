@@ -610,6 +610,67 @@ describe("PromptStepExecutor", () => {
     expect(effectCount).toBe(1);
   });
 
+  it("counts tool calls across model turns and checkpoint resumes", async () => {
+    let turns = 0;
+    let executed = 0;
+    let saved: NestedCheckpointInput | undefined;
+    const model: ModelAdapter = {
+      generate: async () => ({
+        transcript: [],
+        toolCalls: [{ id: String(++turns), name: "lookup", input: {} }],
+      }),
+    };
+    const tools: ToolAdapter = {
+      listTools: async () => [
+        { name: "lookup", inputSchema: { type: "object" } },
+      ],
+      executeTool: async (call) => {
+        executed++;
+        return { callId: call.id, name: call.name, output: {} };
+      },
+    };
+    const execute = (resume?: NestedCheckpointInput) =>
+      new PromptStepExecutor().execute({
+        runId: "limit",
+        manifest: { ...manifest, limits: { maxToolCallsPerIteration: 2 } },
+        step,
+        stepIndex: 0,
+        variables: { Item: { Name: "test" }, audience: "test" },
+        model,
+        tools,
+        ...(resume
+          ? {
+              resume: {
+                cursor: { stepIndex: 0, stepId: step.id },
+                continuation: resume.continuation!,
+                transcript: resume.transcript!,
+              },
+            }
+          : {}),
+        checkpoint: async (checkpoint) => {
+          saved = structuredClone(checkpoint);
+        },
+        emit: async (type) => ({
+          id: type,
+          runId: "limit",
+          sequence: 1,
+          timestamp: "2026-07-22T00:00:00.000Z",
+          type,
+        }),
+      });
+    await expect(execute()).rejects.toThrow(
+      "tool-call limit across the prompt step",
+    );
+    expect(turns).toBe(3);
+    expect(executed).toBe(2);
+    expect(saved?.continuation).toMatchObject({ toolCallCount: 2 });
+    await expect(execute(saved)).rejects.toThrow(
+      "tool-call limit across the prompt step",
+    );
+    expect(turns).toBe(3);
+    expect(executed).toBe(2);
+  });
+
   it("uses non-streaming generation when stream is unavailable", async () => {
     const model: ModelAdapter = {
       generate: async (request) => ({

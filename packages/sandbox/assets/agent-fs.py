@@ -11,7 +11,7 @@ prints exactly one JSON document on stdout and exits with:
   4  limit exceeded
   5  read-only mount
 
-Paths are relative POSIX paths whose segments match [A-Za-z0-9][A-Za-z0-9._-]*.
+Paths are relative POSIX paths whose segments match [A-Za-z0-9_][A-Za-z0-9._-]*.
 Symbolic links are never followed. Content is never interpreted beyond UTF-8
 decoding for text windows and literal substring search.
 """
@@ -27,7 +27,7 @@ import tempfile
 
 PROTOCOL_VERSION = 1
 HELPER_VERSION = "1.0.0"
-SEGMENT = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
+SEGMENT = re.compile(r"^[A-Za-z0-9_][A-Za-z0-9._-]*$")
 MAX_PATH_LENGTH = 1024
 MAX_PATH_DEPTH = 64
 TEXT_SNIFF_BYTES = 8192

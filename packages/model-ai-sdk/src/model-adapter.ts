@@ -167,7 +167,12 @@ const defaultGenerateText: GenerateTextFunction = async (options) => {
 };
 
 const defaultStreamText: StreamTextFunction = (options) => {
-  const result = streamText(options as Parameters<typeof streamText>[0]);
+  const result = streamText({
+    ...(options as Parameters<typeof streamText>[0]),
+    // The adapter propagates fullStream error parts to the runtime. Disable
+    // the SDK's default console.error handler to avoid duplicate stderr output.
+    onError: () => {},
+  });
   return result as unknown as AiSdkStreamResult;
 };
 

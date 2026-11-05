@@ -90,6 +90,8 @@ describe("workspace paths", () => {
   it("accepts relative POSIX paths with safe segments only", () => {
     expect(isSafeWorkspacePath("src/index.ts")).toBe(true);
     expect(isSafeWorkspacePath("README.md")).toBe(true);
+    expect(isSafeWorkspacePath("_package/__init__.py")).toBe(true);
+    expect(isSafeWorkspacePath("_")).toBe(true);
     for (const unsafe of [
       "",
       "/etc/passwd",
@@ -97,6 +99,8 @@ describe("workspace paths", () => {
       "src/../../x",
       "src/./x",
       ".git/config",
+      "-option",
+      "_package/.hidden",
       "a//b",
       "a/",
       "with space.txt",

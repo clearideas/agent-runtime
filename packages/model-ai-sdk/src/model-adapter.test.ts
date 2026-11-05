@@ -26,6 +26,44 @@ function request(overrides: Partial<ModelRequest> = {}): ModelRequest {
 }
 
 describe("AiSdkModelAdapter", () => {
+  it.each(["setup", "stream"])(
+    "propagates %s failures without SDK stderr logging",
+    async (phase) => {
+      const failure = new Error("provider unavailable");
+      const stderr = vi.spyOn(console, "error").mockImplementation(() => {});
+      const model = {
+        specificationVersion: "v3",
+        provider: "test",
+        modelId: "failure",
+        supportedUrls: {},
+        doStream: async () => {
+          if (phase === "setup") throw failure;
+          return {
+            stream: new ReadableStream({
+              start(controller) {
+                controller.enqueue({ type: "error", error: failure });
+                controller.close();
+              },
+            }),
+          };
+        },
+      } as unknown as LanguageModel;
+      try {
+        const adapter = new AiSdkModelAdapter({ resolveModel: () => model });
+        await expect(
+          (async () => {
+            for await (const _event of adapter.stream(request())) {
+              /* consume */
+            }
+          })(),
+        ).rejects.toBe(failure);
+        expect(stderr).not.toHaveBeenCalled();
+      } finally {
+        stderr.mockRestore();
+      }
+    },
+  );
+
   it("resolves provider/model keys through an open provider registry", () => {
     expect(parseModelKey("openai/gpt-test")).toEqual({
       provider: "openai",

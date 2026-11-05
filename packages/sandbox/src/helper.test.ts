@@ -92,6 +92,30 @@ describe.skipIf(!hasPython)(
       ).toBe(2);
     });
 
+    it("writes, lists, and reads underscore-prefixed Python package paths", async () => {
+      const source = path.join(outside, "content");
+      await writeFile(source, "value = 42\n");
+      expect(
+        helper([
+          "write",
+          "--mount",
+          mount,
+          "--writable",
+          "--path",
+          "_package/__init__.py",
+          "--source",
+          source,
+        ]).exitCode,
+      ).toBe(0);
+      expect(
+        helper(["list", "--mount", mount, "--glob", "_package/**"]).document,
+      ).toMatchObject({ files: [{ path: "_package/__init__.py" }] });
+      expect(
+        helper(["read", "--mount", mount, "--path", "_package/__init__.py"])
+          .document,
+      ).toMatchObject({ content: "value = 42" });
+    });
+
     it("lists visible files deterministically with globs and limits", () => {
       const listed = helper(["list", "--mount", mount]);
       expect(listed.exitCode).toBe(0);

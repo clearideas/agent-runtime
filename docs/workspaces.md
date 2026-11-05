@@ -42,7 +42,8 @@ results from remote MCP servers.
 | `attach`                                    | `auto` binds read-only, unfiltered directories natively when the provider supports it   |
 
 Workspace paths accept only segments made of letters, digits, `.`, `_`, and
-`-` that do not start with a dot. Hidden entries (`.git`, `.env`), symbolic
+`-`, starting with a letter, digit, or underscore (for example, `__init__.py`).
+Hidden entries (`.git`, `.env`), symbolic
 links, and names with spaces are never addressable.
 
 ### `sandbox`
