@@ -906,6 +906,9 @@ describe.skipIf(!available)(
               driver: "local",
               root: publicRoot,
               mode: "read",
+              // Staging fails closed on oversize inputs; keep this fixture
+              // focused on command admission and the host filesystem boundary.
+              exclude: ["big.bin"],
               maxFileBytes: 1_048_576,
             },
             scratch: {
@@ -1027,7 +1030,9 @@ describe.skipIf(!available)(
               "ln -s /etc/passwd leak",
               "cat /etc/shadow >/dev/null 2>&1 && echo SHADOW || echo NO-SHADOW",
               "python3 -c \"import socket; s=socket.socket(); s.settimeout(1); s.connect(('1.1.1.1',80))\" >/dev/null 2>&1 && echo NET || echo NO-NET",
-              "echo pwn > /workspace/mounts/public/hack.txt 2>/dev/null && echo WROTE-PUBLIC || echo RO-PUBLIC",
+              "cat /workspace/mounts/public/.env >/dev/null 2>&1 && echo LEAK || echo NO-SECRET",
+              // A staged read workspace is a disposable copy, never synced to the host.
+              "echo pwn > /workspace/mounts/public/hack.txt 2>/dev/null && echo WROTE-COPY || echo COPY-READ-ONLY",
               "dd if=/dev/zero of=huge.bin bs=1M count=3 2>/dev/null; echo done",
             ].join("; "),
           }),
@@ -1054,7 +1059,7 @@ describe.skipIf(!available)(
           { name: "public__read_file", error: "workspace_path_invalid" }, // traversal
           { name: "public__read_file", error: "workspace_path_invalid" }, // symbolic link never staged
           { name: "public__read_file", error: "workspace_path_invalid" }, // hidden entry
-          { name: "public__read_file", error: "workspace_limit_exceeded" }, // oversize
+          { name: "public__read_file", error: "workspace_path_invalid" }, // oversized input excluded from staging
           { name: "public__search_files", ok: true }, // regex metacharacters are literal
           { name: "scratch__shell", ok: true },
           { name: "scratch__read_file", error: "workspace_path_invalid" }, // symlink planted by the shell
@@ -1071,7 +1076,8 @@ describe.skipIf(!available)(
         expect(output.shell.trim().split("\n")).toEqual([
           "NO-SHADOW",
           "NO-NET",
-          "RO-PUBLIC",
+          "NO-SECRET",
+          "WROTE-COPY",
           "done",
         ]);
 
