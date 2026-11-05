@@ -1,5 +1,12 @@
 import { spawnSync } from "node:child_process";
-import { mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
+import {
+  mkdir,
+  mkdtemp,
+  readdir,
+  readFile,
+  rm,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
@@ -206,6 +213,71 @@ describe.skipIf(!bubblewrapAvailable)(
       await provider.terminate(handle);
     });
 
+    it.each([false, true])(
+      "exposes raw directory entries only after explicit attachment opt-in (auto: %s)",
+      async (auto) => {
+        await mkdir(path.join(attached, ".git"));
+        await writeFile(path.join(attached, ".env"), "PRIVATE=hidden");
+        await writeFile(
+          path.join(attached, ".git", "config"),
+          "private config",
+        );
+        await writeFile(path.join(attached, "bad name.txt"), "unaddressable");
+        const { LocalDirectoryWorkspace } =
+          await import("@clearideas/agent-runtime-store-local");
+        const sandbox = new ProviderRunSandbox({
+          provider: new BubblewrapSandboxProvider({ stateDirectory: state }),
+          image: "host",
+        });
+        const request: RunSandboxOpenRequest = {
+          runId: "visibility",
+          attempt: 1,
+          workspaces: [
+            {
+              binding: { ref: "repo" },
+              alias: "code",
+              mode: "read",
+              store: new LocalDirectoryWorkspace({
+                root: attached,
+                ...(auto ? { attach: "auto" as const } : {}),
+              }),
+            },
+          ],
+          emit: async (type) => ({
+            id: type,
+            runId: "visibility",
+            sequence: 1,
+            timestamp: "",
+            type,
+          }),
+        };
+        await sandbox.validate(request);
+        const session = await sandbox.open(request);
+        try {
+          const result = await session.execute({
+            stepId: "probe",
+            kind: "code",
+            name: "probe",
+            arguments: {
+              language: "python",
+              variables: {},
+              code: [
+                "import json, os",
+                "root = json.load(open(os.environ['AGENT_WORKSPACES_FILE']))['mounts']['code']['path']",
+                "print(json.dumps({'visible': open(root + '/readme.txt').read(), 'other': [os.path.exists(root + '/' + name) for name in ['.env', '.git/config', 'bad name.txt']]}))",
+              ].join("\n"),
+            },
+          });
+          expect(JSON.parse(String(result.output))).toEqual({
+            visible: "attached\n",
+            other: [auto, auto, auto],
+          });
+        } finally {
+          await session.close("completed");
+        }
+      },
+    );
+
     it("runs the complete run sandbox with the bundled helper", async () => {
       const provider = new BubblewrapSandboxProvider({ stateDirectory: state });
       const repo = await mkdtemp(
@@ -223,7 +295,7 @@ describe.skipIf(!bubblewrapAvailable)(
             binding: { ref: "repo", alias: "code", mode: "read" },
             alias: "code",
             mode: "read",
-            store: new LocalDirectoryWorkspace({ root: repo }),
+            store: new LocalDirectoryWorkspace({ root: repo, attach: "auto" }),
           },
           {
             binding: { ref: "notes" },

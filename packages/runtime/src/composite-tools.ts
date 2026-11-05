@@ -40,6 +40,13 @@ export class CompositeToolAdapter implements ToolAdapter {
     return tools;
   }
 
+  isToolExcluded(name: string): boolean {
+    return (
+      !this.#routes.has(name) &&
+      this.#adapters.some((adapter) => adapter.isToolExcluded?.(name) === true)
+    );
+  }
+
   async executeTool(
     call: ToolCall,
     context: ToolExecutionContext,

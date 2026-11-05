@@ -396,6 +396,7 @@ export class ConfiguredMcpToolAdapter implements ToolAdapter {
   readonly #options: ConfiguredMcpToolAdapterOptions;
   readonly #clientCredentialsProviders = new Map<string, OAuthClientProvider>();
   #resolvedTools = new Map<string, ResolvedToolBinding>();
+  #excludedTools = new Set<string>();
 
   constructor(
     config: AgentRuntimeConfig,
@@ -412,6 +413,7 @@ export class ConfiguredMcpToolAdapter implements ToolAdapter {
   async listTools(): Promise<AgentTool[]> {
     const tools: AgentTool[] = [];
     const resolved = new Map<string, ResolvedToolBinding>();
+    const excluded = new Set<string>();
 
     for (const binding of this.#bindings) {
       const connection = this.#config.connections[binding.ref];
@@ -438,8 +440,11 @@ export class ConfiguredMcpToolAdapter implements ToolAdapter {
         const allowlist = allowedToolNames(connection, binding, mode);
         for (const tool of discovered) {
           if (!tool.name || (allowlist && !allowlist.has(tool.name))) continue;
-          if (!(await this.#verifyTool(binding, connection, tool))) continue;
           const name = runtimeToolName(binding.alias ?? binding.ref, tool.name);
+          if (!(await this.#verifyTool(binding, connection, tool))) {
+            excluded.add(name);
+            continue;
+          }
           if (resolved.has(name)) {
             throw new Error(
               `Connection tool name collision: ${name}. Use a distinct connection alias.`,
@@ -478,7 +483,12 @@ export class ConfiguredMcpToolAdapter implements ToolAdapter {
     }
 
     this.#resolvedTools = resolved;
+    this.#excludedTools = excluded;
     return tools;
+  }
+
+  isToolExcluded(name: string): boolean {
+    return !this.#resolvedTools.has(name) && this.#excludedTools.has(name);
   }
 
   /**

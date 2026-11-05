@@ -74,7 +74,7 @@ describe("configuration schema", () => {
     });
     expect(config.workspaces.docs).toMatchObject({
       mode: "read",
-      attach: "auto",
+      attach: "never",
     });
     expect(config.sandbox).toMatchObject({
       driver: "bubblewrap",
@@ -140,6 +140,120 @@ describe("configuration schema", () => {
     expect(resolved.sandbox?.helper?.source).toEqual({
       path: path.resolve("/srv/agent", "tools/agent-fs"),
     });
+  });
+
+  it.each([undefined, "never", "auto"])(
+    "requires explicit auto for both local and host attachment capabilities (%s)",
+    async (attach) => {
+      const root = path.resolve("attachment-test-root");
+      const config = parseAgentRuntimeConfig({
+        version: "1.0",
+        workspaces: {
+          local: { driver: "local", root, ...(attach ? { attach } : {}) },
+          host: { driver: "host", ...(attach ? { attach } : {}) },
+          filtered: {
+            driver: "local",
+            root,
+            attach: "auto",
+            exclude: ["*.txt"],
+          },
+        },
+      });
+      const host = Object.assign(new MemoryWorkspace(), {
+        attachable: { kind: "local-directory" as const, root },
+      });
+      const provider = new ConfiguredWorkspaceProvider(
+        config,
+        {},
+        { createWorkspace: (name) => (name === "host" ? host : undefined) },
+      );
+      for (const ref of ["local", "host"]) {
+        const store = await provider.resolveWorkspace({ ref });
+        expect(store?.attachable).toEqual(
+          attach === "auto" ? { kind: "local-directory", root } : undefined,
+        );
+      }
+      expect(
+        (await provider.resolveWorkspace({ ref: "filtered" }))?.attachable,
+      ).toBeUndefined();
+    },
+  );
+
+  it("preserves getter-backed host store contracts when attachment is disabled", async () => {
+    const root = path.resolve("host-attachment-root");
+    class HostStore {
+      #data = new Uint8Array([1]);
+      constructor(readonly writable = true) {}
+      get mode() {
+        return this.writable ? ("read_write" as const) : ("read" as const);
+      }
+      get limits() {
+        return { maxFileBytes: 3 };
+      }
+      get attachable() {
+        return { kind: "local-directory" as const, root };
+      }
+      async entries() {
+        return [{ path: "file.txt", size: this.#data.byteLength }];
+      }
+      async read() {
+        return this.#data;
+      }
+      async write(file: string, data: Uint8Array) {
+        this.#data = data;
+        return { path: file, size: data.byteLength };
+      }
+      async delete() {
+        this.#data = new Uint8Array();
+      }
+    }
+    const config = parseAgentRuntimeConfig({
+      version: "1.0",
+      workspaces: { host: { driver: "host", mode: "read_write" } },
+    });
+    const provider = new ConfiguredWorkspaceProvider(
+      config,
+      {},
+      { createWorkspace: () => new HostStore() },
+    );
+    const [workspace] = await resolveAgentWorkspaces(
+      {
+        schemaVersion: "1.0",
+        steps: [],
+        workspaces: [{ ref: "host", mode: "read_write" }],
+      },
+      provider,
+    );
+    expect(workspace?.store.mode).toBe("read_write");
+    expect(workspace?.store.limits).toEqual({ maxFileBytes: 3 });
+    expect(workspace?.store.attachable).toBeUndefined();
+    await workspace!.store.write!("file.txt", new Uint8Array([2, 3]));
+    expect(await workspace!.store.read("file.txt")).toEqual(
+      new Uint8Array([2, 3]),
+    );
+    expect(await workspace!.store.entries()).toEqual([
+      { path: "file.txt", size: 2 },
+    ]);
+    await workspace!.store.delete!("file.txt");
+    expect(await workspace!.store.read("file.txt")).toHaveLength(0);
+    const readOnly = new ConfiguredWorkspaceProvider(
+      parseAgentRuntimeConfig({
+        version: "1.0",
+        workspaces: { host: { driver: "host" } },
+      }),
+      {},
+      { createWorkspace: () => new HostStore(false) },
+    );
+    await expect(
+      resolveAgentWorkspaces(
+        {
+          schemaVersion: "1.0",
+          steps: [],
+          workspaces: [{ ref: "host", mode: "read_write" }],
+        },
+        readOnly,
+      ),
+    ).rejects.toThrow(/cannot be elevated/u);
   });
 
   it("validates manifest bindings against the configuration", () => {

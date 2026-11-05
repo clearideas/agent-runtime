@@ -386,6 +386,11 @@ export interface ConnectionCredentialProvider {
 
 export interface ToolAdapter {
   listTools(): Promise<AgentTool[]>;
+  /**
+   * True only for names explicitly removed by host policy during the last
+   * discovery. Prompt steps may omit these; other missing names remain errors.
+   */
+  isToolExcluded?(name: string): boolean;
   executeTool(
     call: ToolCall,
     context: ToolExecutionContext,

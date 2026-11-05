@@ -149,13 +149,13 @@ export const workspaceDefinitionSchema = z.discriminatedUnion("driver", [
     maxFileBytes: positiveIntegerSchema.optional(),
     maxTotalBytes: positiveIntegerSchema.optional(),
     /** auto: bind read-only when the provider supports it; never: always stage a copy. */
-    attach: z.enum(["auto", "never"]).default("auto"),
+    attach: z.enum(["auto", "never"]).default("never"),
   }),
   z.strictObject({
     /** The host supplies the store through composition options. */
     driver: z.literal("host"),
     mode: z.enum(WORKSPACE_MODES).default("read"),
-    attach: z.enum(["auto", "never"]).default("auto"),
+    attach: z.enum(["auto", "never"]).default("never"),
   }),
 ]);
 

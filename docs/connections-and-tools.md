@@ -116,9 +116,9 @@ Rules:
 - `onFailure: fail` (default) throws `McpToolIntegrityError` from discovery.
   This fails the run even for optional connections, unlike other discovery
   errors.
-- `onFailure: exclude` drops only the failing tool and continues. A prompt step
-  that names the excluded tool still fails with `Tool <name> is not available`;
-  steps that do not name it proceed.
+- `onFailure: exclude` drops only the failing tool and continues. Prompt steps
+  omit tools explicitly excluded by this policy, even when named in `step.tools`.
+  Other missing tool names still fail with `Tool <name> is not available`.
 - `digests` may only name tools present in `tools`; configuration validation
   rejects other keys.
 

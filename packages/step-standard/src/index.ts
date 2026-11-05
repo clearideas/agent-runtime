@@ -13,7 +13,10 @@ import type {
   StepExecutionResult,
   StepExecutor,
 } from "@clearideas/agent-runtime-core";
-import { RunSuspendedError } from "@clearideas/agent-runtime-core";
+import {
+  compilePromptTemplate,
+  RunSuspendedError,
+} from "@clearideas/agent-runtime-core";
 
 export type FetchLike = (
   input: string | URL | Request,
@@ -439,7 +442,10 @@ export class ApprovalStepExecutor implements StepExecutor<ApprovalStep> {
           {
             runId: context.runId,
             stepId: context.step.id,
-            prompt: context.step.prompt,
+            prompt: compilePromptTemplate(
+              context.step.prompt,
+              context.variables,
+            ),
             ...(context.step.metadata
               ? { details: context.step.metadata }
               : {}),
