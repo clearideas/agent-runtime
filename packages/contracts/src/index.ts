@@ -201,6 +201,70 @@ export interface AgentConnectionBinding {
   required?: boolean;
 }
 
+export const WORKSPACE_MODES = ["read", "read_write"] as const;
+export type WorkspaceMode = (typeof WORKSPACE_MODES)[number];
+
+/**
+ * Binds a host-defined workspace (a code base, document store, or other
+ * durable file collection) to an agent. The host configuration defines the
+ * workspace; the agent may only narrow what the host permits.
+ */
+export interface AgentWorkspaceBinding {
+  /** Host-defined workspace name. */
+  ref: string;
+  /** Tool prefix and sandbox mount name. Defaults to ref. */
+  alias?: string;
+  /** Optional per-agent narrowing of the workspace tool set. */
+  tools?: string[];
+  /** An agent may request fewer privileges than the configured workspace, never more. */
+  mode?: WorkspaceMode;
+  required?: boolean;
+}
+
+/**
+ * One command executed in the run sandbox on behalf of a tool call or a code
+ * step. Attached to tool results, step results, and sandbox events so the
+ * host has a complete durable record of what ran.
+ */
+export interface SandboxCommandRecord {
+  id: string;
+  runId: string;
+  attempt: number;
+  stepId: string;
+  toolCallId?: string;
+  workspace?: string;
+  alias?: string;
+  kind: "builtin" | "command" | "shell" | "code";
+  name: string;
+  policyEntry?: string;
+  argv: string[];
+  cwd: string;
+  startedAt: string;
+  completedAt: string;
+  durationMs: number;
+  exitCode: number;
+  timedOut: boolean;
+  stdoutBytes: number;
+  stderrBytes: number;
+  stdoutTruncated: boolean;
+  stderrTruncated: boolean;
+  filesChanged: Array<{
+    alias: string;
+    path: string;
+    action: "created" | "modified" | "deleted";
+    size?: number;
+    sha256?: string;
+  }>;
+  artifacts?: string[];
+  ignoredPaths: Array<{ alias: string; path: string; reason: string }>;
+  budget: {
+    commandsUsed: number;
+    commandsLimit: number;
+    sandboxSecondsUsed: number;
+    sandboxSecondsLimit: number;
+  };
+}
+
 export interface AgentVariableDefinition {
   key: string;
   type: AgentVariableType;
@@ -365,6 +429,10 @@ export interface CodeStep extends AgentStepBase {
   code: string;
   timeoutMs?: number;
   environment?: Record<string, string>;
+  /** Bound workspace aliases available to the step. Implies sandbox: run. */
+  workspaces?: string[];
+  /** run: execute in the run sandbox; step: ephemeral per-step sandbox. */
+  sandbox?: "run" | "step";
 }
 
 export type AgentStep =
@@ -472,16 +540,27 @@ export const promptMessageSchema: z.ZodType<PromptMessage> = z.lazy(() =>
     }),
 );
 
+const bindingAliasSchema = z
+  .string()
+  .regex(/^[a-z][a-z0-9-]*$/u)
+  .optional();
+
 const agentConnectionBindingSchema = z.strictObject({
   ref: z.string().min(1),
-  alias: z
-    .string()
-    .regex(/^[a-z][a-z0-9-]*$/u)
-    .optional(),
+  alias: bindingAliasSchema,
   tools: z.array(z.string().min(1)).optional(),
   mode: z.enum(["read", "read_write"]).optional(),
   required: z.boolean().optional(),
 });
+
+export const agentWorkspaceBindingSchema: z.ZodType<AgentWorkspaceBinding> =
+  z.strictObject({
+    ref: z.string().min(1),
+    alias: bindingAliasSchema,
+    tools: z.array(z.string().min(1)).optional(),
+    mode: z.enum(WORKSPACE_MODES).optional(),
+    required: z.boolean().optional(),
+  });
 
 // The prompt refinement below enforces the PromptStep input union. Zod retains
 // optional field inference after superRefine, so expose the refined output type.
@@ -639,6 +718,8 @@ export const agentStepSchema = z.lazy(() =>
       code: z.string(),
       timeoutMs: z.number().int().positive().optional(),
       environment: z.record(z.string(), z.string()).optional(),
+      workspaces: z.array(z.string().min(1)).optional(),
+      sandbox: z.enum(["run", "step"]).optional(),
     }),
   ]),
 ) as unknown as z.ZodType<AgentStep>;
@@ -651,6 +732,8 @@ export interface AgentManifest {
   model?: ModelReference;
   variables?: AgentVariableDefinition[];
   connections?: AgentConnectionBinding[];
+  /** Host-defined file collections available to workspace tools and code steps. */
+  workspaces?: AgentWorkspaceBinding[];
   steps: AgentStep[];
   limits?: {
     maxSteps?: number;
@@ -682,6 +765,50 @@ const validateSiblingStepIds = (
     if (step.type === "loop") {
       validateSiblingStepIds(step.steps, context, [...path, index, "steps"]);
     }
+  });
+};
+
+const validateCodeStepWorkspaces = (
+  steps: AgentStep[],
+  workspaceAliases: ReadonlySet<string>,
+  context: z.RefinementCtx,
+  path: Array<string | number>,
+): void => {
+  steps.forEach((step, index) => {
+    if (step.type === "loop") {
+      validateCodeStepWorkspaces(step.steps, workspaceAliases, context, [
+        ...path,
+        index,
+        "steps",
+      ]);
+      return;
+    }
+    if (step.type !== "code") return;
+    if (step.sandbox === "step" && (step.workspaces?.length ?? 0) > 0) {
+      context.addIssue({
+        code: "custom",
+        message: `Code step ${step.id} cannot mount workspaces in a per-step sandbox; use sandbox: run.`,
+        path: [...path, index, "sandbox"],
+      });
+    }
+    const seen = new Set<string>();
+    (step.workspaces ?? []).forEach((alias, aliasIndex) => {
+      if (!workspaceAliases.has(alias)) {
+        context.addIssue({
+          code: "custom",
+          message: `Code step ${step.id} references an undeclared workspace alias: ${alias}`,
+          path: [...path, index, "workspaces", aliasIndex],
+        });
+      }
+      if (seen.has(alias)) {
+        context.addIssue({
+          code: "custom",
+          message: `Code step ${step.id} lists workspace ${alias} more than once`,
+          path: [...path, index, "workspaces", aliasIndex],
+        });
+      }
+      seen.add(alias);
+    });
   });
 };
 
@@ -745,6 +872,7 @@ const agentManifestObjectSchema: z.ZodType<AgentManifest> = z
     model: modelReferenceSchema.optional(),
     variables: z.array(agentVariableDefinitionSchema).optional(),
     connections: z.array(agentConnectionBindingSchema).optional(),
+    workspaces: z.array(agentWorkspaceBindingSchema).optional(),
     steps: z.array(agentStepSchema),
     limits: z
       .object({
@@ -774,7 +902,28 @@ const agentManifestObjectSchema: z.ZodType<AgentManifest> = z
       }
       connectionAliases.add(alias);
     });
+    const workspaceAliases = new Set<string>();
+    manifest.workspaces?.forEach((workspace, index) => {
+      const alias = workspace.alias ?? workspace.ref;
+      if (workspaceAliases.has(alias)) {
+        context.addIssue({
+          code: "custom",
+          message: `Duplicate workspace alias: ${alias}`,
+          path: ["workspaces", index, "alias"],
+        });
+      } else if (connectionAliases.has(alias)) {
+        context.addIssue({
+          code: "custom",
+          message: `Workspace alias collides with a connection alias: ${alias}`,
+          path: ["workspaces", index, "alias"],
+        });
+      }
+      workspaceAliases.add(alias);
+    });
     validateSiblingStepIds(manifest.steps, context, ["steps"]);
+    validateCodeStepWorkspaces(manifest.steps, workspaceAliases, context, [
+      "steps",
+    ]);
 
     const variableKeys = new Set<string>();
     manifest.variables?.forEach((definition, index) => {
@@ -1098,6 +1247,11 @@ export type RunEventType =
   | "webhook.retry.scheduled"
   | "code.execution.started"
   | "code.execution.completed"
+  | "workspace.bound"
+  | "sandbox.opened"
+  | "sandbox.command.started"
+  | "sandbox.command.completed"
+  | "sandbox.closed"
   | "sub-run.started"
   | "sub-run.completed"
   | "model.started"

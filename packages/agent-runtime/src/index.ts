@@ -4,6 +4,7 @@ export * from "@clearideas/agent-runtime-contracts";
 export * from "@clearideas/agent-runtime-core";
 export * from "@clearideas/agent-runtime-execution";
 export * from "@clearideas/agent-runtime-model-ai-sdk";
+export * from "@clearideas/agent-runtime-sandbox";
 export * from "@clearideas/agent-runtime-step-loop";
 export * from "@clearideas/agent-runtime-step-prompt";
 export * from "@clearideas/agent-runtime-step-standard";

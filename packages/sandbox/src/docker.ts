@@ -10,8 +10,12 @@ import {
   type SandboxInputFile,
   type SandboxProcessEvent,
   type SandboxProvider,
+  type SandboxProviderCapabilities,
   type SandboxSpec,
 } from "./contracts.js";
+
+const LABEL_KEY = /^[a-z0-9][a-z0-9._-]*$/u;
+const LABEL_VALUE = /^[A-Za-z0-9._:-]*$/u;
 
 export interface DockerSandboxProviderOptions {
   binary?: string;
@@ -66,6 +70,9 @@ const collect = async (
 
 export class DockerSandboxProvider implements SandboxProvider {
   readonly name = "docker";
+  readonly capabilities: SandboxProviderCapabilities = {
+    readOnlyAttachments: true,
+  };
   readonly #binary: string;
   readonly #allowedImages: ReadonlySet<string>;
   readonly #now: () => Date;
@@ -78,17 +85,38 @@ export class DockerSandboxProvider implements SandboxProvider {
     this.#now = options.now ?? (() => new Date());
   }
 
-  async create(
-    spec: SandboxSpec,
-    options?: { signal?: AbortSignal },
-  ): Promise<SandboxHandle> {
+  async validate(spec: SandboxSpec): Promise<void> {
     if (!this.#allowedImages.has(spec.image))
       throw new Error(`Docker image is not allowed: ${spec.image}`);
     if (spec.network !== "none")
       throw new Error("Docker reference sandbox only permits network: none.");
     assertSandboxPath(spec.workingDirectory);
     assertSandboxResourceLimits(spec.limits);
+    for (const attachment of spec.attachments ?? []) {
+      assertSandboxPath(attachment.target);
+      if (
+        !attachment.source.startsWith("/") ||
+        attachment.source.includes(":")
+      ) {
+        throw new Error(
+          `Docker attachment source must be an absolute path without colons: ${attachment.source}`,
+        );
+      }
+    }
+    for (const [key, value] of Object.entries(spec.metadata ?? {})) {
+      if (!LABEL_KEY.test(key) || !LABEL_VALUE.test(String(value))) {
+        throw new Error(`Docker label is invalid: ${key}`);
+      }
+    }
+  }
+
+  async create(
+    spec: SandboxSpec,
+    options?: { signal?: AbortSignal },
+  ): Promise<SandboxHandle> {
+    await this.validate(spec);
     const name = `agent-runtime-${randomUUID()}`;
+    const workspaceSize = spec.limits.workspaceTmpfsMb ?? 256;
     const args = [
       "create",
       "--name",
@@ -103,7 +131,7 @@ export class DockerSandboxProvider implements SandboxProvider {
       "65532:65532",
       "--read-only",
       "--tmpfs",
-      "/workspace:rw,noexec,nosuid,nodev,size=256m,uid=65532,gid=65532,mode=0700",
+      `/workspace:rw,noexec,nosuid,nodev,size=${workspaceSize}m,uid=65532,gid=65532,mode=0700`,
       "--tmpfs",
       "/tmp:rw,noexec,nosuid,nodev,size=64m,uid=65532,gid=65532,mode=0700",
       "--workdir",
@@ -114,6 +142,14 @@ export class DockerSandboxProvider implements SandboxProvider {
       String(spec.limits.cpuCount ?? 1),
       "--pids-limit",
       String(spec.limits.processLimit ?? 64),
+      ...(spec.attachments ?? []).flatMap((attachment) => [
+        "--volume",
+        `${attachment.source}:${attachment.target}:ro`,
+      ]),
+      ...Object.entries(spec.metadata ?? {}).flatMap(([key, value]) => [
+        "--label",
+        `${key}=${String(value)}`,
+      ]),
       spec.image,
       "sleep",
       "infinity",

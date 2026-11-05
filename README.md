@@ -69,6 +69,9 @@ The complete documentation is available at
 - Manifest-to-graph scheduling with deterministic orchestration and dependency-safe fan-out
 - Streaming model output and ordered tool execution
 - Native authorization boundaries for credentials, connections, and tools
+- Host-defined workspaces (code bases, document stores) operated on only
+  inside an isolated per-run sandbox, with every command policy-admitted,
+  reported, and recorded
 - Native sandbox contracts for code execution and generated artifacts
 - Durable checkpoints, suspension, fresh-process resume, and cancellation
 - Cumulative model-token budgets with durable suspension and raised-limit resume
@@ -141,7 +144,7 @@ Useful focused commands:
 
 ```bash
 npm run build
-npm test
+npm test            # one summary screen; add -- --only <package> or -- --verbose
 npm run check:boundaries
 npm run check:docs
 npm run check:tarballs
@@ -163,15 +166,16 @@ the public packages can start with the
 Agent Runtime packages adapters separately from the core contracts. Install
 only the integrations used by the host application.
 
-| Capability     | Included implementations  |
-| -------------- | ------------------------- |
-| Models         | AI SDK provider adapter   |
-| Persistence    | memory, files, and SQLite |
-| Event sinks    | JSONL and console         |
-| Conditions     | JEXL                      |
-| Remote compute | Modal                     |
-| Sandboxes      | Docker and Modal          |
-| Telemetry      | OpenTelemetry             |
+| Capability     | Included implementations      |
+| -------------- | ----------------------------- |
+| Models         | AI SDK provider adapter       |
+| Persistence    | memory, files, and SQLite     |
+| Event sinks    | JSONL and console             |
+| Conditions     | JEXL                          |
+| Remote compute | Modal                         |
+| Sandboxes      | Docker, bubblewrap, and Modal |
+| Workspaces     | local directories and memory  |
+| Telemetry      | OpenTelemetry                 |
 
 See the [adapter catalog](https://agent-runtime.clearideas.com/adapters) for
 package names and integration guidance.

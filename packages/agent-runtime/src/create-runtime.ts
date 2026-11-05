@@ -51,6 +51,20 @@ export const createAgentRuntime = (
       ...composition,
       model: overrides.model ? false : (composition?.model ?? true),
       tools: overrides.tools ? false : (composition?.tools ?? true),
+      // Host-supplied workspace and sandbox providers also back the composed tools.
+      ...(overrides.workspaces || overrides.runSandbox
+        ? {
+            workspaceOptions: {
+              ...composition?.workspaceOptions,
+              ...(overrides.workspaces
+                ? { provider: overrides.workspaces }
+                : {}),
+              ...(overrides.runSandbox
+                ? { runSandbox: overrides.runSandbox }
+                : {}),
+            },
+          }
+        : {}),
     },
   );
   return new AgentRuntime({

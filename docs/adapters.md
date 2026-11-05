@@ -11,16 +11,17 @@ Changing an adapter does not require a different agent manifest.
 
 ## Adapter contracts
 
-| Capability     | Contract or extension point | Purpose                                      |
-| -------------- | --------------------------- | -------------------------------------------- |
-| Models         | `ModelAdapter`              | model generation and streaming               |
-| Tools          | `ToolAdapter`               | tool discovery and execution                 |
-| Persistence    | `RunStore`, `ArtifactStore` | run state, checkpoints, and artifact storage |
-| Conditions     | `ConditionEvaluator`        | conditions and loop goals                    |
-| Execution      | `ExecutionEngine`           | run lifecycle and event delivery             |
-| Remote compute | `RemoteComputeLauncher`     | submit and cancel remote compute             |
-| Sandboxes      | `SandboxProvider`           | isolated processes and filesystems           |
-| Telemetry      | `EventSink`                 | lifecycle and model events                   |
+| Capability     | Contract or extension point                                 | Purpose                                      |
+| -------------- | ----------------------------------------------------------- | -------------------------------------------- |
+| Models         | `ModelAdapter`                                              | model generation and streaming               |
+| Tools          | `ToolAdapter`                                               | tool discovery and execution                 |
+| Persistence    | `RunStore`, `ArtifactStore`                                 | run state, checkpoints, and artifact storage |
+| Conditions     | `ConditionEvaluator`                                        | conditions and loop goals                    |
+| Execution      | `ExecutionEngine`                                           | run lifecycle and event delivery             |
+| Remote compute | `RemoteComputeLauncher`                                     | submit and cancel remote compute             |
+| Sandboxes      | `SandboxProvider`                                           | isolated processes and filesystems           |
+| Workspaces     | `WorkspaceStore`, `WorkspaceProvider`, `RunSandboxProvider` | host file collections and the run sandbox    |
+| Telemetry      | `EventSink`                                                 | lifecycle and model events                   |
 
 ## Included adapters
 
@@ -31,7 +32,8 @@ Changing an adapter does not require a different agent manifest.
 | Persistence    | `@clearideas/agent-runtime-store-local`     | memory, files, JSONL, and console    |
 | Persistence    | `@clearideas/agent-runtime-store-sqlite`    | SQLite                               |
 | Remote compute | `@clearideas/agent-runtime-execution-modal` | Modal functions and execution queues |
-| Sandboxes      | `@clearideas/agent-runtime-sandbox`         | Docker                               |
+| Sandboxes      | `@clearideas/agent-runtime-sandbox`         | Docker and bubblewrap                |
+| Workspaces     | `@clearideas/agent-runtime-store-local`     | local directories and memory         |
 | Sandboxes      | `@clearideas/agent-runtime-sandbox-modal`   | Modal sandboxes                      |
 | Telemetry      | `@clearideas/agent-runtime-telemetry-otel`  | OpenTelemetry                        |
 

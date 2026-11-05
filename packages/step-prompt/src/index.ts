@@ -618,6 +618,8 @@ export class PromptStepExecutor implements StepExecutor<PromptStep> {
           stepId: context.step.id,
           variables: context.variables,
           idempotencyKey: toolIdempotencyKeys[toolIndex]!,
+          ...(context.workspaces ? { workspaces: context.workspaces } : {}),
+          ...(context.runSandbox ? { runSandbox: context.runSandbox } : {}),
           ...(context.signal ? { signal: context.signal } : {}),
         });
         toolCallCount += 1;

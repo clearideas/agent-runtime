@@ -29,6 +29,7 @@
       "@clearideas/agent-runtime-step-standard": [
         "../step-standard/dist/index.d.ts"
       ],
+      "@clearideas/agent-runtime-sandbox": ["../sandbox/dist/index.d.ts"],
       "@clearideas/agent-runtime-store-local": [
         "../store-local/dist/index.d.ts"
       ],
@@ -48,6 +49,7 @@
     { "path": "../step-loop" },
     { "path": "../step-prompt" },
     { "path": "../step-standard" },
+    { "path": "../sandbox" },
     { "path": "../store-local" },
     { "path": "../store-sqlite" }
   ]

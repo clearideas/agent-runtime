@@ -21,6 +21,11 @@ import type { FetchLike } from "@modelcontextprotocol/sdk/shared/transport.js";
 
 import type { McpConnectionDefinition, AgentRuntimeConfig } from "./config.js";
 import {
+  computeMcpToolDigest,
+  McpToolIntegrityError,
+  type McpToolMetadata,
+} from "./mcp-integrity.js";
+import {
   resolveEnvironmentReference,
   resolveHeaders,
   resolveValueSource,
@@ -35,7 +40,30 @@ interface McpToolDescription {
   annotations?: {
     readOnlyHint?: boolean;
     destructiveHint?: boolean;
+    [key: string]: unknown;
   };
+}
+
+/** A tool offered by an MCP server, with the digest the runtime verifies against. */
+export interface McpDiscoveredTool extends McpToolMetadata {
+  digest: string;
+  /** Whether the host configuration's `tools` allowlist includes this tool. */
+  allowed: boolean;
+  /** Present when the connection defines `toolIntegrity`. */
+  integrity?: {
+    status: "verified" | "mismatch" | "unpinned";
+    expectedDigest?: string;
+  };
+}
+
+export interface VerifyToolMetadataInput {
+  binding: AgentConnectionBinding;
+  connection: McpConnectionDefinition;
+  tool: McpToolMetadata;
+  /** Digest computed by the runtime with `computeMcpToolDigest`. */
+  digest: string;
+  /** Digest pinned in `toolIntegrity.digests`, when the tool is pinned. */
+  expectedDigest?: string;
 }
 
 interface ResolvedToolBinding {
@@ -55,6 +83,12 @@ export interface ConfiguredMcpToolAdapterOptions {
     binding: AgentConnectionBinding;
     connection: McpConnectionDefinition;
   }) => void | Promise<void>;
+  /**
+   * Throws to reject a discovered tool definition before it is exposed to a
+   * model. Runs after any `toolIntegrity` digest check. A rejection fails
+   * discovery even for optional connections.
+   */
+  verifyToolMetadata?: (input: VerifyToolMetadataInput) => void | Promise<void>;
   /** Throws to reject an individual model-requested tool call. */
   authorizeTool?: (
     input: {
@@ -105,6 +139,41 @@ const withTimeout = async <T>(
 const jsonValue = (value: unknown): JsonValue => {
   if (value === undefined) return null;
   return JSON.parse(JSON.stringify(value)) as JsonValue;
+};
+
+const toolMetadata = (tool: McpToolDescription): McpToolMetadata => ({
+  name: tool.name,
+  ...(tool.title !== undefined ? { title: tool.title } : {}),
+  ...(tool.description !== undefined ? { description: tool.description } : {}),
+  ...(tool.inputSchema !== undefined
+    ? { inputSchema: jsonValue(tool.inputSchema) }
+    : {}),
+  ...(tool.annotations !== undefined
+    ? { annotations: jsonValue(tool.annotations) as Record<string, unknown> }
+    : {}),
+});
+
+const MAXIMUM_TOOL_LIST_PAGES = 100;
+
+/** Follows `nextCursor` so paginated servers expose their complete tool list. */
+const listAllTools = async (
+  client: Client,
+  connection: McpConnectionDefinition,
+  label: string,
+): Promise<McpToolDescription[]> => {
+  const tools: McpToolDescription[] = [];
+  let cursor: string | undefined;
+  for (let page = 0; page < MAXIMUM_TOOL_LIST_PAGES; page += 1) {
+    const result = (await withTimeout(
+      client.listTools(cursor ? { cursor } : undefined),
+      connection.connectTimeoutMs,
+      label,
+    )) as { tools?: McpToolDescription[]; nextCursor?: string };
+    tools.push(...(result.tools ?? []));
+    if (!result.nextCursor) return tools;
+    cursor = result.nextCursor;
+  }
+  throw new Error(`${label} exceeded ${MAXIMUM_TOOL_LIST_PAGES} pages.`);
 };
 
 const inputSchema = (value: unknown): JsonObject => {
@@ -353,22 +422,23 @@ export class ConfiguredMcpToolAdapter implements ToolAdapter {
       }
       try {
         await this.#options.authorizeConnection?.({ binding, connection });
-        const result = (await this.#withClient(
+        const discovered = await this.#withClient(
           binding.ref,
           connection,
           {},
           false,
           async (client) =>
-            await withTimeout(
-              client.listTools(),
-              connection.connectTimeoutMs,
+            await listAllTools(
+              client,
+              connection,
               `Connection ${binding.ref} tool discovery`,
             ),
-        )) as { tools?: McpToolDescription[] };
+        );
         const mode = effectiveMode(connection, binding);
         const allowlist = allowedToolNames(connection, binding, mode);
-        for (const tool of result.tools ?? []) {
+        for (const tool of discovered) {
           if (!tool.name || (allowlist && !allowlist.has(tool.name))) continue;
+          if (!(await this.#verifyTool(binding, connection, tool))) continue;
           const name = runtimeToolName(binding.alias ?? binding.ref, tool.name);
           if (resolved.has(name)) {
             throw new Error(
@@ -398,13 +468,128 @@ export class ConfiguredMcpToolAdapter implements ToolAdapter {
           });
         }
       } catch (error) {
-        if (binding.required === true || connection.required === true)
+        if (
+          error instanceof McpToolIntegrityError ||
+          binding.required === true ||
+          connection.required === true
+        )
           throw error;
       }
     }
 
     this.#resolvedTools = resolved;
     return tools;
+  }
+
+  /**
+   * Lists every tool a configured connection offers, with digests and
+   * allowlist/integrity status. Agent bindings, `authorizeConnection`, and
+   * `verifyToolMetadata` are not applied because the host is the caller.
+   * Hosts use this when a connection is created or reviewed; the CLI exposes
+   * it as `connections inspect`.
+   */
+  async discoverTools(connectionRef: string): Promise<McpDiscoveredTool[]> {
+    const connection = this.#config.connections[connectionRef];
+    if (!connection) throw new Error(`Unknown connection "${connectionRef}".`);
+    const discovered = await this.#withClient(
+      connectionRef,
+      connection,
+      {},
+      false,
+      async (client) =>
+        await listAllTools(
+          client,
+          connection,
+          `Connection ${connectionRef} tool discovery`,
+        ),
+    );
+    const allowed = new Set(connection.tools);
+    return discovered
+      .filter((tool) => Boolean(tool.name))
+      .map((tool) => {
+        const metadata = toolMetadata(tool);
+        const digest = computeMcpToolDigest(metadata);
+        const integrity = connection.toolIntegrity;
+        const expectedDigest = integrity?.digests[tool.name];
+        return {
+          ...metadata,
+          digest,
+          allowed: allowed.has(tool.name),
+          ...(integrity
+            ? {
+                integrity: {
+                  status:
+                    expectedDigest === undefined
+                      ? ("unpinned" as const)
+                      : expectedDigest === digest
+                        ? ("verified" as const)
+                        : ("mismatch" as const),
+                  ...(expectedDigest !== undefined ? { expectedDigest } : {}),
+                },
+              }
+            : {}),
+        };
+      });
+  }
+
+  /**
+   * Applies the connection's `toolIntegrity` policy and the host's
+   * `verifyToolMetadata` callback. Returns false when the tool must be
+   * excluded; throws `McpToolIntegrityError` when discovery must fail.
+   */
+  async #verifyTool(
+    binding: AgentConnectionBinding,
+    connection: McpConnectionDefinition,
+    tool: McpToolDescription,
+  ): Promise<boolean> {
+    const integrity = connection.toolIntegrity;
+    const verify = this.#options.verifyToolMetadata;
+    if (!integrity && !verify) return true;
+    const metadata = toolMetadata(tool);
+    const digest = computeMcpToolDigest(metadata);
+    const expectedDigest = integrity?.digests[tool.name];
+    if (integrity) {
+      const reason =
+        expectedDigest === undefined
+          ? "unpinned"
+          : expectedDigest !== digest
+            ? "mismatch"
+            : undefined;
+      if (reason) {
+        const error = new McpToolIntegrityError({
+          connectionRef: binding.ref,
+          toolName: tool.name,
+          reason,
+          expectedDigest,
+          actualDigest: digest,
+          tool: metadata,
+        });
+        if (integrity.onFailure === "fail") throw error;
+        return false;
+      }
+    }
+    if (verify) {
+      try {
+        await verify({
+          binding,
+          connection,
+          tool: metadata,
+          digest,
+          ...(expectedDigest !== undefined ? { expectedDigest } : {}),
+        });
+      } catch (cause) {
+        throw new McpToolIntegrityError({
+          connectionRef: binding.ref,
+          toolName: tool.name,
+          reason: "rejected",
+          expectedDigest,
+          actualDigest: digest,
+          tool: metadata,
+          cause,
+        });
+      }
+    }
+    return true;
   }
 
   async executeTool(
@@ -605,6 +790,24 @@ export class ConfiguredMcpToolAdapter implements ToolAdapter {
     }
   }
 }
+
+/**
+ * Discovers every tool a configured connection offers, with the digest Agent
+ * Runtime verifies at run time. Use this when a connection is created or
+ * reviewed so the approved digests can be recorded in `toolIntegrity`.
+ */
+export const discoverMcpConnectionTools = (
+  config: AgentRuntimeConfig,
+  connectionRef: string,
+  context: ValueResolutionContext = {},
+  options: Pick<
+    ConfiguredMcpToolAdapterOptions,
+    "credentialProvider" | "fetch"
+  > = {},
+): Promise<McpDiscoveredTool[]> =>
+  new ConfiguredMcpToolAdapter(config, [], context, options).discoverTools(
+    connectionRef,
+  );
 
 export const createConfiguredToolAdapter = (
   manifest: AgentManifest,

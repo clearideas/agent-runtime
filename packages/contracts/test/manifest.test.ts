@@ -307,6 +307,111 @@ describe("agent manifest contracts", () => {
     ).toBe(false);
   });
 
+  it("accepts workspace bindings and run-sandbox code steps while rejecting alias collisions", () => {
+    const manifest = parseAgentManifest({
+      schemaVersion: "1.0",
+      connections: [{ ref: "documents", alias: "docs" }],
+      workspaces: [
+        { ref: "source-code", alias: "code", mode: "read_write" },
+        { ref: "knowledge", tools: ["list_files", "read_file"] },
+      ],
+      steps: [
+        {
+          id: "plan",
+          type: "prompt",
+          prompt: "Inspect the code.",
+          tools: ["code__read_file", "knowledge__read_file"],
+        },
+        {
+          id: "loop",
+          type: "loop",
+          loop: { maxIterations: 1, goal: "true" },
+          steps: [
+            {
+              id: "test",
+              type: "code",
+              language: "python",
+              code: "print('ok')",
+              workspaces: ["code", "knowledge"],
+            },
+          ],
+        },
+        {
+          id: "scratch",
+          type: "code",
+          language: "python",
+          code: "print('ok')",
+          sandbox: "run",
+        },
+      ],
+    });
+    expect(manifest.workspaces).toHaveLength(2);
+
+    const duplicateAlias = safeParseAgentManifest({
+      schemaVersion: "1.0",
+      workspaces: [
+        { ref: "source-code", alias: "code" },
+        { ref: "other", alias: "code" },
+      ],
+      steps: [],
+    });
+    expect(duplicateAlias.success).toBe(false);
+    expect(JSON.stringify(duplicateAlias.error?.issues)).toContain(
+      "Duplicate workspace alias: code",
+    );
+
+    const connectionCollision = safeParseAgentManifest({
+      schemaVersion: "1.0",
+      connections: [{ ref: "documents", alias: "docs" }],
+      workspaces: [{ ref: "knowledge", alias: "docs" }],
+      steps: [],
+    });
+    expect(connectionCollision.success).toBe(false);
+    expect(JSON.stringify(connectionCollision.error?.issues)).toContain(
+      "collides with a connection alias",
+    );
+
+    expect(
+      safeParseAgentManifest({
+        schemaVersion: "1.0",
+        workspaces: [{ ref: "knowledge", alias: "Docs" }],
+        steps: [],
+      }).success,
+    ).toBe(false);
+  });
+
+  it("rejects code steps that mount undeclared, repeated, or per-step-sandbox workspaces", () => {
+    const codeStep = (extra: Record<string, unknown>) => ({
+      id: "test",
+      type: "code",
+      language: "python",
+      code: "print('ok')",
+      ...extra,
+    });
+    const undeclared = safeParseAgentManifest({
+      schemaVersion: "1.0",
+      workspaces: [{ ref: "knowledge" }],
+      steps: [codeStep({ workspaces: ["missing"] })],
+    });
+    expect(JSON.stringify(undeclared.error?.issues)).toContain(
+      "undeclared workspace alias: missing",
+    );
+    const repeated = safeParseAgentManifest({
+      schemaVersion: "1.0",
+      workspaces: [{ ref: "knowledge" }],
+      steps: [codeStep({ workspaces: ["knowledge", "knowledge"] })],
+    });
+    expect(JSON.stringify(repeated.error?.issues)).toContain("more than once");
+    const perStep = safeParseAgentManifest({
+      schemaVersion: "1.0",
+      workspaces: [{ ref: "knowledge" }],
+      steps: [codeStep({ workspaces: ["knowledge"], sandbox: "step" })],
+    });
+    expect(JSON.stringify(perStep.error?.issues)).toContain(
+      "cannot mount workspaces in a per-step sandbox",
+    );
+  });
+
   it("requires a sub-run manifest or reference", () => {
     expect(
       safeParseAgentManifest({

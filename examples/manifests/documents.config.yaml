@@ -1,0 +1,25 @@
+version: '1.0'
+connections:
+  documents:
+    driver: mcp
+    transport: streamable-http
+    url:
+      env: DOCUMENTS_MCP_URL
+    auth:
+      type: bearer
+      token:
+        env: DOCUMENTS_MCP_TOKEN
+    mode: read
+    tools: [search, read]
+    readTools: [search, read]
+    required: true
+    # Host-approved tool metadata. Produce this block with
+    # `agent-runtime connections inspect <config> --format yaml` after reviewing
+    # the discovered tools. A changed or unpinned exposed tool fails the run.
+    toolIntegrity:
+      digests:
+        # Search documents.
+        search: sha256:550b84bb56a184c2f6d7d0eb1af6d08031657a045b6afdc0643440928bb93296
+        # Read a document by id.
+        read: sha256:c11cd404a1aa53e45645cb8c72d9666650d467adb681b670bed066d2e459dff7
+      onFailure: fail

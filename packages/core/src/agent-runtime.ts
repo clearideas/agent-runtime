@@ -39,13 +39,23 @@ import type {
   IdGenerator,
   AgentManifestSource,
   ModelAdapter,
+  ResolvedWorkspace,
   RunRecord,
+  RunSandboxProvider,
+  RunSandboxSession,
   RunStore,
   SandboxAdapter,
+  SandboxBudgetState,
   SubRunAdapter,
   ToolAdapter,
+  WorkspaceProvider,
+  WorkspaceResolutionContext,
 } from "./ports/index.js";
-import { cryptoIdGenerator, systemClock } from "./ports/index.js";
+import {
+  cryptoIdGenerator,
+  restrictWorkspace,
+  systemClock,
+} from "./ports/index.js";
 import { buildExecutionWaves } from "./execution-plan.js";
 import { applyStatePatch, snapshotState } from "./state.js";
 
@@ -84,6 +94,10 @@ export interface StepExecutionContext {
   approvals?: ApprovalAdapter | undefined;
   sandbox?: SandboxAdapter | undefined;
   subRuns?: SubRunAdapter | undefined;
+  /** Host workspaces bound by the manifest, resolved before the run started. */
+  workspaces?: readonly ResolvedWorkspace[] | undefined;
+  /** Opens (once per run) and returns the run sandbox session. */
+  runSandbox?: (() => Promise<RunSandboxSession>) | undefined;
   tokenBudget?: TokenBudgetContext | undefined;
   emit(type: string, data?: JsonObject): Promise<RunEvent>;
   /** Present when this step is resuming from a nested checkpoint. */
@@ -152,6 +166,10 @@ export interface AgentRuntimeDependencies {
   approvals?: ApprovalAdapter;
   sandbox?: SandboxAdapter;
   subRuns?: SubRunAdapter;
+  /** Resolves manifest workspace bindings to host-authorized stores. */
+  workspaces?: WorkspaceProvider;
+  /** Opens the per-run sandbox in which every workspace operation executes. */
+  runSandbox?: RunSandboxProvider;
   conditionEvaluator?: ConditionEvaluator;
   clock?: Clock;
   idGenerator?: IdGenerator;
@@ -372,6 +390,73 @@ export const resolveAgentVariables = (
     );
   }
   return state;
+};
+
+/**
+ * Resolve manifest workspace bindings against the host provider. Required
+ * bindings that cannot be resolved fail before any run state is created, and
+ * an agent can only narrow the privileges the host configured.
+ */
+export const resolveAgentWorkspaces = async (
+  manifest: AgentManifest,
+  provider: WorkspaceProvider | undefined,
+  context: WorkspaceResolutionContext = {},
+): Promise<ResolvedWorkspace[]> => {
+  const resolved: ResolvedWorkspace[] = [];
+  for (const binding of manifest.workspaces ?? []) {
+    const alias = binding.alias ?? binding.ref;
+    const store = provider
+      ? await provider.resolveWorkspace(binding, context)
+      : undefined;
+    if (!store) {
+      if (binding.required === false) continue;
+      throw new Error(
+        provider
+          ? `Unknown workspace "${binding.ref}".`
+          : `Workspace "${binding.ref}" requires a WorkspaceProvider.`,
+      );
+    }
+    if (store.mode === "read" && binding.mode === "read_write") {
+      throw new Error(
+        `Workspace "${binding.ref}" is read-only and cannot be elevated by an agent.`,
+      );
+    }
+    const mode = binding.mode ?? store.mode;
+    resolved.push({
+      binding,
+      alias,
+      mode,
+      store: restrictWorkspace(store, mode),
+    });
+  }
+  return resolved;
+};
+
+const stepsUseRunSandbox = (steps: readonly AgentStep[]): boolean =>
+  steps.some(
+    (step) =>
+      (step.type === "code" &&
+        (step.sandbox === "run" || (step.workspaces?.length ?? 0) > 0)) ||
+      (step.type === "loop" && stepsUseRunSandbox(step.steps)),
+  );
+
+const sandboxBudgetFromCheckpoint = (
+  checkpoint: RunCheckpoint | null,
+): SandboxBudgetState | undefined => {
+  const value = checkpoint?.metadata?.sandboxBudget;
+  if (
+    value == null ||
+    typeof value !== "object" ||
+    Array.isArray(value) ||
+    !Number.isSafeInteger(value.commandsUsed) ||
+    typeof value.sandboxSecondsUsed !== "number"
+  ) {
+    return undefined;
+  }
+  return {
+    commandsUsed: Number(value.commandsUsed),
+    sandboxSecondsUsed: Number(value.sandboxSecondsUsed),
+  };
 };
 
 const jsonByteLength = (value: JsonValue): number =>
@@ -673,6 +758,8 @@ export class AgentRuntime {
   readonly #runAttempts = new Map<string, number>();
   readonly #runTokenBudgets = new Map<string, RunTokenBudget>();
   readonly #activeRunIds = new Set<string>();
+  readonly #runSandboxOpenings = new Map<string, Promise<RunSandboxSession>>();
+  readonly #runSandboxSessions = new Map<string, RunSandboxSession>();
 
   constructor(dependencies: AgentRuntimeDependencies) {
     this.#dependencies = dependencies;
@@ -746,6 +833,8 @@ export class AgentRuntime {
       this.#checkpointSequences.delete(runId);
       this.#runAttempts.delete(runId);
       this.#runTokenBudgets.delete(runId);
+      this.#runSandboxOpenings.delete(runId);
+      this.#runSandboxSessions.delete(runId);
     }
   }
 
@@ -796,6 +885,28 @@ export class AgentRuntime {
       : null;
     if (request.resume && !latestCheckpoint) {
       throw new Error(`Run ${runId} has no checkpoint to resume`);
+    }
+    const workspaces = await resolveAgentWorkspaces(
+      manifest,
+      this.#dependencies.workspaces,
+      { runId, ...(request.signal ? { signal: request.signal } : {}) },
+    );
+    const usesRunSandbox =
+      workspaces.length > 0 || stepsUseRunSandbox(manifest.steps);
+    if (usesRunSandbox) {
+      if (!this.#dependencies.runSandbox) {
+        throw new Error(
+          workspaces.length > 0
+            ? "Workspace bindings require a RunSandboxProvider"
+            : "Code steps that use the run sandbox require a RunSandboxProvider",
+        );
+      }
+      await this.#dependencies.runSandbox.validate({
+        runId,
+        attempt: request.resume ? (existingRecord?.attempt ?? 1) + 1 : 1,
+        workspaces,
+        ...(request.signal ? { signal: request.signal } : {}),
+      });
     }
     if (latestCheckpoint && existingRecord) {
       assertRecoverableCheckpoint({
@@ -880,6 +991,26 @@ export class AgentRuntime {
         manifestId: manifest.id ?? null,
         startStepIndex,
       });
+      for (const workspace of workspaces) {
+        await this.#emit(runId, "workspace.bound", {
+          workspace: workspace.binding.ref,
+          alias: workspace.alias,
+          mode: workspace.mode,
+          ...(workspace.binding.tools
+            ? { tools: [...workspace.binding.tools] }
+            : {}),
+          attachable: workspace.store.attachable != null,
+        });
+      }
+      const runSandbox = this.#dependencies.runSandbox
+        ? () =>
+            this.#openRunSandbox({
+              runId,
+              workspaces,
+              latestCheckpoint,
+              signal: request.signal,
+            })
+        : undefined;
       if (!request.resume) {
         await this.#checkpoint({
           runId,
@@ -918,6 +1049,8 @@ export class AgentRuntime {
               stepResults: waveStepResults,
               transcript,
               artifacts,
+              workspaces,
+              runSandbox,
               signal: request.signal,
               latestCheckpoint,
             }),
@@ -992,6 +1125,7 @@ export class AgentRuntime {
       }
 
       this.#throwIfAborted(request.signal);
+      await this.#closeRunSandbox(runId, "completed");
       const output = selectRunOutput(manifest, stepResults);
       this.#assertOutputWithinLimit(manifest, output, "final run output");
       const usage = aggregateModelUsage(transcript);
@@ -1031,6 +1165,7 @@ export class AgentRuntime {
       };
     } catch (error) {
       if (isRunSuspendedError(error)) {
+        await this.#closeRunSandboxQuietly(runId, "suspended");
         const suspendedAt = this.#clock.now().toISOString();
         await this.#dependencies.runStore.suspendRun(
           runId,
@@ -1051,8 +1186,12 @@ export class AgentRuntime {
         throw error;
       }
       const runError = toRunError(error);
-      const failedAt = this.#clock.now().toISOString();
       const cancelled = isAbortError(request.signal);
+      await this.#closeRunSandboxQuietly(
+        runId,
+        cancelled ? "cancelled" : "failed",
+      );
+      const failedAt = this.#clock.now().toISOString();
       if (cancelled) {
         await this.#dependencies.runStore.cancelRun(
           runId,
@@ -1097,6 +1236,8 @@ export class AgentRuntime {
     stepResults: Readonly<StepResult[]>;
     transcript: TranscriptItem[];
     artifacts: ArtifactRef[];
+    workspaces: readonly ResolvedWorkspace[];
+    runSandbox: (() => Promise<RunSandboxSession>) | undefined;
     signal?: AbortSignal | undefined;
     latestCheckpoint: RunCheckpoint | null;
   }): Promise<TopLevelStepOutcome> {
@@ -1156,6 +1297,8 @@ export class AgentRuntime {
         approvals: this.#dependencies.approvals,
         sandbox: this.#dependencies.sandbox,
         subRuns: this.#dependencies.subRuns,
+        workspaces: input.workspaces,
+        runSandbox: input.runSandbox,
         tokenBudget: this.#runTokenBudgets.get(input.runId),
         emit: (type, data) =>
           this.#emit(input.runId, type, data, step.id, step.id),
@@ -1191,6 +1334,8 @@ export class AgentRuntime {
             step: childStep,
             stepPath: childPath,
             variables: childVariables,
+            workspaces: input.workspaces,
+            runSandbox: input.runSandbox,
             signal: input.signal,
             latestCheckpoint: input.latestCheckpoint,
             stepResults: input.stepResults,
@@ -1306,6 +1451,8 @@ export class AgentRuntime {
     step: AgentStep;
     stepPath: string;
     variables: Readonly<VariableState>;
+    workspaces: readonly ResolvedWorkspace[];
+    runSandbox: (() => Promise<RunSandboxSession>) | undefined;
     signal?: AbortSignal | undefined;
     latestCheckpoint: RunCheckpoint | null;
     stepResults: Readonly<StepResult[]>;
@@ -1356,6 +1503,8 @@ export class AgentRuntime {
       approvals: this.#dependencies.approvals,
       sandbox: this.#dependencies.sandbox,
       subRuns: this.#dependencies.subRuns,
+      workspaces: input.workspaces,
+      runSandbox: input.runSandbox,
       tokenBudget: this.#runTokenBudgets.get(input.runId),
       emit: (type, data) =>
         this.#emit(input.runId, type, data, input.step.id, input.stepPath),
@@ -1458,6 +1607,15 @@ export class AgentRuntime {
       ...(this.#runTokenBudgets.get(input.runId)
         ? { budget: this.#runTokenBudgets.get(input.runId)!.snapshot() }
         : {}),
+      ...(this.#runSandboxSessions.has(input.runId)
+        ? {
+            metadata: {
+              sandboxBudget: {
+                ...this.#runSandboxSessions.get(input.runId)!.budget(),
+              },
+            },
+          }
+        : {}),
       createdAt: this.#clock.now().toISOString(),
     };
     await this.#dependencies.runStore.saveCheckpoint(checkpoint);
@@ -1466,6 +1624,71 @@ export class AgentRuntime {
       checkpointId: checkpoint.id,
       nextStepIndex: checkpoint.cursor.stepIndex,
     });
+  }
+
+  #openRunSandbox(input: {
+    runId: string;
+    workspaces: readonly ResolvedWorkspace[];
+    latestCheckpoint: RunCheckpoint | null;
+    signal?: AbortSignal | undefined;
+  }): Promise<RunSandboxSession> {
+    const existing = this.#runSandboxOpenings.get(input.runId);
+    if (existing) return existing;
+    const provider = this.#dependencies.runSandbox;
+    if (!provider) {
+      return Promise.reject(
+        new Error("This run has no RunSandboxProvider configured"),
+      );
+    }
+    const budget = sandboxBudgetFromCheckpoint(input.latestCheckpoint);
+    const opening = provider
+      .open({
+        runId: input.runId,
+        attempt: this.#runAttempts.get(input.runId) ?? 1,
+        workspaces: input.workspaces,
+        emit: (type, data, stepId) =>
+          this.#emit(input.runId, type, data, stepId, stepId),
+        ...(this.#dependencies.artifacts
+          ? { artifacts: this.#dependencies.artifacts }
+          : {}),
+        ...(budget ? { budget } : {}),
+        ...(input.signal ? { signal: input.signal } : {}),
+      })
+      .then((session) => {
+        this.#runSandboxSessions.set(input.runId, session);
+        return session;
+      });
+    this.#runSandboxOpenings.set(input.runId, opening);
+    opening.catch(() => this.#runSandboxOpenings.delete(input.runId));
+    return opening;
+  }
+
+  async #closeRunSandbox(
+    runId: string,
+    reason: "completed" | "failed" | "cancelled" | "suspended",
+  ): Promise<void> {
+    const session = this.#runSandboxSessions.get(runId);
+    this.#runSandboxSessions.delete(runId);
+    this.#runSandboxOpenings.delete(runId);
+    if (session) await session.close(reason);
+  }
+
+  async #closeRunSandboxQuietly(
+    runId: string,
+    reason: "failed" | "cancelled" | "suspended",
+  ): Promise<void> {
+    try {
+      await this.#closeRunSandbox(runId, reason);
+    } catch (error) {
+      try {
+        await this.#emit(runId, "diagnostic", {
+          code: "SANDBOX_CLOSE_FAILED",
+          message: error instanceof Error ? error.message : String(error),
+        });
+      } catch {
+        // The run outcome is already decided; sandbox cleanup is best effort.
+      }
+    }
   }
 
   async #emit(

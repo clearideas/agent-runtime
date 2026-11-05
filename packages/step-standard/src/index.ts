@@ -810,6 +810,11 @@ export class CodeStepExecutor implements StepExecutor<CodeStep> {
   async execute(
     context: StepExecutionContext & { step: CodeStep },
   ): Promise<StepExecutionResult> {
+    const usesRunSandbox =
+      context.step.sandbox === "run" ||
+      (context.step.sandbox !== "step" &&
+        (context.step.workspaces?.length ?? 0) > 0);
+    if (usesRunSandbox) return this.#executeInRunSandbox(context);
     if (!context.sandbox) {
       throw new Error(`Code step ${context.step.id} requires a SandboxAdapter`);
     }
@@ -823,6 +828,7 @@ export class CodeStepExecutor implements StepExecutor<CodeStep> {
     await context.emit("code.execution.started", {
       language: context.step.language,
       timeoutMs,
+      sandbox: "step",
     });
     const operation = operationSignal(context.signal, timeoutMs);
     let result;
@@ -874,6 +880,97 @@ export class CodeStepExecutor implements StepExecutor<CodeStep> {
         stderrBytes: byteLength(result.stderr),
         artifactCount: result.artifacts?.length ?? 0,
         hasOutput: output !== undefined,
+      },
+    };
+  }
+
+  /**
+   * Execute inside the run-scoped sandbox shared with workspace tools. The
+   * step sees its declared workspace mounts, and its command is admitted,
+   * reported, and recorded like every other sandbox command.
+   */
+  async #executeInRunSandbox(
+    context: StepExecutionContext & { step: CodeStep },
+  ): Promise<StepExecutionResult> {
+    if (!context.runSandbox) {
+      throw new Error(
+        `Code step ${context.step.id} requires the run sandbox; configure a RunSandboxProvider`,
+      );
+    }
+    if (context.signal?.aborted) throw abortReason(context.signal);
+    const available = new Set(
+      (context.workspaces ?? []).map((workspace) => workspace.alias),
+    );
+    for (const alias of context.step.workspaces ?? []) {
+      if (!available.has(alias)) {
+        throw new Error(
+          `Code step ${context.step.id} requires workspace ${alias}, which is not available for this run`,
+        );
+      }
+    }
+    const timeoutMs = positiveInteger(
+      context.step.timeoutMs,
+      this.#defaultTimeoutMs,
+      this.#maximumTimeoutMs,
+      "Code timeoutMs",
+    );
+    await context.emit("code.execution.started", {
+      language: context.step.language,
+      timeoutMs,
+      sandbox: "run",
+      workspaces: [...(context.step.workspaces ?? [])],
+    });
+    const session = await context.runSandbox();
+    let result;
+    try {
+      result = await session.execute({
+        stepId: context.step.id,
+        kind: "code",
+        name: context.step.id,
+        arguments: {
+          language: context.step.language,
+          code: context.step.code,
+          variables: { ...context.variables },
+          ...(context.step.environment
+            ? { environment: context.step.environment }
+            : {}),
+          timeoutMs,
+          workspaces: [...(context.step.workspaces ?? [])],
+        },
+        ...(context.signal ? { signal: context.signal } : {}),
+      });
+    } catch (error) {
+      if ((error as { code?: unknown }).code === "sandbox_command_timeout") {
+        throw new SandboxTimeoutError(timeoutMs);
+      }
+      throw error;
+    }
+    const { record } = result;
+    await context.emit("code.execution.completed", {
+      exitCode: record.exitCode,
+      succeeded: record.exitCode === 0,
+      artifactCount: result.artifacts?.length ?? 0,
+      hasOutput: result.output !== undefined,
+      sandbox: "run",
+      commandId: record.id,
+    });
+    if (record.exitCode !== 0) {
+      throw new SandboxExecutionError(context.step.id, record.exitCode);
+    }
+    const output = result.output;
+    const patch = statePatch(context.step.outputVariable, output);
+    return {
+      ...(output !== undefined ? { output } : {}),
+      ...(patch ? { statePatch: patch } : {}),
+      ...(result.artifacts ? { artifacts: result.artifacts } : {}),
+      metadata: {
+        exitCode: record.exitCode,
+        stdoutBytes: record.stdoutBytes,
+        stderrBytes: record.stderrBytes,
+        artifactCount: result.artifacts?.length ?? 0,
+        hasOutput: output !== undefined,
+        sandbox: "run",
+        command: JSON.parse(JSON.stringify(record)) as JsonValue,
       },
     };
   }

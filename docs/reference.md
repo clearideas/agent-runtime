@@ -10,17 +10,18 @@ description: Manifest fields, runtime configuration, adapter interfaces, and Age
 The exported TypeScript type is `AgentManifest`; validate external input with
 `agentManifestSchema` or `parseAgentManifest`.
 
-| Field                       | Type                          | Notes                                               |
-| --------------------------- | ----------------------------- | --------------------------------------------------- |
-| `schemaVersion`             | `"1.0"`                       | required                                            |
-| `id`, `name`, `description` | string                        | optional identity and documentation                 |
-| `model`                     | explicit reference or profile | default for prompt steps                            |
-| `variables`                 | variable declaration array    | typed inputs, defaults, requirements, documentation |
-| `connections`               | array                         | host connection bindings                            |
-| `steps`                     | array                         | ordered execution plan                              |
-| `limits`                    | object                        | step, output, tool-call, and provider bounds        |
-| `metadata`                  | JSON object                   | inert application metadata                          |
-| `extensions`                | JSON object                   | namespaced host extensions                          |
+| Field                       | Type                          | Notes                                                 |
+| --------------------------- | ----------------------------- | ----------------------------------------------------- |
+| `schemaVersion`             | `"1.0"`                       | required                                              |
+| `id`, `name`, `description` | string                        | optional identity and documentation                   |
+| `model`                     | explicit reference or profile | default for prompt steps                              |
+| `variables`                 | variable declaration array    | typed inputs, defaults, requirements, documentation   |
+| `connections`               | array                         | host connection bindings                              |
+| `workspaces`                | array                         | host workspace bindings (code bases, document stores) |
+| `steps`                     | array                         | ordered execution plan                                |
+| `limits`                    | object                        | step, output, tool-call, and provider bounds          |
+| `metadata`                  | JSON object                   | inert application metadata                            |
+| `extensions`                | JSON object                   | namespaced host extensions                            |
 
 Use `metadata` for descriptive application data that does not change execution.
 Use namespaced `extensions` for behavior interpreted by an application adapter.
@@ -113,6 +114,23 @@ again. Budgeted model adapters must report `totalTokens`, or both `inputTokens`
 and `outputTokens`. Budgeted runs execute sequentially so concurrent calls
 cannot overspend one shared limit.
 
+## Workspace binding
+
+Each entry in the agent manifest's `workspaces` array binds a host-defined
+workspace:
+
+| Field      | Type                   | Notes                                                              |
+| ---------- | ---------------------- | ------------------------------------------------------------------ |
+| `ref`      | string                 | required host workspace name                                       |
+| `alias`    | `^[a-z][a-z0-9-]*$`    | tool prefix and sandbox mount name; defaults to `ref`              |
+| `tools`    | string array           | optional narrowing of the tools the host exposes for the workspace |
+| `mode`     | `read` or `read_write` | optional; may only narrow the configured mode                      |
+| `required` | boolean                | `false` skips the binding when the host does not configure it      |
+
+Workspace aliases and connection aliases share one namespace. A `code` step
+may list bound aliases in `workspaces`, or set `sandbox: run`, to execute in
+the run sandbox. See [Workspaces and the run sandbox](./workspaces.md).
+
 ## Model reference
 
 ```ts
@@ -156,6 +174,8 @@ is checked again after each new tool result.
   providers: Record<string, ProviderDefinition>;
   models: Record<string, ConfiguredModelDefinition>;
   connections: Record<string, McpConnectionDefinition>;
+  workspaces: Record<string, WorkspaceDefinition>;
+  sandbox?: SandboxDefinition;
 }
 ```
 
@@ -175,6 +195,31 @@ MCP connection authentication:
 authentication. A connection cannot combine `auth` with `bearerToken` or an
 `Authorization` entry in `headers`.
 
+Workspace definitions use `driver: local` (`root`, `mode`, `include`,
+`exclude`, size limits, `attach`) or `driver: host`. The `sandbox` section
+selects `bubblewrap`, `docker`, or `host`, and declares the helper, limits,
+`commands`, and `shell` policy for the run sandbox. Manifests that bind a
+workspace require a `sandbox` section.
+
+MCP tool metadata verification (optional):
+
+```ts
+toolIntegrity?: {
+  digests: Record<string, string>; // tool name → "sha256:<hex>"
+  onFailure?: "fail" | "exclude"; // default "fail"
+}
+```
+
+Digests are produced by `computeMcpToolDigest` over the canonical form of
+`name`, `title`, `description`, `inputSchema`, and `annotations`
+(`canonicalizeMcpToolMetadata`). The `sha256:` prefix identifies those rules
+and is stable; a rules change would introduce a new prefix while existing pins
+continue to verify. `discoverMcpConnectionTools` lists a
+connection's tools with digests and integrity status; `McpToolIntegrityError`
+reports `mismatch`, `unpinned`, or `rejected` definitions. The
+`verifyToolMetadata` tool option lets a host apply its own approval record.
+See [connections and tools](./connections-and-tools.md#verifying-mcp-tool-metadata).
+
 ## Adapter interfaces
 
 | Adapter interface              | Responsibility                                     |
@@ -187,7 +232,10 @@ authentication. A connection cannot combine `auth` with `bearerToken` or an
 | `EventSink`                    | observe ordered run events                         |
 | `ArtifactStore`                | put/get artifact bytes by reference                |
 | `ApprovalAdapter`              | resolve a human approval request                   |
-| `SandboxAdapter`               | execute a code step                                |
+| `SandboxAdapter`               | execute a per-step code sandbox                    |
+| `WorkspaceProvider`            | resolve workspace bindings to `WorkspaceStore`s    |
+| `WorkspaceStore`               | enumerate and move opaque workspace bytes          |
+| `RunSandboxProvider`           | open the per-run sandbox that executes commands    |
 | `SubRunAdapter`                | invoke an isolated child agent manifest            |
 | `ConditionEvaluator`           | evaluate `when`, loop conditions, and goals        |
 
@@ -216,22 +264,22 @@ Remote execution divides the implementation between
 
 ## Package map
 
-| Package                                     | Purpose                                        |
-| ------------------------------------------- | ---------------------------------------------- |
-| `@clearideas/agent-runtime-contracts`       | manifest schemas and TypeScript types          |
-| `@clearideas/agent-runtime-core`            | step scheduling, state, checkpoints, recovery  |
-| `@clearideas/agent-runtime-config`          | providers, model profiles, MCP composition     |
-| `@clearideas/agent-runtime-model-ai-sdk`    | AI SDK model adapter                           |
-| `@clearideas/agent-runtime-condition-jexl`  | standard condition evaluator                   |
-| `@clearideas/agent-runtime-step-prompt`     | prompt, streaming, and ordered tool calls      |
-| `@clearideas/agent-runtime-step-loop`       | collection and goal loops                      |
-| `@clearideas/agent-runtime-step-standard`   | webhook, approval, code, and sub-run steps     |
-| `@clearideas/agent-runtime-store-local`     | memory/file stores, JSONL, local artifacts     |
-| `@clearideas/agent-runtime-store-sqlite`    | transactional local store                      |
-| `@clearideas/agent-runtime-execution`       | engine lifecycle and worker protocol           |
-| `@clearideas/agent-runtime-execution-modal` | Modal compute adapter                          |
-| `@clearideas/agent-runtime-sandbox`         | sandbox provider interface and Docker provider |
-| `@clearideas/agent-runtime-sandbox-modal`   | Modal sandbox provider                         |
-| `@clearideas/agent-runtime-artifacts`       | sandboxed artifact generation                  |
-| `@clearideas/agent-runtime-telemetry-otel`  | OpenTelemetry event sink                       |
-| `@clearideas/agent-runtime-cli`             | CLI host and worker command                    |
+| Package                                     | Purpose                                                            |
+| ------------------------------------------- | ------------------------------------------------------------------ |
+| `@clearideas/agent-runtime-contracts`       | manifest schemas and TypeScript types                              |
+| `@clearideas/agent-runtime-core`            | step scheduling, state, checkpoints, recovery                      |
+| `@clearideas/agent-runtime-config`          | providers, model profiles, MCP, workspace, and sandbox composition |
+| `@clearideas/agent-runtime-model-ai-sdk`    | AI SDK model adapter                                               |
+| `@clearideas/agent-runtime-condition-jexl`  | standard condition evaluator                                       |
+| `@clearideas/agent-runtime-step-prompt`     | prompt, streaming, and ordered tool calls                          |
+| `@clearideas/agent-runtime-step-loop`       | collection and goal loops                                          |
+| `@clearideas/agent-runtime-step-standard`   | webhook, approval, code, and sub-run steps                         |
+| `@clearideas/agent-runtime-store-local`     | memory/file stores, JSONL, local artifacts and workspaces          |
+| `@clearideas/agent-runtime-store-sqlite`    | transactional local store                                          |
+| `@clearideas/agent-runtime-execution`       | engine lifecycle and worker protocol                               |
+| `@clearideas/agent-runtime-execution-modal` | Modal compute adapter                                              |
+| `@clearideas/agent-runtime-sandbox`         | sandbox contracts, run sandbox, Docker and bubblewrap providers    |
+| `@clearideas/agent-runtime-sandbox-modal`   | Modal sandbox provider                                             |
+| `@clearideas/agent-runtime-artifacts`       | sandboxed artifact generation                                      |
+| `@clearideas/agent-runtime-telemetry-otel`  | OpenTelemetry event sink                                           |
+| `@clearideas/agent-runtime-cli`             | CLI host and worker command                                        |

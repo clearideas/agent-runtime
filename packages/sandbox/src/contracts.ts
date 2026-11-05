@@ -7,6 +7,8 @@ export interface SandboxResourceLimits {
   processLimit?: number;
   maximumOutputBytes?: number;
   maximumOutputFiles?: number;
+  /** Size of the /workspace filesystem for providers that allocate one. */
+  workspaceTmpfsMb?: number;
 }
 
 const positiveSafeInteger = (
@@ -54,14 +56,37 @@ export const assertSandboxResourceLimits = (
       1_000_000,
     );
   }
+  if (limits.workspaceTmpfsMb != null) {
+    positiveSafeInteger(
+      limits.workspaceTmpfsMb,
+      "Sandbox workspaceTmpfsMb",
+      1_048_576,
+    );
+  }
 };
+
+/** A host directory bound read-only into the sandbox at creation. */
+export interface SandboxAttachment {
+  /** Absolute host directory. */
+  source: string;
+  /** Normalized target beneath /workspace. */
+  target: string;
+}
 
 export interface SandboxSpec {
   image: string;
   workingDirectory: string;
   network: SandboxNetworkPolicy;
   limits: SandboxResourceLimits;
+  /** Honored only by providers whose capabilities declare readOnlyAttachments. */
+  attachments?: SandboxAttachment[];
+  /** Provider-visible labels, e.g. the owning run id for host cleanup. */
   metadata?: Record<string, string | number | boolean>;
+}
+
+export interface SandboxProviderCapabilities {
+  /** The provider can bind host directories read-only from SandboxSpec.attachments. */
+  readOnlyAttachments?: boolean;
 }
 
 export interface SandboxHandle {
@@ -97,6 +122,12 @@ export interface SandboxFileInfo {
 
 export interface SandboxProvider {
   readonly name: string;
+  readonly capabilities?: SandboxProviderCapabilities;
+  /** Check that a specification could be created without creating it. */
+  validate?(
+    spec: SandboxSpec,
+    options?: { signal?: AbortSignal },
+  ): Promise<void>;
   create(
     spec: SandboxSpec,
     options?: { signal?: AbortSignal },

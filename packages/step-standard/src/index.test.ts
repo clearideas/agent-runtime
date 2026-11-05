@@ -4,11 +4,15 @@ import type {
   JsonObject,
   RunEvent,
   AgentManifest,
+  SandboxCommandRecord,
   SubRunStep,
   WebhookStep,
 } from "@clearideas/agent-runtime-contracts";
 import type {
   ApprovalAdapter,
+  ResolvedWorkspace,
+  RunSandboxCommandRequest,
+  RunSandboxSession,
   SandboxAdapter,
   SandboxRequest,
   SubRunAdapter,
@@ -447,6 +451,149 @@ describe("CodeStepExecutor", () => {
     });
     expect(lifecycleData).not.toContain("private stdout");
     expect(lifecycleData).not.toContain("private warning");
+  });
+
+  it("executes in the run sandbox when workspaces are declared and records the command", async () => {
+    const step: CodeStep = {
+      id: "code-run",
+      type: "code",
+      language: "python",
+      code: "print('ok')",
+      workspaces: ["code"],
+      outputVariable: "result",
+    };
+    const executed: RunSandboxCommandRequest[] = [];
+    const record: SandboxCommandRecord = {
+      id: "cmd-1-1",
+      runId: "run-1",
+      attempt: 1,
+      stepId: "code-run",
+      kind: "code",
+      name: "code-run",
+      argv: ["python3", "/workspace/steps/cmd-1-1/main.py"],
+      cwd: "/workspace/steps/cmd-1-1",
+      startedAt: "2026-01-01T00:00:00.000Z",
+      completedAt: "2026-01-01T00:00:01.000Z",
+      durationMs: 1000,
+      exitCode: 0,
+      timedOut: false,
+      stdoutBytes: 3,
+      stderrBytes: 0,
+      stdoutTruncated: false,
+      stderrTruncated: false,
+      filesChanged: [],
+      ignoredPaths: [],
+      budget: {
+        commandsUsed: 1,
+        commandsLimit: 200,
+        sandboxSecondsUsed: 1,
+        sandboxSecondsLimit: 900,
+      },
+    };
+    const session: RunSandboxSession = {
+      id: "sb-1",
+      execute: async (request) => {
+        executed.push(request);
+        return { record, output: "ok\n", stdout: "ok\n", stderr: "" };
+      },
+      budget: () => ({ commandsUsed: 1, sandboxSecondsUsed: 1 }),
+      close: async () => undefined,
+    };
+    const workspace: ResolvedWorkspace = {
+      binding: { ref: "repo", alias: "code" },
+      alias: "code",
+      mode: "read",
+      store: {
+        mode: "read",
+        entries: async () => [],
+        read: async () => new Uint8Array(),
+      },
+    };
+    const collector = eventCollector();
+    const result = await new CodeStepExecutor().execute({
+      runId: "run-1",
+      manifest: manifestFor(step),
+      step,
+      stepIndex: 0,
+      variables: { input: 21 },
+      workspaces: [workspace],
+      runSandbox: async () => session,
+      emit: collector.emit,
+    });
+    expect(executed).toEqual([
+      {
+        stepId: "code-run",
+        kind: "code",
+        name: "code-run",
+        arguments: {
+          language: "python",
+          code: "print('ok')",
+          variables: { input: 21 },
+          timeoutMs: 60_000,
+          workspaces: ["code"],
+        },
+      },
+    ]);
+    expect(result.output).toBe("ok\n");
+    expect(result.statePatch).toEqual({ set: { result: "ok\n" } });
+    expect(result.metadata).toMatchObject({
+      sandbox: "run",
+      exitCode: 0,
+      command: { id: "cmd-1-1" },
+    });
+    expect(
+      collector.events.map((event) => [event.type, event.data?.sandbox]),
+    ).toEqual([
+      ["code.execution.started", "run"],
+      ["code.execution.completed", "run"],
+    ]);
+
+    await expect(
+      new CodeStepExecutor().execute({
+        runId: "run-1",
+        manifest: manifestFor(step),
+        step,
+        stepIndex: 0,
+        variables: {},
+        workspaces: [],
+        runSandbox: async () => session,
+        emit: collector.emit,
+      }),
+    ).rejects.toThrow(/requires workspace code, which is not available/u);
+    await expect(
+      new CodeStepExecutor().execute({
+        runId: "run-1",
+        manifest: manifestFor({
+          ...step,
+          workspaces: undefined,
+          sandbox: "run",
+        }),
+        step: { ...step, workspaces: undefined, sandbox: "run" },
+        stepIndex: 0,
+        variables: {},
+        emit: collector.emit,
+      }),
+    ).rejects.toThrow(/requires the run sandbox/u);
+    const failing: RunSandboxSession = {
+      ...session,
+      execute: async () => ({
+        record: { ...record, exitCode: 3 },
+        stdout: "",
+        stderr: "boom",
+      }),
+    };
+    await expect(
+      new CodeStepExecutor().execute({
+        runId: "run-1",
+        manifest: manifestFor(step),
+        step,
+        stepIndex: 0,
+        variables: {},
+        workspaces: [workspace],
+        runSandbox: async () => failing,
+        emit: collector.emit,
+      }),
+    ).rejects.toBeInstanceOf(SandboxExecutionError);
   });
 
   it("forwards explicit environment values only to the sandbox", async () => {

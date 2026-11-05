@@ -26,6 +26,7 @@ results commit in manifest order.
 - [Agent manifests and agent run manifests](./manifests.md) — reusable definitions and runtime inputs
 - [Models and providers](./models-and-providers.md) — hosted and local models
 - [Connections and tools](./connections-and-tools.md) — MCP and custom tool adapters
+- [Memory and context](./memory-and-context.md) — variables, loop summaries, prior-run context, and host memory tools
 - [Events and streaming](./events-and-streaming.md) — interactive output and lifecycle callbacks
 - [Embed Agent Runtime](./embedding.md) — compose the TypeScript API in an application
 - [Adapter catalog](./adapters.md) — packaged model, storage, compute, sandbox, and telemetry integrations

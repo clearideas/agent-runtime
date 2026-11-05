@@ -2,9 +2,13 @@
 
 Executes agent manifests and manages state transitions, checkpoints, recovery,
 cancellation, ordered events, output limits, and step dispatch. Applications
-supply model, tool, persistence, artifact, approval, sandbox, sub-run, and
-telemetry adapters. `ConnectionCredentialProvider` supplies host-managed
-connection headers and invalidates expired or unauthorized credentials.
+supply model, tool, persistence, artifact, approval, sandbox, sub-run,
+workspace, run-sandbox, and telemetry adapters. `ConnectionCredentialProvider`
+supplies host-managed connection headers and invalidates expired or
+unauthorized credentials. `WorkspaceProvider` resolves manifest `workspaces`
+bindings before a run is created, and `RunSandboxProvider` opens the per-run
+sandbox lazily and closes it on every terminal path; resolved workspaces and
+the session reach executors through `StepExecutionContext`.
 
 Every resumed run receives an attempt number. Stores must use that attempt as a fencing token so
 an older process cannot commit after a newer attempt takes ownership. Events are ordered by

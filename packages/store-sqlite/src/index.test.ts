@@ -82,7 +82,9 @@ describe("SqliteRunStore", () => {
       state: { count: 2 },
     });
     second.close();
-    expect((await stat(filename)).mode & 0o777).toBe(0o600);
+    if (process.platform !== "win32") {
+      expect((await stat(filename)).mode & 0o777).toBe(0o600);
+    }
   });
 
   it("supports core failure recovery without replaying a committed step", async () => {

@@ -23,6 +23,22 @@ Tests live beside source files. Add focused tests for behavior changes,
 especially manifest compatibility, lifecycle fencing, checkpoint recovery,
 redaction, and package boundaries.
 
+`npm test` runs every package quietly and prints one summary screen: a
+per-package table, totals, the environment facts that decide which
+sandbox-execution suites run, and compact failure details. Tests resolve
+sibling packages through their `dist` output, so run `npm run build` first
+(`npm run validate` does both).
+
+```bash
+npm test                        # everything, one screen
+npm test -- --only sandbox      # packages whose name contains "sandbox"
+npm test -- --verbose           # full failure messages and stacks
+npm run test:verbose            # the raw per-package runner output
+```
+
+Suites that execute real sandboxes skip themselves when the host lacks
+`python3` or bubblewrap; the summary names what was skipped and why.
+
 ## Changesets
 
 Add a changeset for changes that affect package consumers:

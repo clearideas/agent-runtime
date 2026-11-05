@@ -104,6 +104,8 @@ export default defineConfig({
           { text: "Agent and agent run manifests", link: "/manifests" },
           { text: "Models and providers", link: "/models-and-providers" },
           { text: "Connections and tools", link: "/connections-and-tools" },
+          { text: "Workspaces and the run sandbox", link: "/workspaces" },
+          { text: "Memory and context", link: "/memory-and-context" },
           { text: "Embed Agent Runtime", link: "/embedding" },
         ],
       },

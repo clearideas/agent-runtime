@@ -7,8 +7,8 @@ description: Define reusable agents and start runs with validated runtime inputs
 
 ## Agent manifest
 
-An agent manifest declares models, input variables, connections, steps, limits,
-and output behavior.
+An agent manifest declares models, input variables, connections, workspaces,
+steps, limits, and output behavior.
 
 Use `metadata` for inert application data. Use namespaced `extensions` for
 behavior implemented by an application adapter.
