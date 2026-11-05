@@ -1,5 +1,12 @@
 # @clearideas/agent-runtime-artifacts
 
+## 0.6.1
+
+### Patch Changes
+
+- Updated dependencies [743cc1e]
+  - @clearideas/agent-runtime-sandbox@0.6.1
+
 ## 0.6.0
 
 ### Patch Changes

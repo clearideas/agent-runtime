@@ -1,5 +1,16 @@
 # @clearideas/agent-runtime-step-prompt
 
+## 0.6.1
+
+### Patch Changes
+
+- 743cc1e: Allow underscore-prefixed workspace paths such as Python's `__init__.py` in staging and helper operations. Relocate paths in the host-process test provider's workspace index so code steps can use it directly. Suppress duplicate SDK stderr logging while continuing to propagate provider failures. Clarify that `maxToolCallsPerIteration` applies cumulatively to one prompt step execution, including checkpoint resumes.
+- f944e14: Default local and configured host workspaces to staging; raw native read-only directory attachment now requires explicit `attach: auto`. Document the full-directory access granted by attachment and the fail-closed behavior of staging limits. Continue prompt steps when named MCP tools are explicitly excluded by integrity policy, while retaining errors for other unavailable tools. Render approval prompts with the same variable interpolation as prompt steps without placing rendered content in lifecycle events.
+- Updated dependencies [743cc1e]
+- Updated dependencies [f944e14]
+  - @clearideas/agent-runtime-core@0.6.1
+  - @clearideas/agent-runtime-contracts@0.6.1
+
 ## 0.6.0
 
 ### Minor Changes

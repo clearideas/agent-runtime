@@ -1,5 +1,15 @@
 # @clearideas/agent-runtime-sandbox
 
+## 0.6.1
+
+### Patch Changes
+
+- 743cc1e: Allow underscore-prefixed workspace paths such as Python's `__init__.py` in staging and helper operations. Relocate paths in the host-process test provider's workspace index so code steps can use it directly. Suppress duplicate SDK stderr logging while continuing to propagate provider failures. Clarify that `maxToolCallsPerIteration` applies cumulatively to one prompt step execution, including checkpoint resumes.
+- Updated dependencies [743cc1e]
+- Updated dependencies [f944e14]
+  - @clearideas/agent-runtime-core@0.6.1
+  - @clearideas/agent-runtime-contracts@0.6.1
+
 ## 0.6.0
 
 ### Minor Changes
