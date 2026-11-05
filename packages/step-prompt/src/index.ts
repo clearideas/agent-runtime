@@ -10,7 +10,10 @@ import type {
   TranscriptItem,
   VariableState,
 } from "@clearideas/agent-runtime-contracts";
-import { RunSuspendedError } from "@clearideas/agent-runtime-core";
+import {
+  compilePromptTemplate,
+  RunSuspendedError,
+} from "@clearideas/agent-runtime-core";
 import type {
   StepExecutionContext,
   StepExecutionResult,
@@ -113,42 +116,7 @@ const raceWithSignal = async <T>(
   });
 };
 
-const getNestedValue = (
-  variables: Readonly<VariableState>,
-  path: string,
-): JsonValue | undefined => {
-  let current: unknown = variables;
-  for (const segment of path.split(".")) {
-    if (
-      current == null ||
-      typeof current !== "object" ||
-      Array.isArray(current)
-    ) {
-      return undefined;
-    }
-    const record = current as Record<string, unknown>;
-    const lowerSegment = segment.toLowerCase();
-    const key = Object.keys(record).find(
-      (candidate) => candidate.toLowerCase() === lowerSegment,
-    );
-    if (!key) return undefined;
-    current = record[key];
-  }
-  return current as JsonValue | undefined;
-};
-
-const stringifyTemplateValue = (value: JsonValue | undefined): string => {
-  if (value == null) return "";
-  return typeof value === "object" ? JSON.stringify(value) : String(value);
-};
-
-export const compilePromptTemplate = (
-  template: string,
-  variables: Readonly<VariableState>,
-): string =>
-  template.replace(/\{\{\s*([^}]+?)\s*\}\}/g, (_match, rawPath: string) =>
-    stringifyTemplateValue(getNestedValue(variables, rawPath.trim())),
-  );
+export { compilePromptTemplate } from "@clearideas/agent-runtime-core";
 
 const modelKey = (step: PromptStep, context: StepExecutionContext): string => {
   const reference = step.model ?? context.manifest.model;
@@ -688,10 +656,11 @@ export class PromptStepExecutor implements StepExecutor<PromptStep> {
     }
     const available = await context.tools.listTools();
     const byName = new Map(available.map((tool) => [tool.name, tool]));
-    return context.step.tools.map((name) => {
+    return context.step.tools.flatMap((name) => {
       const selected = byName.get(name);
-      if (!selected) throw new Error(`Tool ${name} is not available`);
-      return selected;
+      if (selected) return [selected];
+      if (context.tools!.isToolExcluded?.(name) === true) return [];
+      throw new Error(`Tool ${name} is not available`);
     });
   }
 

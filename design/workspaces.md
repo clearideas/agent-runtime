@@ -282,7 +282,7 @@ workspaces:
     maxFiles: 5000 # staged-file ceiling (default 5000)
     maxFileBytes: 1048576 # per-file ceiling (default 1 MiB)
     maxTotalBytes: 104857600 # staged-bytes ceiling (default 100 MiB)
-    attach: auto # auto | never; provider-native read-only attach
+    attach: never # default; auto explicitly permits a raw read-only bind
 
   notes:
     driver: local
@@ -372,7 +372,7 @@ sandbox:
 | `include`                                      | every visible path                              |
 | `exclude`                                      | none                                            |
 | `maxFiles` / `maxFileBytes` / `maxTotalBytes`  | 5000 / 1 MiB / 100 MiB                          |
-| `attach`                                       | `auto`                                          |
+| `attach`                                       | `never`                                          |
 | sandbox `image`                                | the `python` profile image (`python:3.12-slim`) |
 | `helper.command`                               | `["python3", "/workspace/bin/agent-fs"]`        |
 | `memoryMb` / `cpuCount` / `processLimit`       | 1024 / 1 / 128                                  |
@@ -790,7 +790,10 @@ the store's directory rather than a staged copy. No bytes pass through the
 host process, and the `maxFiles`/`maxTotalBytes` limits do not apply (the
 provider enforces read-only). Attach is never used for read-write bindings
 (writes must pass through the store) or for stores with include/exclude
-rules (a bind would expose excluded files). `attach: never` disables it.
+rules (a bind would expose excluded files). `attach: never` is the default.
+Explicit `auto` exposes the complete raw directory to sandboxed programs,
+including hidden entries and names rejected by workspace tools. Local stores
+only advertise `attachable` after this constructor/configuration opt-in.
 
 ### 12.5 `/workspace/workspaces.json`
 

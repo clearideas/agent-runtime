@@ -24,9 +24,9 @@ export interface ConfiguredWorkspaceProviderOptions {
 /** Hide provider-native attachment for definitions that require staged copies. */
 const withoutAttachment = (store: WorkspaceStore): WorkspaceStore => {
   if (!store.attachable) return store;
-  const { attachable: _attachable, ...rest } = store;
   return {
-    ...rest,
+    mode: store.mode,
+    ...(store.limits ? { limits: store.limits } : {}),
     entries: (options) => store.entries(options),
     read: (path, options) => store.read(path, options),
     ...(store.write
@@ -106,6 +106,7 @@ export class ConfiguredWorkspaceProvider implements WorkspaceProvider {
     return new LocalDirectoryWorkspace({
       root,
       mode: definition.mode,
+      attach: definition.attach,
       ...(definition.include ? { include: definition.include } : {}),
       ...(definition.exclude ? { exclude: definition.exclude } : {}),
       ...(definition.maxFiles ? { maxFiles: definition.maxFiles } : {}),

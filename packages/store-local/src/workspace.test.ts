@@ -114,7 +114,10 @@ describe("LocalDirectoryWorkspace", () => {
       maxTotalBytes: 100 * 1_048_576,
     });
     expect(workspace.attachable).toBeUndefined();
-    expect(new LocalDirectoryWorkspace({ root }).attachable).toEqual({
+    expect(new LocalDirectoryWorkspace({ root }).attachable).toBeUndefined();
+    expect(
+      new LocalDirectoryWorkspace({ root, attach: "auto" }).attachable,
+    ).toEqual({
       kind: "local-directory",
       root,
     });

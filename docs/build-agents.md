@@ -211,7 +211,10 @@ configured access. Tool calls execute in model order. See
 
 ## Human approval
 
-An approval step delegates the decision to the host's `ApprovalAdapter`.
+An approval step delegates the decision to the host's `ApprovalAdapter`. Its
+`prompt` renders `{{ variable }}` and nested paths from the current run state
+using the same case-insensitive rules as prompt steps. Metadata stays literal,
+and rendered approval text is not included in lifecycle events.
 
 <<< ../examples/manifests/approval.agent.yaml
 

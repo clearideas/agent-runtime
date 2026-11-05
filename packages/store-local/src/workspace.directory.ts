@@ -35,6 +35,11 @@ import {
 export interface LocalDirectoryWorkspaceOptions {
   /** Host directory that becomes the workspace root. */
   root: string;
+  /**
+   * Explicitly allow a raw read-only directory bind. Defaults to never.
+   * auto exposes all directory entries and bypasses store size limits for programs.
+   */
+  attach?: "auto" | "never";
   /** Defaults to read. */
   mode?: WorkspaceMode;
   /** Glob allowlist over relative file paths. Defaults to every safe path. */
@@ -122,7 +127,7 @@ export class LocalDirectoryWorkspace implements WorkspaceStore {
       DEFAULT_MAX_SCAN_ENTRIES,
       "Workspace maxScanEntries",
     );
-    if (this.#filter.isUnfiltered) {
+    if (options.attach === "auto" && this.#filter.isUnfiltered) {
       this.attachable = { kind: "local-directory", root: this.#root };
     }
   }

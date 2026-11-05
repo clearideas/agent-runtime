@@ -1,3 +1,5 @@
+import type { ModelRequest } from "@clearideas/agent-runtime-core/ports";
+import { PromptStepExecutor } from "@clearideas/agent-runtime-step-prompt";
 import type { AgentManifest } from "@clearideas/agent-runtime-contracts";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -27,6 +29,7 @@ vi.mock("@modelcontextprotocol/sdk/client/streamableHttp.js", () => ({
 }));
 
 import {
+  CompositeToolAdapter,
   computeMcpToolDigest,
   ConfiguredMcpToolAdapter,
   discoverMcpConnectionTools,
@@ -470,6 +473,79 @@ describe("configured MCP tool adapter", () => {
       ),
     ).resolves.toMatchObject({ error: { code: "tool_not_allowed" } });
   });
+
+  it.each([false, true])(
+    "continues named-tool prompt steps when policy excludes tools (all excluded: %s)",
+    async (allExcluded) => {
+      mcp.listTools.mockResolvedValue({
+        tools: [
+          { ...searchTool, description: "changed" },
+          ...(allExcluded ? [] : [deleteTool]),
+        ],
+      });
+      const adapter = new ConfiguredMcpToolAdapter(
+        pinnedConfig({
+          digests: { search: searchDigest, delete: deleteDigest },
+          onFailure: "exclude",
+        }),
+        [{ ref: "documents", alias: "docs", mode: "read_write" }],
+      );
+      const tools = new CompositeToolAdapter([adapter]);
+      const step = {
+        id: "answer",
+        type: "prompt" as const,
+        model: { provider: "test", model: "test" },
+        prompt: "Answer safely",
+        tools: ["docs__search", ...(allExcluded ? [] : ["docs__delete"])],
+      };
+      const generate = vi.fn(async (request: ModelRequest) => {
+        expect(
+          request.tools?.map((tool: { name: string }) => tool.name) ?? [],
+        ).toEqual(allExcluded ? [] : ["docs__delete"]);
+        expect(JSON.stringify(request)).not.toContain("changed");
+        return { output: "done", transcript: [] };
+      });
+      const context = {
+        runId: "r",
+        manifest: { schemaVersion: "1.0" as const, steps: [step] },
+        step,
+        stepIndex: 0,
+        variables: {},
+        model: { generate },
+        tools,
+        emit: async (type: string) => ({
+          id: type,
+          runId: "r",
+          sequence: 1,
+          timestamp: "",
+          type,
+        }),
+      };
+      await expect(
+        new PromptStepExecutor().execute(context),
+      ).resolves.toMatchObject({ output: "done" });
+      expect(adapter.isToolExcluded("docs__search")).toBe(true);
+      expect(tools.isToolExcluded("docs__search")).toBe(true);
+      expect(tools.isToolExcluded("docs__typo")).toBe(false);
+      await expect(
+        new PromptStepExecutor().execute({
+          ...context,
+          step: { ...step, tools: ["docs__typo"] },
+        }),
+      ).rejects.toThrow("Tool docs__typo is not available");
+      await expect(
+        tools.executeTool(
+          { id: "bad-call", name: "docs__search", input: {} },
+          { runId: "r", stepId: "answer", variables: {} },
+        ),
+      ).resolves.toMatchObject({ error: { code: "tool_not_allowed" } });
+      expect(mcp.callTool).not.toHaveBeenCalled();
+      // A fresh discovery reflects reapproval and does not retain stale exclusions.
+      mcp.listTools.mockResolvedValue({ tools: [searchTool, deleteTool] });
+      await tools.listTools();
+      expect(tools.isToolExcluded("docs__search")).toBe(false);
+    },
+  );
 
   it("lets a host reject discovered metadata without configured digests", async () => {
     const adapter = new ConfiguredMcpToolAdapter(

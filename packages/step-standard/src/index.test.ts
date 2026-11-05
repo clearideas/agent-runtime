@@ -69,7 +69,7 @@ describe("ApprovalStepExecutor", () => {
     const step: ApprovalStep = {
       id: "approval-1",
       type: "approval",
-      prompt: "Approve secret acquisition?",
+      prompt: "Approve {{ Quarter }} secret acquisition for {{ deal.Name }}?",
       metadata: { privateContext: "board-eyes-only" },
       outputVariable: "approval",
       action: "pause",
@@ -92,7 +92,7 @@ describe("ApprovalStepExecutor", () => {
       manifest: manifestFor(step),
       step,
       stepIndex: 0,
-      variables: {},
+      variables: { quarter: "Q4", Deal: { name: "private target" } },
       approvals,
       emit: collector.emit,
     });
@@ -101,7 +101,7 @@ describe("ApprovalStepExecutor", () => {
       {
         runId: "run-1",
         stepId: "approval-1",
-        prompt: "Approve secret acquisition?",
+        prompt: "Approve Q4 secret acquisition for private target?",
         details: { privateContext: "board-eyes-only" },
       },
     ]);
@@ -115,6 +115,8 @@ describe("ApprovalStepExecutor", () => {
       "secret acquisition",
     );
     expect(JSON.stringify(collector.events)).not.toContain("board-eyes-only");
+    expect(JSON.stringify(collector.events)).not.toContain("private target");
+    expect(JSON.stringify(result.metadata)).not.toContain("private target");
     expect(JSON.stringify(collector.events)).not.toContain(
       "private approval response",
     );

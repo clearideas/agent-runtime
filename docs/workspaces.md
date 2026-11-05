@@ -32,19 +32,30 @@ results from remote MCP servers.
 
 ### `workspaces`
 
-| Field                                       | Notes                                                                                   |
-| ------------------------------------------- | --------------------------------------------------------------------------------------- |
-| `driver`                                    | `local` (a host directory) or `host` (a store supplied by application code)             |
-| `root`                                      | directory path or environment reference; literal paths resolve against the config file  |
-| `mode`                                      | `read` (default) or `read_write`                                                        |
-| `include`, `exclude`                        | globs over relative paths (`**`, `*`, `?`); excluded paths are never staged or readable |
-| `maxFiles`, `maxFileBytes`, `maxTotalBytes` | staging and per-file ceilings (defaults 5000, 1 MiB, 100 MiB)                           |
-| `attach`                                    | `auto` binds read-only, unfiltered directories natively when the provider supports it   |
+| Field                                       | Notes                                                                                          |
+| ------------------------------------------- | ---------------------------------------------------------------------------------------------- |
+| `driver`                                    | `local` (a host directory) or `host` (a store supplied by application code)                    |
+| `root`                                      | directory path or environment reference; literal paths resolve against the config file         |
+| `mode`                                      | `read` (default) or `read_write`                                                               |
+| `include`, `exclude`                        | globs over relative paths (`**`, `*`, `?`); excluded paths are never staged or readable        |
+| `maxFiles`, `maxFileBytes`, `maxTotalBytes` | staging and per-file ceilings (defaults 5000, 1 MiB, 100 MiB)                                  |
+| `attach`                                    | `never` (default) stages visible files; explicit `auto` permits a raw read-only directory bind |
 
 Workspace paths accept only segments made of letters, digits, `.`, `_`, and
 `-`, starting with a letter, digit, or underscore (for example, `__init__.py`).
 Hidden entries (`.git`, `.env`), symbolic
 links, and names with spaces are never addressable.
+
+Staging is the default for both local and host workspaces. Explicit `attach: auto`
+allows native attachment for read-only, unfiltered directories when supported
+by the provider. Programs then see the **entire raw directory**, including
+hidden files such as `.env` and names the file tools refuse; store file-count
+and byte limits do not apply to their direct filesystem reads. Use this only
+for directories whose entire contents are safe to expose. A read-only bind
+prevents writes; it does not filter reads. In application code, the same
+opt-in is `new LocalDirectoryWorkspace({ root, attach: "auto" })`. Custom host
+stores that provide `attachable` explicitly grant this capability; configured
+host workspaces suppress it unless `attach: auto` is selected.
 
 ### `sandbox`
 
@@ -116,6 +127,11 @@ configured, the bytes are stored as an artifact and the reference is attached
 to the tool result, which multimodal model adapters render as a file part.
 
 ## Sync and durability
+
+Opening a staged workspace fails if any visible file exceeds `maxFileBytes`,
+or if file-count, total-byte, or sandbox staging ceilings are exceeded. Files
+over the limits are not silently skipped. Exclude unnecessary files with
+`include`/`exclude` or raise the relevant limit after reviewing the input.
 
 Visible files are staged into `/workspace/mounts/<alias>` when the sandbox
 opens. After every command, read-write mounts are compared with the staged
