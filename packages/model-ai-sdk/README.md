@@ -29,3 +29,14 @@ functions in `createProviderRegistryModelResolver`.
 The adapter supports generation, text and reasoning deltas, structured object
 output, tool-call conversion, usage, provider metadata, and abort signals.
 Agent Runtime executes tool calls sequentially.
+
+Anthropic 4.0.72 and newer emit an `anthropic.message_start` custom part with
+stream metadata. The adapter omits this metadata-only part from replayable
+assistant content while preserving ordinary content, token usage, and provider
+options. Older provider versions that do not emit this part remain supported.
+
+Other custom parts remain unsupported and raise an error. In particular,
+Anthropic server-side fallback blocks carry replay semantics and are not
+silently discarded. Replaying those blocks requires an extension to the
+runtime's content contracts; this compatibility fix does not enable that
+feature.

@@ -801,7 +801,17 @@ function fromAiSdkResponseMessage(
     typeof message.content === "string"
       ? [{ type: "text", text: message.content }]
       : message.content;
-  const content: ContentPart[] = rawContent.map((rawPart) => {
+  // Anthropic's message-start part carries bookkeeping, not replay content.
+  // Other custom parts can carry semantics such as fallback boundaries.
+  const replayContent = rawContent.filter((rawPart) => {
+    const part = rawPart as unknown as Record<string, unknown>;
+    return !(
+      message.role === "assistant" &&
+      part.type === "custom" &&
+      part.kind === "anthropic.message_start"
+    );
+  });
+  const content: ContentPart[] = replayContent.map((rawPart) => {
     const part = rawPart as unknown as Record<string, unknown>;
     switch (part.type) {
       case "text":

@@ -73,6 +73,29 @@ jobs:
       - run: npm test
         working-directory: examples/agent-runner
 
+  anthropic-compatibility:
+    name: Anthropic ${{ matrix.anthropic }} compatibility
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        anthropic: [4.0.71, 4.0.72, 4.0.84, 4.0.97]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - name: Install the compatibility-matrix provider
+        run: npm install --no-save --package-lock=false --ignore-scripts --no-audit --no-fund @ai-sdk/anthropic@${{ matrix.anthropic }}
+      - run: npm run build
+      - name: Test the real provider with offline Anthropic responses
+        run: node --test examples/patterns/anthropic-compatibility.test.mjs
+        env:
+          EXPECTED_ANTHROPIC_VERSION: ${{ matrix.anthropic }}
+
   sandbox-linux:
     name: Linux workspace and sandbox execution
     runs-on: ubuntu-24.04

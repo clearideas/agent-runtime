@@ -31,7 +31,7 @@
     "version-packages": "changeset version && node scripts/generate-runtime-version.mjs",
     "release:check": "npm run validate",
     "release:packages": "changeset publish",
-    "test:examples": "node --test examples/patterns/patterns.test.mjs",
+    "test:examples": "node --test examples/patterns/patterns.test.mjs examples/patterns/anthropic-compatibility.test.mjs",
     "check:consumer": "node scripts/check-consumer.mjs"
   },
   "engines": {
