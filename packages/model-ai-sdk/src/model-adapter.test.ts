@@ -418,6 +418,120 @@ describe("AiSdkModelAdapter", () => {
     ]);
   });
 
+  it("omits Anthropic message-start metadata from generated replay content without losing usage", async () => {
+    const adapter = new AiSdkModelAdapter({
+      resolveModel: () => fakeModel,
+      generateText: async () => ({
+        text: "",
+        toolCalls: [],
+        totalUsage: { inputTokens: 7, outputTokens: 1, totalTokens: 8 },
+        responseMessages: [
+          {
+            role: "assistant",
+            content: [
+              {
+                type: "custom",
+                kind: "anthropic.message_start",
+                providerOptions: { anthropic: { id: "msg_1" } },
+              },
+            ],
+          },
+        ],
+      }),
+    });
+
+    const result = await adapter.generate(request());
+    expect(result.output).toBe("");
+    expect(result.transcript).toEqual([
+      expect.objectContaining({
+        role: "assistant",
+        content: [],
+        usage: { inputTokens: 7, outputTokens: 1, totalTokens: 8 },
+      }),
+    ]);
+  });
+
+  it("completes a stream whose replay history includes Anthropic message-start metadata", async () => {
+    async function* parts(): AsyncIterable<AiSdkStreamPart> {
+      yield { type: "custom", kind: "anthropic.message_start" };
+      yield { type: "text-delta", text: "Hello" };
+      yield {
+        type: "finish",
+        finishReason: "stop",
+        totalUsage: { inputTokens: 7, outputTokens: 1, totalTokens: 8 },
+      };
+    }
+    const adapter = new AiSdkModelAdapter({
+      resolveModel: () => fakeModel,
+      streamText: () => ({
+        fullStream: parts(),
+        responseMessages: Promise.resolve([
+          {
+            role: "assistant" as const,
+            content: [
+              {
+                type: "custom" as const,
+                kind: "anthropic.message_start" as const,
+                providerOptions: { anthropic: { id: "msg_1" } },
+              },
+              {
+                type: "text" as const,
+                text: "Hello",
+                providerOptions: { anthropic: { cacheControl: "ephemeral" } },
+              },
+            ],
+          },
+        ]),
+      }),
+    });
+
+    const events = [];
+    for await (const event of adapter.stream(request())) events.push(event);
+    expect(events).toEqual([
+      { type: "text-delta", delta: "Hello" },
+      {
+        type: "completed",
+        result: expect.objectContaining({
+          output: "Hello",
+          transcript: [
+            expect.objectContaining({
+              content: [
+                {
+                  type: "text",
+                  text: "Hello",
+                  providerOptions: { anthropic: { cacheControl: "ephemeral" } },
+                },
+              ],
+              usage: { inputTokens: 7, outputTokens: 1, totalTokens: 8 },
+            }),
+          ],
+        }),
+      },
+    ]);
+  });
+
+  it.each([
+    { type: "custom", kind: "anthropic.fallback" },
+    { type: "custom", kind: "anthropic.container_upload" },
+    { type: "custom", kind: "unknown.metadata" },
+    { type: "unknown-part" },
+  ])(
+    "still rejects replay content with unsupported semantics: %j",
+    async (part) => {
+      const adapter = new AiSdkModelAdapter({
+        resolveModel: () => fakeModel,
+        generateText: async () => ({
+          text: "Hello",
+          toolCalls: [],
+          responseMessages: [{ role: "assistant", content: [part as never] }],
+        }),
+      });
+      await expect(adapter.generate(request())).rejects.toThrow(
+        `AI SDK returned unsupported replay content: ${part.type}`,
+      );
+    },
+  );
+
   it("emits transient deltas and one completed neutral result in stream order", async () => {
     async function* parts(): AsyncIterable<AiSdkStreamPart> {
       yield { type: "text-start", id: "text_1" };
