@@ -1,5 +1,23 @@
 # @clearideas/agent-runtime-cli
 
+## 0.6.1
+
+### Patch Changes
+
+- Updated dependencies [743cc1e]
+- Updated dependencies [f944e14]
+  - @clearideas/agent-runtime-core@0.6.1
+  - @clearideas/agent-runtime-sandbox@0.6.1
+  - @clearideas/agent-runtime-contracts@0.6.1
+  - @clearideas/agent-runtime-step-prompt@0.6.1
+  - @clearideas/agent-runtime-store-local@0.6.1
+  - @clearideas/agent-runtime-step-standard@0.6.1
+  - @clearideas/agent-runtime-config@0.6.1
+  - @clearideas/agent-runtime-condition-jexl@0.6.1
+  - @clearideas/agent-runtime-step-loop@0.6.1
+  - @clearideas/agent-runtime-store-sqlite@0.6.1
+  - @clearideas/agent-runtime-execution@0.6.1
+
 ## 0.6.0
 
 ### Minor Changes

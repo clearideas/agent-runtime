@@ -1,5 +1,12 @@
 # @clearideas/agent-runtime-execution
 
+## 0.6.1
+
+### Patch Changes
+
+- Updated dependencies [743cc1e]
+  - @clearideas/agent-runtime-contracts@0.6.1
+
 ## 0.6.0
 
 ### Patch Changes

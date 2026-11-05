@@ -1,5 +1,25 @@
 # @clearideas/agent-runtime
 
+## 0.6.1
+
+### Patch Changes
+
+- f944e14: Default local and configured host workspaces to staging; raw native read-only directory attachment now requires explicit `attach: auto`. Document the full-directory access granted by attachment and the fail-closed behavior of staging limits. Continue prompt steps when named MCP tools are explicitly excluded by integrity policy, while retaining errors for other unavailable tools. Render approval prompts with the same variable interpolation as prompt steps without placing rendered content in lifecycle events.
+- Updated dependencies [184aede]
+- Updated dependencies [743cc1e]
+- Updated dependencies [f944e14]
+  - @clearideas/agent-runtime-model-ai-sdk@0.6.1
+  - @clearideas/agent-runtime-core@0.6.1
+  - @clearideas/agent-runtime-sandbox@0.6.1
+  - @clearideas/agent-runtime-contracts@0.6.1
+  - @clearideas/agent-runtime-step-prompt@0.6.1
+  - @clearideas/agent-runtime-store-local@0.6.1
+  - @clearideas/agent-runtime-step-standard@0.6.1
+  - @clearideas/agent-runtime-config@0.6.1
+  - @clearideas/agent-runtime-condition-jexl@0.6.1
+  - @clearideas/agent-runtime-step-loop@0.6.1
+  - @clearideas/agent-runtime-execution@0.6.1
+
 ## 0.6.0
 
 ### Minor Changes

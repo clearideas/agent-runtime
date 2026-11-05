@@ -1,5 +1,14 @@
 # @clearideas/agent-runtime-store-sqlite
 
+## 0.6.1
+
+### Patch Changes
+
+- Updated dependencies [743cc1e]
+- Updated dependencies [f944e14]
+  - @clearideas/agent-runtime-core@0.6.1
+  - @clearideas/agent-runtime-contracts@0.6.1
+
 ## 0.6.0
 
 ### Patch Changes
