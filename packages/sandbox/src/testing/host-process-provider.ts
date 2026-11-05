@@ -24,11 +24,13 @@ import {
   type SandboxProvider,
   type SandboxSpec,
 } from "../contracts.js";
+import { SANDBOX_WORKSPACES_FILE } from "../policy.js";
 
 /**
  * TEST-ONLY provider that runs commands as ordinary host processes inside a
  * temporary directory, rewriting `/workspace` paths in arguments and
- * environment to that directory. It provides no isolation whatsoever and
+ * environment and the runtime-owned workspace index to that directory.
+ * It provides no isolation whatsoever and
  * exists so the run sandbox can be exercised end to end (including the real
  * helper script) on hosts without bubblewrap or Docker. It is deliberately not
  * exported from the package entry point.
@@ -73,7 +75,22 @@ export class HostProcessTestProvider implements SandboxProvider {
       await mkdir(path.dirname(target), { recursive: true });
       const existing = await lstat(target).catch(() => undefined);
       if (existing) await chmod(target, 0o600);
-      await writeFile(target, file.content);
+      let content = file.content;
+      // This runtime-owned index must describe the same host paths as argv
+      // and environment. Never rewrite workspace files or arbitrary JSON.
+      if (file.path === SANDBOX_WORKSPACES_FILE) {
+        const index = JSON.parse(
+          typeof content === "string"
+            ? content
+            : new TextDecoder().decode(content),
+        ) as { mounts: Record<string, { path: string }>; output: string };
+        for (const mount of Object.values(index.mounts)) {
+          mount.path = this.translate(handle, mount.path);
+        }
+        index.output = this.translate(handle, index.output);
+        content = JSON.stringify(index);
+      }
+      await writeFile(target, content);
       await chmod(target, file.mode ?? 0o600);
     }
   }

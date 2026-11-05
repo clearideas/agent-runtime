@@ -135,6 +135,40 @@ const open = async (
 };
 
 describe.skipIf(!hasPython)("ProviderRunSandbox", { timeout: 60_000 }, () => {
+  it("stages Python package paths and syncs underscore-prefixed files", async () => {
+    const store = new MemoryStore("read_write", {
+      "_package/__init__.py": "value = 42\n",
+    });
+    const { session } = await open(
+      new ProviderRunSandbox({
+        provider: new HostProcessTestProvider(),
+        image: "test",
+        shell: { enabled: true },
+      }),
+      [resolved("code", store)],
+    );
+    try {
+      const read = await session.execute({
+        stepId: "read",
+        kind: "builtin",
+        name: "read_file",
+        alias: "code",
+        arguments: { path: "_package/__init__.py" },
+      });
+      expect(read.output).toMatchObject({ content: "value = 42" });
+      await session.execute({
+        stepId: "write",
+        kind: "shell",
+        name: "shell",
+        alias: "code",
+        arguments: { command: "printf 'other = 1\\n' > _package/_other.py" },
+      });
+      expect(store.text("_package/_other.py")).toBe("other = 1\n");
+    } finally {
+      await session.close("completed");
+    }
+  });
+
   it("stages mounts, serves built-in operations through the helper, syncs writes back, and reports", async () => {
     const provider = new HostProcessTestProvider();
     const artifacts = new MemoryArtifacts();
@@ -488,10 +522,7 @@ describe.skipIf(!hasPython)("ProviderRunSandbox", { timeout: 60_000 }, () => {
         code: [
           "import json, os",
           "mounts = json.load(open(os.environ['AGENT_WORKSPACES_FILE']))['mounts']",
-          "assert mounts['code']['path'] == '/workspace/mounts/code'",
-          "# The test provider relocates /workspace; real providers use the index path directly.",
-          "root = os.path.dirname(os.environ['AGENT_WORKSPACES_FILE'])",
-          "value = open(root + '/mounts/code/data.txt').read().strip()",
+          "value = open(mounts['code']['path'] + '/data.txt').read().strip()",
           "variables = json.load(open(os.environ['AGENT_VARIABLES_FILE']))",
           "print(json.dumps({'value': int(value) * variables['factor'], 'safe': os.environ.get('SAFE'), 'secret': os.environ.get('SECRET')}))",
           "open(os.environ['AGENT_OUTPUT_DIRECTORY'] + '/report.txt', 'w').write('done')",

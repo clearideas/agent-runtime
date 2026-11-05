@@ -370,7 +370,12 @@ environment.
 ## Ordering and limits
 
 Tool calls execute sequentially in model order. Set
-`limits.maxToolCallsPerIteration` to bound each model/tool cycle.
+`limits.maxToolCallsPerIteration` to bound the total tool calls in one prompt
+step execution, across all model/tool turns and checkpoint resumes. Despite
+its historical name, the counter does not reset after each model response.
+For example, a limit of 3 allows three calls in total, including three
+responses requesting one call each. A loop starts a fresh allowance each
+time it executes the prompt step.
 
 Before invocation, Agent Runtime checkpoints the tool intent and supplies a
 stable `context.idempotencyKey`. It reuses that key if recovery repeats the

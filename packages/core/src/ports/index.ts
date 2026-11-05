@@ -103,13 +103,14 @@ export interface ArtifactStore {
   get(ref: ArtifactRef): Promise<ArtifactData>;
 }
 
-const WORKSPACE_PATH_SEGMENT = /^[A-Za-z0-9][A-Za-z0-9._-]*$/u;
+const WORKSPACE_PATH_SEGMENT = /^[A-Za-z0-9_][A-Za-z0-9._-]*$/u;
 export const MAXIMUM_WORKSPACE_PATH_LENGTH = 1024;
 export const MAXIMUM_WORKSPACE_PATH_DEPTH = 64;
 
 /**
  * Workspace paths are relative POSIX paths whose segments contain only
- * letters, digits, dots, underscores, and hyphens and never start with a dot.
+ * letters, digits, dots, underscores, and hyphens and start with a letter,
+ * digit, or underscore.
  * Traversal, absolute paths, and hidden entries are unaddressable.
  */
 export const isSafeWorkspacePath = (value: string): boolean => {

@@ -77,6 +77,23 @@ describe("LocalDirectoryWorkspace", () => {
     await rm(outside, { recursive: true, force: true });
   });
 
+  it("enumerates and reads Python package paths beginning with underscores", async () => {
+    await mkdir(path.join(root, "_package"));
+    await writeFile(path.join(root, "_package", "__init__.py"), "value = 42\n");
+    const workspace = new LocalDirectoryWorkspace({ root });
+    expect(await workspace.entries()).toContainEqual(
+      expect.objectContaining({ path: "_package/__init__.py" }),
+    );
+    expect(
+      new TextDecoder().decode(await workspace.read("_package/__init__.py")),
+    ).toBe("value = 42\n");
+    const memory = new MemoryWorkspace({ mode: "read_write" });
+    await memory.write("_package/__init__.py", text("value = 42\n"));
+    expect(await memory.entries()).toContainEqual(
+      expect.objectContaining({ path: "_package/__init__.py" }),
+    );
+  });
+
   it("enumerates only safe, visible regular files and advertises limits", async () => {
     const workspace = new LocalDirectoryWorkspace({
       root,

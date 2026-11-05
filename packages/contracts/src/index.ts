@@ -740,6 +740,7 @@ export interface AgentManifest {
     maxMessagesPerPrompt?: number;
     maxInputBytes?: number;
     maxOutputBytes?: number;
+    /** Total tool calls per prompt step execution, across model turns and resumes. */
     maxToolCallsPerIteration?: number;
     providerTimeoutMs?: number;
   };
