@@ -5,6 +5,10 @@ description: Runnable prompt chains, tools with recovery, and approval across pr
 
 # Three agent patterns
 
+For interactive, end-to-end walkthroughs of workspaces, durable runs,
+guardrails, documents and remote workers, see the [Showcase](./showcase.md).
+The command-line patterns below are smaller examples you can run separately.
+
 Start with these [runnable examples in the repository](https://github.com/clearideas/agent-runtime/tree/main/examples/patterns).
 Each includes exact commands, expected output, and troubleshooting.
 

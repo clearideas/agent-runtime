@@ -19,8 +19,9 @@ its dependencies are installed independently of the repository workspaces.
 
 ## Run it
 
-Requirements: Node.js 24 or newer, and `python3` (the run sandbox's file
-helper is a small Python program).
+Requirements: Node.js 24 or newer, plus either Docker with Linux containers
+or `python3` on the host. Docker supplies Python inside its image; a separate
+host Python installation is needed only for bubblewrap or the fallback.
 
 ```sh
 cd examples/showcase
@@ -292,6 +293,9 @@ public/assets/<demo>.js          what each page adds (attack board, graph, decis
 outputs, the host wraps its `ToolAdapter` (`lib/observed-tools.ts`) and
 streams them alongside the events. Apply your own redaction policy before doing
 this in production.
+
+The header loads Inter locally from `public/assets/fonts/`, using the same
+font asset as the Docs theme. Its license is included in that directory.
 
 The browser uses no framework or build step. Markdown is rendered with Marked
 and DOMPurify, code with Highlight.js, all served locally under a strict

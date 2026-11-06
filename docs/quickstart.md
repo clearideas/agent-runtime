@@ -5,6 +5,9 @@ description: Run your first agent locally with one model-provider API key.
 
 # Quick start
 
+To explore without a provider key, start with the [Showcase](./showcase.md):
+five interactive demos with setup instructions and expected outcomes.
+
 Requirements:
 
 - Node.js 24 or newer
