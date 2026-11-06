@@ -1,5 +1,11 @@
 # @clearideas/agent-runtime-core
 
+## 0.6.2
+
+### Patch Changes
+
+- @clearideas/agent-runtime-contracts@0.6.2
+
 ## 0.6.1
 
 ### Patch Changes
