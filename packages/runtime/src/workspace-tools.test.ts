@@ -459,7 +459,7 @@ describe.skipIf(!hasPython)(
         {
           id: "call-1",
           name: "docs__read_file",
-          input: { path: "README.md", startLine: 2 },
+          input: { path: ".\\README.md", startLine: 2 },
         },
         context,
       );
@@ -483,7 +483,7 @@ describe.skipIf(!hasPython)(
         {
           id: "call-2",
           name: "docs__write_file",
-          input: { path: "notes/new.md", content: "hi" },
+          input: { path: ".\\notes\\new.md", content: "hi" },
         },
         context,
       );
@@ -494,8 +494,19 @@ describe.skipIf(!hasPython)(
         "hi",
       );
 
-      const wc = await composed.tools!.executeTool(
-        { id: "call-3", name: "mem__wc", input: { file: "facts.txt" } },
+      for (const path of ["", ".", "/", "\\"]) {
+        await expect(
+          composed.tools!.executeTool(
+            { id: "root-" + path, name: "mem__list_files", input: { path } },
+            context,
+          ),
+        ).resolves.toMatchObject({
+          output: { files: expect.arrayContaining([expect.objectContaining({ path: "facts.txt" })]) },
+        });
+      }
+
+
+        { id: "call-3", name: "mem__wc", input: { file: ".\\facts.txt" } },
         context,
       );
       expect(wc).toMatchObject({
@@ -514,7 +525,7 @@ describe.skipIf(!hasPython)(
       ).resolves.toMatchObject({
         error: {
           code: "workspace_path_invalid",
-          message: expect.stringContaining("safe segments"),
+          message: expect.stringContaining(JSON.stringify("../escape")),
         },
       });
       await expect(
@@ -550,7 +561,7 @@ describe.skipIf(!hasPython)(
       await session.close("completed");
       expect(
         events.filter((event) => event.type === "sandbox.command.completed"),
-      ).toHaveLength(4);
+      ).toHaveLength(8);
       await (
         composed.tools as ToolAdapter & { close(): Promise<void> }
       ).close();
