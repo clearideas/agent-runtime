@@ -119,28 +119,22 @@ npx agent-runtime examples run conditions --stream
 npx agent-runtime examples run loops --stream
 ```
 
-## Develop the browser example from source
+## Run the browser showcase
 
-The npm package is the normal installation path. Contributors who want to
-modify the interactive browser example can clone the repository and build the
-workspace:
+The [Showcase](./showcase.md) is the browser example: five end-to-end demos
+of workspaces, approvals and budgets, guardrails, document tools and local or
+remote execution. Scripted mode needs no provider key.
 
 ```sh
 git clone https://github.com/clearideas/agent-runtime.git
-cd agent-runtime
+cd agent-runtime/examples/showcase
 npm ci
-npm run build
-npm run example:web
+npm run doctor
+npm start
 ```
 
-The example creates an `AgentRunManifest`, executes the referenced agent locally
-or through the remote worker protocol, and streams model, tool, checkpoint, and
-lifecycle events to a browser. It uses OpenAI's `gpt-5.6-luna` model, the public
-Context7 MCP endpoint, and an OpenTelemetry event sink. Set `OPENAI_API_KEY`
-before starting it. A Context7 key is optional.
-
-See the [interactive web example](./interactive-example.md) for execution
-modes, parallel scheduling, MCP tools, streaming, persistence, and telemetry.
+Open http://127.0.0.1:4178. See the [Showcase guide](./showcase.md) for
+sandbox setup, Windows/Docker instructions and Live mode.
 
 ## Use a local model
 

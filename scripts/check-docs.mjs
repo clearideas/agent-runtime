@@ -20,7 +20,6 @@ const requiredPages = [
   "README.md",
   "index.md",
   "quickstart.md",
-  "interactive-example.md",
   "showcase.md",
   "concepts.md",
   "build-agents.md",
@@ -105,10 +104,6 @@ const yamlExamples = (await readdir(exampleDirectory)).filter(
     file.endsWith(".run.yaml") ||
     file.endsWith(".config.yaml"),
 );
-const sourceAgentExamples = [
-  path.join("examples", "interactive-web", "interactive-brief.agent.yaml"),
-];
-
 const showcaseDemos = [
   "repo-mechanic",
   "durable-runs",
@@ -116,10 +111,8 @@ const showcaseDemos = [
   "document-library",
   "orchestration",
 ];
-sourceAgentExamples.push(
-  ...showcaseDemos.map((demo) =>
-    path.join("examples", "showcase", "demos", demo, "agent.yaml"),
-  ),
+const sourceAgentExamples = showcaseDemos.map((demo) =>
+  path.join("examples", "showcase", "demos", demo, "agent.yaml"),
 );
 const sourceConfigExamples = showcaseDemos.map((demo) =>
   path.join("examples", "showcase", "demos", demo, "runtime.config.yaml"),

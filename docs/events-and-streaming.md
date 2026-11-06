@@ -114,16 +114,11 @@ await telemetry.end();
 The sink records run, step, model, and tool metadata. It excludes prompt text,
 variable values, model output, and tool payloads.
 
-The interactive example includes local and remote execution with the same
-telemetry sink:
-
-```sh
-AGENT_EXAMPLE_OTEL_CONSOLE=1 \
-  npm --prefix examples/interactive-web start
-```
-
-Set `OTEL_TRACES_EXPORTER=otlp` and `OTEL_EXPORTER_OTLP_ENDPOINT` to send traces
-to an OpenTelemetry collector.
+The [Showcase](./showcase.md) demonstrates streaming runtime events to a
+browser in both local and remote execution. Its hosts use browser event sinks;
+to add tracing, register OpenTelemetryEventSink alongside those sinks as shown
+above. Configure OTEL_TRACES_EXPORTER=otlp and OTEL_EXPORTER_OTLP_ENDPOINT
+for an OpenTelemetry collector.
 
 ## Event catalog
 

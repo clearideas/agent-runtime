@@ -264,5 +264,5 @@ npm test
 
 ## Optional follow-up video
 
-Use `examples/interactive-web` for a second video about remote execution, MCP
-tools, dependency-safe parallel scheduling, reconnection, and OpenTelemetry.
+Use the [Showcase](../showcase/README.md) for follow-up videos about workspaces,
+approval and budget resume, guardrails, document/MCP tools and remote workers.
