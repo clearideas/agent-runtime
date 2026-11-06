@@ -135,6 +135,84 @@ const open = async (
 };
 
 describe.skipIf(!hasPython)("ProviderRunSandbox", { timeout: 60_000 }, () => {
+  it("normalizes tool paths before helper execution and sync-back", async () => {
+    const store = new MemoryStore("read_write", {
+      "reports/Q3-draft.md": "draft\n",
+      "_package/__init__.py": "init\n",
+    });
+    const { session } = await open(
+      new ProviderRunSandbox({
+        provider: new HostProcessTestProvider(),
+        image: "test",
+        commands: { show: { argv: ["cat", "{file}"], inputs: ["**/*.py"] } },
+      }),
+      [resolved("notes", store)],
+    );
+    try {
+      for (const path of [undefined, "", ".", "/", "\\"]) {
+        const list = await session.execute({
+          stepId: "list",
+          kind: "builtin",
+          name: "list_files",
+          alias: "notes",
+          arguments: path === undefined ? {} : { path },
+        });
+        expect(list.output).toMatchObject({
+          files: expect.arrayContaining([
+            expect.objectContaining({ path: "reports/Q3-draft.md" }),
+            expect.objectContaining({ path: "_package/__init__.py" }),
+          ]),
+        });
+      }
+      const write = await session.execute({
+        stepId: "write",
+        kind: "builtin",
+        name: "write_file",
+        alias: "notes",
+        arguments: { path: ".\\reports\\Q3-draft.md", content: "published\n" },
+      });
+      expect(write.record.filesChanged).toContainEqual(
+        expect.objectContaining({ path: "reports/Q3-draft.md" }),
+      );
+      expect(store.text("reports/Q3-draft.md")).toBe("published\n");
+      const read = await session.execute({
+        stepId: "read",
+        kind: "builtin",
+        name: "read_file",
+        alias: "notes",
+        arguments: { path: "/reports//./Q3-draft.md/" },
+      });
+      expect(read.output).toMatchObject({ content: "published" });
+      const command = await session.execute({
+        stepId: "show",
+        kind: "command",
+        name: "show",
+        alias: "notes",
+        arguments: { file: ".\\_package\\__init__.py" },
+      });
+      expect(command.output).toMatchObject({ exitCode: 0, stdout: "init\n" });
+      await expect(
+        session.execute({
+          stepId: "unsafe",
+          kind: "builtin",
+          name: "read_file",
+          alias: "notes",
+          arguments: { path: ".\\..\\outside.md" },
+        }),
+      ).rejects.toMatchObject({ code: "workspace_path_invalid" });
+      await session.execute({
+        stepId: "delete",
+        kind: "builtin",
+        name: "delete_file",
+        alias: "notes",
+        arguments: { path: "reports\\.\\Q3-draft.md" },
+      });
+      expect(store.files.has("reports/Q3-draft.md")).toBe(false);
+    } finally {
+      await session.close("completed");
+    }
+  });
+
   it("stages Python package paths and syncs underscore-prefixed files", async () => {
     const store = new MemoryStore("read_write", {
       "_package/__init__.py": "value = 42\n",

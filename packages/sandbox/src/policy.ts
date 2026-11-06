@@ -275,7 +275,8 @@ const pathSchema = {
   type: "string",
   minLength: 1,
   maxLength: 1024,
-  description: "Relative POSIX path inside the workspace.",
+  description:
+    "Path relative to the workspace root, such as docs/guide.md. Use forward slashes.",
 };
 
 const BUILTIN_SCHEMAS: Record<
@@ -292,7 +293,9 @@ const BUILTIN_SCHEMAS: Record<
       properties: {
         path: {
           ...pathSchema,
-          description: "Directory to list; defaults to the root.",
+          minLength: 0,
+          description:
+            "Directory to list, relative to the workspace root, such as docs. Omit it to list the root.",
         },
         glob: { type: "string", minLength: 1, maxLength: MAXIMUM_GLOB_LENGTH },
         limit: { type: "integer", minimum: 1, maximum: MAXIMUM_LIST_LIMIT },
@@ -525,6 +528,22 @@ const requireBoolean = (
   return value;
 };
 
+/**
+ * Accept the common spellings of a relative workspace path and return its
+ * canonical form: Windows separators (`reports\q3.md`), a leading `./` or
+ * `/`, repeated or trailing slashes, and `.` segments. `.` alone (or an empty
+ * path) means the workspace root and normalizes to "". Nothing here can
+ * change which file a path names: `..`, hidden segments, drive letters, and
+ * other unsafe segments are left in place and rejected by the caller.
+ */
+const normalizeWorkspaceToolPath = (value: string): string =>
+  value
+    .trim()
+    .replaceAll("\\", "/")
+    .split("/")
+    .filter((segment) => segment !== "" && segment !== ".")
+    .join("/");
+
 const requirePath = (
   value: JsonValue | undefined,
   label: string,
@@ -532,11 +551,14 @@ const requirePath = (
 ) => {
   const text = requireString(value, label, 1024, required);
   if (text === undefined) return undefined;
-  if (!isSafeWorkspacePath(text))
+  const normalized = normalizeWorkspaceToolPath(text);
+  // An optional directory path may name the root; a file path may not.
+  if (normalized === "" && !required) return undefined;
+  if (!isSafeWorkspacePath(normalized))
     throw invalidPath(
-      `${label} must be a relative POSIX path with safe segments: ${text}`,
+      `${label} must be a path inside the workspace, such as docs/guide.md (got ${JSON.stringify(text)}). Segments must start with a letter, digit, or underscore and may contain letters, digits, ".", "_", and "-". Dot-prefixed segments and traversal are not allowed.`,
     );
-  return text;
+  return normalized;
 };
 
 const rejectUnknownKeys = (

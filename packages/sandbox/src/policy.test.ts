@@ -305,6 +305,89 @@ describe("run sandbox policy", () => {
     );
   });
 
+  it("accepts Windows separators and other common spellings of a workspace path", () => {
+    const pathOf = (argv: string[]) => argv[argv.indexOf("--path") + 1];
+    for (const spelling of [
+      "reports\\Q3-draft.md",
+      "./reports/Q3-draft.md",
+      "/reports/Q3-draft.md",
+      ".\\reports\\Q3-draft.md",
+      "reports//Q3-draft.md",
+      "reports/./Q3-draft.md",
+      " reports/Q3-draft.md ",
+    ]) {
+      expect(
+        pathOf(admit("builtin", "read_file", { path: spelling }).argv),
+      ).toBe("reports/Q3-draft.md");
+    }
+    expect(
+      pathOf(
+        admit("builtin", "read_file", { path: ".\\_package\\__init__.py" })
+          .argv,
+      ),
+    ).toBe("_package/__init__.py");
+    // The root, spelled any way, lists the whole workspace.
+    for (const root of [".", "./", "/", "", "\\"]) {
+      expect(admit("builtin", "list_files", { path: root }).argv).not.toContain(
+        "--path",
+      );
+    }
+    expect(pathOf(admit("builtin", "list_files", { path: "docs/" }).argv)).toBe(
+      "docs",
+    );
+    expect(
+      admit("command", "extract_text", { file: "docs\\a.pdf" }).argv,
+    ).toContain("/workspace/mounts/code/docs/a.pdf");
+
+    // Normalizing never widens access: traversal, hidden segments, and drive
+    // letters are still refused, and a file needs a name. (A leading slash or
+    // backslash only anchors the path at the workspace root.)
+    for (const unsafe of [
+      "..\\secrets.txt",
+      "reports\\..\\..\\x",
+      ".\\.env",
+      "C:\\Windows\\win.ini",
+      "reports/.private.md",
+      "reports\\.git/config",
+      "./../secrets.md",
+      "reports/%2e%2e/secrets.md",
+      "C:/Windows/win.ini",
+      "reports/file.md:secret",
+    ]) {
+      rejects(
+        () => admit("builtin", "read_file", { path: unsafe }),
+        "workspace_path_invalid",
+        /path inside the workspace/u,
+      );
+    }
+    rejects(
+      () => admit("builtin", "read_file", { path: "." }),
+      "workspace_path_invalid",
+    );
+    rejects(
+      () => admit("builtin", "write_file", { path: "/", content: "x" }),
+      "workspace_path_invalid",
+    );
+  });
+
+  it("checks command input globs after normalization and quotes rejected input", () => {
+    rejects(
+      () =>
+        admit("command", "extract_text", { file: ".\\docs\\not-a-pdf.txt" }),
+      "workspace_path_invalid",
+      /does not match/u,
+    );
+    const sent = " .\\reports\\..\\secret.md ";
+    try {
+      admit("builtin", "read_file", { path: sent });
+      throw new Error("expected path rejection");
+    } catch (error) {
+      expect(error).toBeInstanceOf(SandboxPolicyError);
+      expect((error as Error).message).toContain(JSON.stringify(sent));
+      expect((error as Error).message).toContain("docs/guide.md");
+    }
+  });
+
   it("substitutes placeholders, enforces input globs, and validates program arguments", () => {
     expect(
       admit("command", "extract_text", { file: "docs/a.pdf" }).argv,

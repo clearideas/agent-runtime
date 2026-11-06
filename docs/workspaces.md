@@ -116,6 +116,16 @@ against `args.maxCount`, `args.allowPatterns`, and `args.denyPatterns`. Argv is
 always passed as an array; nothing goes through a shell unless `shell` is
 enabled.
 
+Tool paths are relative to the workspace root, such as `reports/q3.md`.
+Common spellings are accepted and normalized before canonical path checks:
+Windows
+separators (`reports\q3.md`), a leading `./` or `/`, and repeated or trailing
+slashes. `list_files` treats an omitted path, `""`, `.`, or `/` as the root.
+Normalizing never widens access: `..`, dot-prefixed segments,
+and drive letters are rejected with `workspace_path_invalid`. Underscore-prefixed
+segments such as `_package/__init__.py` remain valid. A leading slash anchors a
+tool path at the selected workspace root; it never names a host filesystem path.
+
 Non-zero exits from commands are returned as output so the model can react to
 failing tests. Policy denials, invalid paths, limits, budgets, and timeouts are
 returned as tool errors (`tool_not_allowed`, `workspace_path_invalid`,

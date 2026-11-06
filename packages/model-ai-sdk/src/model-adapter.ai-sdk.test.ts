@@ -5,6 +5,11 @@
  * the way it does for real providers.
  */
 import type { ModelRequest } from "@clearideas/agent-runtime-core/ports";
+import {
+  describeWorkspaceTools,
+  resolveRunSandboxPolicy,
+} from "@clearideas/agent-runtime-sandbox";
+import { generateText, jsonSchema, tool } from "ai";
 import { MockLanguageModelV4, convertArrayToReadableStream } from "ai/test";
 import { describe, expect, it } from "vitest";
 
@@ -76,6 +81,7 @@ const provider = (turn: Turn) => {
   });
   return {
     calls,
+    model,
     adapter: new AiSdkModelAdapter({ resolveModel: () => model as never }),
   };
 };
@@ -108,6 +114,50 @@ const streamed = async (adapter: AiSdkModelAdapter, request: ModelRequest) => {
     if (event.type === "completed") completed = event.result;
   return completed!;
 };
+
+describe("workspace root spelling through the real AI SDK schema", () => {
+  it.each(["", ".", "/", "\\"])(
+    "accepts a list_files root path %j",
+    async (path) => {
+      const workspace = {
+        binding: { ref: "docs" },
+        alias: "docs",
+        mode: "read" as const,
+        store: {
+          mode: "read" as const,
+          entries: async () => [],
+          read: async () => new Uint8Array(),
+        },
+      };
+      const definitions = describeWorkspaceTools(
+        workspace,
+        resolveRunSandboxPolicy({}),
+      );
+      const list = definitions.find((item) => item.name === "list_files")!;
+      const read = definitions.find((item) => item.name === "read_file")!;
+      expect(read.inputSchema.properties).toMatchObject({
+        path: { minLength: 1 },
+      });
+      const { model, calls } = provider({
+        toolCall: { name: "list_files", input: { path } },
+      });
+      const result = await generateText({
+        model,
+        prompt: "List the workspace root.",
+        tools: {
+          list_files: tool({ inputSchema: jsonSchema(list.inputSchema) }),
+        },
+      });
+      expect(result.toolCalls).toHaveLength(1);
+      expect(result.toolCalls[0]).toMatchObject({
+        toolName: "list_files",
+        input: { path },
+      });
+      expect(result.toolCalls[0]).not.toHaveProperty("invalid", true);
+      expect(calls[0].tools[0].inputSchema.properties.path.minLength).toBe(0);
+    },
+  );
+});
 
 describe("AiSdkModelAdapter with the real AI SDK", () => {
   describe("a step with tools and an outputSchema", () => {
