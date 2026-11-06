@@ -38,7 +38,7 @@
   "dependencies": {
     "@clearideas/agent-runtime-contracts": "0.6.2",
     "@clearideas/agent-runtime-core": "0.6.2",
-    "ai": "^7.0.98"
+    "ai": "^7.0.162"
   },
   "devDependencies": {
     "typescript": "^7.0.2",
