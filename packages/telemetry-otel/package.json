@@ -1,6 +1,6 @@
 {
   "name": "@clearideas/agent-runtime-telemetry-otel",
-  "version": "0.6.2",
+  "version": "0.6.3",
   "description": "Privacy-safe OpenTelemetry event sink for Clear Ideas Agent Runtime.",
   "license": "Apache-2.0",
   "author": "Clear Ideas Incorporated",
@@ -36,15 +36,15 @@
     "postpack": "node ../../scripts/cleanup-package-license.mjs"
   },
   "dependencies": {
-    "@clearideas/agent-runtime-contracts": "0.6.2",
-    "@clearideas/agent-runtime-core": "0.6.2"
+    "@clearideas/agent-runtime-contracts": "0.6.3",
+    "@clearideas/agent-runtime-core": "0.6.3"
   },
   "peerDependencies": {
     "@opentelemetry/api": ">=1 <2"
   },
   "devDependencies": {
     "typescript": "^7.0.2",
-    "vitest": "^5.0.0"
+    "vitest": "^5.1.0"
   },
   "engines": {
     "node": ">=24"

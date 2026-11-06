@@ -16,15 +16,18 @@
     "test": "npm run type-check && node --test server.test.ts"
   },
   "dependencies": {
-    "@clearideas/agent-runtime": "0.4.3",
+    "@clearideas/agent-runtime": "0.6.2",
     "ace-builds": "^1.44.0",
     "yaml": "^2.9.0"
   },
   "devDependencies": {
-    "@types/node": "^26.2.0",
+    "@types/node": "^26.6.6",
     "typescript": "^7.0.2"
   },
   "engines": {
     "node": ">=24"
+  },
+  "overrides": {
+    "@hono/node-server": "^2.1.3"
   }
 }

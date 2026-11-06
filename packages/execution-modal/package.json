@@ -1,6 +1,6 @@
 {
   "name": "@clearideas/agent-runtime-execution-modal",
-  "version": "0.6.2",
+  "version": "0.6.3",
   "description": "Modal compute adapter for Agent Runtime execution engines.",
   "license": "Apache-2.0",
   "author": "Clear Ideas Incorporated",
@@ -39,13 +39,13 @@
     "postpack": "node ../../scripts/cleanup-package-license.mjs"
   },
   "dependencies": {
-    "@clearideas/agent-runtime-contracts": "0.6.2",
-    "@clearideas/agent-runtime-execution": "0.6.2"
+    "@clearideas/agent-runtime-contracts": "0.6.3",
+    "@clearideas/agent-runtime-execution": "0.6.3"
   },
   "devDependencies": {
-    "@types/node": "^26.4.0",
+    "@types/node": "^26.6.6",
     "typescript": "^7.0.2",
-    "vitest": "^5.0.0"
+    "vitest": "^5.1.0"
   },
   "engines": {
     "node": ">=24"
