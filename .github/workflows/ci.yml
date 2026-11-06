@@ -113,11 +113,17 @@ jobs:
           node-version: 24
           cache: npm
       - run: npm ci
+      - name: Select the compatibility SDK in workspace manifests
+        run: >-
+          node --input-type=module -e 'import fs from "node:fs"; for (const directory of ["packages/model-ai-sdk", "packages/runtime"]) { const file = `${directory}/package.json`; const manifest = JSON.parse(fs.readFileSync(file, "utf8")); manifest.dependencies.ai = process.env.EXPECTED_AI_VERSION; fs.writeFileSync(file, JSON.stringify(manifest, null, 2) + "\n"); }'
+        env:
+          EXPECTED_AI_VERSION: ${{ matrix.ai }}
       - name: Install the selected AI SDK without changing the lockfile
-        run: npm install --no-save --package-lock=false ai@${{ matrix.ai }}
+        run: npm install --no-save --package-lock=false --ignore-scripts ai@${{ matrix.ai }}
       - run: npm run build
       - name: Require the selected SDK version
-        run: node --input-type=module -e 'import fs from "node:fs"; import assert from "node:assert/strict"; assert.equal(JSON.parse(fs.readFileSync("node_modules/ai/package.json", "utf8")).version, process.env.EXPECTED_AI_VERSION);'
+        run: >-
+          node --input-type=module -e 'import fs from "node:fs"; import assert from "node:assert/strict"; import { createRequire } from "node:module"; import path from "node:path"; for (const directory of ["packages/model-ai-sdk", "packages/runtime"]) { const require = createRequire(path.resolve(directory, "package.json")); assert.equal(JSON.parse(fs.readFileSync(require.resolve("ai/package.json"), "utf8")).version, process.env.EXPECTED_AI_VERSION, directory); }'
         env:
           EXPECTED_AI_VERSION: ${{ matrix.ai }}
       - run: npm test --workspace @clearideas/agent-runtime-model-ai-sdk
