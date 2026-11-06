@@ -278,6 +278,83 @@ describe.skipIf(!bubblewrapAvailable)(
       },
     );
 
+    it("normalizes Windows tool paths and syncs canonical report paths to the host", async () => {
+      const { LocalDirectoryWorkspace } =
+        await import("@clearideas/agent-runtime-store-local");
+      const sandbox = new ProviderRunSandbox({
+        provider: new BubblewrapSandboxProvider({ stateDirectory: state }),
+        image: "host",
+      });
+      const request: RunSandboxOpenRequest = {
+        runId: "paths",
+        attempt: 1,
+        workspaces: [
+          {
+            binding: { ref: "reports" },
+            alias: "notes",
+            mode: "read_write",
+            store: new LocalDirectoryWorkspace({
+              root: attached,
+              mode: "read_write",
+            }),
+          },
+        ],
+        emit: async (type) => ({
+          id: type,
+          runId: "paths",
+          sequence: 1,
+          timestamp: "",
+          type,
+        }),
+      };
+      await sandbox.validate(request);
+      const session = await sandbox.open(request);
+      try {
+        const list = await session.execute({
+          stepId: "list",
+          kind: "builtin",
+          name: "list_files",
+          alias: "notes",
+          arguments: { path: "." },
+        });
+        expect(list.output).toMatchObject({
+          files: [expect.objectContaining({ path: "readme.txt" })],
+        });
+        await session.execute({
+          stepId: "write",
+          kind: "builtin",
+          name: "write_file",
+          alias: "notes",
+          arguments: {
+            path: ".\\reports\\Q3-draft.md",
+            content: "published\n",
+          },
+        });
+        expect(
+          await readFile(path.join(attached, "reports", "Q3-draft.md"), "utf8"),
+        ).toBe("published\n");
+        const read = await session.execute({
+          stepId: "read",
+          kind: "builtin",
+          name: "read_file",
+          alias: "notes",
+          arguments: { path: "/reports//./Q3-draft.md/" },
+        });
+        expect(read.output).toMatchObject({ content: "published" });
+        await expect(
+          session.execute({
+            stepId: "unsafe",
+            kind: "builtin",
+            name: "read_file",
+            alias: "notes",
+            arguments: { path: ".\\..\\outside.md" },
+          }),
+        ).rejects.toMatchObject({ code: "workspace_path_invalid" });
+      } finally {
+        await session.close("completed");
+      }
+    });
+
     it("runs the complete run sandbox with the bundled helper", async () => {
       const provider = new BubblewrapSandboxProvider({ stateDirectory: state });
       const repo = await mkdtemp(

@@ -4,6 +4,8 @@
 
 ### Patch Changes
 
+- Normalize model-supplied workspace tool paths, accepting Windows separators, root-relative and dotted spellings, repeated/trailing separators, and root listing aliases. Preserve canonical safety checks, input globs, and underscore-prefixed filenames; align the tool schema and improve path diagnostics.
+
 - @clearideas/agent-runtime-contracts@0.6.2
   - @clearideas/agent-runtime-core@0.6.2
 
