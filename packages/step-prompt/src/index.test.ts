@@ -733,6 +733,276 @@ describe("PromptStepExecutor", () => {
     ).rejects.toMatchObject({ name: "ModelTimeoutError", timeoutMs: 5 });
   });
 
+  describe("cancellation", () => {
+    const noToolStep: PromptStep = {
+      ...step,
+      tools: undefined,
+      systemPrompt: undefined,
+    };
+    /** Collects unhandled rejections raised while `run` executes. */
+    const unhandledDuring = async (run: () => Promise<unknown>) => {
+      const seen: unknown[] = [];
+      const listener = (reason: unknown) => seen.push(reason);
+      process.on("unhandledRejection", listener);
+      try {
+        await run();
+        await new Promise((resolve) => setTimeout(resolve, 50));
+      } finally {
+        process.off("unhandledRejection", listener);
+      }
+      return seen;
+    };
+    const execute = (
+      model: ModelAdapter,
+      controller: AbortController,
+      abortOn: string,
+      limits: AgentManifest["limits"] = {},
+    ) =>
+      new PromptStepExecutor().execute({
+        runId: "run-cancel",
+        manifest: { ...manifest, steps: [noToolStep], limits },
+        step: noToolStep,
+        stepIndex: 0,
+        variables: {},
+        model,
+        signal: controller.signal,
+        emit: async (type) => {
+          // A host cancels while handling an event, e.g. a user clicks Stop.
+          if (type === abortOn) controller.abort(new Error("cancelled"));
+          return {
+            id: type,
+            runId: "run-cancel",
+            sequence: 1,
+            timestamp: "2026-07-22T00:00:00.000Z",
+            type,
+          };
+        },
+      });
+
+    it("does not create a stream when cancelled by model.started", async () => {
+      const controller = new AbortController();
+      let started = 0;
+      const model: ModelAdapter = {
+        generate: async () => ({ transcript: [] }),
+        stream: () => {
+          started++;
+          return (async function* () {
+            yield { type: "completed" as const, result: { transcript: [] } };
+          })();
+        },
+      };
+      await expect(execute(model, controller, "model.started")).rejects.toThrow(
+        "cancelled",
+      );
+      expect(started).toBe(0);
+    });
+
+    it.each(["generate", "stream"] as const)(
+      "settles cancellation raised synchronously during %s startup",
+      async (mode) => {
+        const controller = new AbortController();
+        const never = new Promise<never>(() => undefined);
+        const model: ModelAdapter =
+          mode === "generate"
+            ? {
+                generate: () => {
+                  controller.abort(new Error("cancelled at startup"));
+                  return never;
+                },
+              }
+            : {
+                generate: async () => ({ transcript: [] }),
+                stream: () => ({
+                  [Symbol.asyncIterator]: () => ({
+                    next: () => {
+                      controller.abort(new Error("cancelled at startup"));
+                      return never;
+                    },
+                  }),
+                }),
+              };
+        await expect(execute(model, controller, "none")).rejects.toThrow(
+          "cancelled at startup",
+        );
+      },
+      1_000,
+    );
+
+    it.each(["throw", "reject"] as const)(
+      "preserves cancellation when iterator cleanup can %s",
+      async (cleanup) => {
+        const controller = new AbortController();
+        let cleaned = 0;
+        const model: ModelAdapter = {
+          generate: async () => ({ transcript: [] }),
+          stream: () => ({
+            [Symbol.asyncIterator]: () => ({
+              next: async () => ({
+                done: false,
+                value: { type: "text-delta" as const, delta: "Working" },
+              }),
+              return: () => {
+                cleaned++;
+                if (cleanup === "throw") throw new Error("cleanup failure");
+                return Promise.reject(new Error("cleanup failure"));
+              },
+            }),
+          }),
+        };
+        const unhandled = await unhandledDuring(async () => {
+          await expect(
+            execute(model, controller, "model.text.delta"),
+          ).rejects.toThrow("cancelled");
+        });
+        expect(cleaned).toBe(1);
+        expect(unhandled).toEqual([]);
+      },
+    );
+
+    it("observes a late rejected read after cancelling an in-flight stream", async () => {
+      const controller = new AbortController();
+      let pending: Promise<never> | undefined;
+      const model: ModelAdapter = {
+        generate: async () => ({ transcript: [] }),
+        stream: () => ({
+          [Symbol.asyncIterator]: () => ({
+            next: () => {
+              pending = new Promise((_resolve, reject) => {
+                setTimeout(() => controller.abort(new Error("cancelled")), 5);
+                setTimeout(
+                  () => reject(new Error("late provider failure")),
+                  15,
+                );
+              });
+              return pending;
+            },
+          }),
+        }),
+      };
+      const unhandled = await unhandledDuring(async () => {
+        await expect(execute(model, controller, "none")).rejects.toThrow(
+          "cancelled",
+        );
+      });
+      expect(pending).toBeDefined();
+      expect(unhandled).toEqual([]);
+    });
+
+    it("does not leave a rejected stream read unobserved", async () => {
+      const controller = new AbortController();
+      // Like the AI SDK adapter: once aborted, the next read fails.
+      const model: ModelAdapter = {
+        generate: async () => ({ transcript: [] }),
+        async *stream(request) {
+          yield { type: "text-delta", delta: "Working" };
+          await new Promise((resolve) => setTimeout(resolve, 5));
+          if (request.signal?.aborted) throw new Error("Model stream aborted.");
+          yield {
+            type: "completed",
+            result: { output: "done", transcript: [] },
+          };
+        },
+      };
+      const unhandled = await unhandledDuring(async () => {
+        await expect(
+          execute(model, controller, "model.text.delta"),
+        ).rejects.toThrow("cancelled");
+      });
+      expect(unhandled).toEqual([]);
+    });
+
+    it("does not start another model turn when cancelled during a tool call", async () => {
+      const controller = new AbortController();
+      const toolStep: PromptStep = { ...noToolStep, tools: ["lookup"] };
+      let modelCalls = 0;
+      const model: ModelAdapter = {
+        generate: async () => ({ transcript: [] }),
+        async *stream(request) {
+          modelCalls += 1;
+          // Like the AI SDK adapter: an aborted request fails when read.
+          if (request.signal?.aborted) throw new Error("Model stream aborted.");
+          const call = { id: "call-1", name: "lookup", input: {} };
+          yield { type: "tool-call", call };
+          yield {
+            type: "completed",
+            result: { toolCalls: [call], transcript: [] },
+          };
+        },
+      };
+      const tools: ToolAdapter = {
+        listTools: async () => [
+          { name: "lookup", inputSchema: { type: "object" } },
+        ],
+        executeTool: async (call) => {
+          // The user cancels while a sandbox command runs.
+          controller.abort(new Error("cancelled"));
+          await new Promise((resolve) => setTimeout(resolve, 5));
+          return {
+            callId: call.id,
+            name: call.name,
+            error: { code: "sandbox_unavailable", message: "cancelled" },
+          };
+        },
+      };
+      const unhandled = await unhandledDuring(async () => {
+        await expect(
+          new PromptStepExecutor().execute({
+            runId: "run-cancel",
+            manifest: { ...manifest, steps: [toolStep] },
+            step: toolStep,
+            stepIndex: 0,
+            variables: {},
+            model,
+            tools,
+            signal: controller.signal,
+            emit: async (type) => ({
+              id: type,
+              runId: "run-cancel",
+              sequence: 1,
+              timestamp: "2026-07-22T00:00:00.000Z",
+              type,
+            }),
+          }),
+        ).rejects.toThrow("cancelled");
+      });
+      expect(unhandled).toEqual([]);
+      expect(modelCalls).toBe(1);
+    });
+
+    it("does not leave a rejected generate call unobserved", async () => {
+      const controller = new AbortController();
+      const model: ModelAdapter = {
+        generate: async (request) => {
+          await new Promise((resolve) => setTimeout(resolve, 5));
+          if (request.signal?.aborted) throw new Error("Request aborted.");
+          return { output: "done", transcript: [] };
+        },
+      };
+      const unhandled = await unhandledDuring(async () => {
+        await expect(
+          execute(model, controller, "model.started"),
+        ).rejects.toThrow("cancelled");
+      });
+      expect(unhandled).toEqual([]);
+    });
+
+    it("enforces provider timeout when a streaming adapter ignores abort", async () => {
+      const never = new Promise<never>(() => undefined);
+      const model: ModelAdapter = {
+        generate: async () => never,
+        async *stream() {
+          yield { type: "text-delta", delta: "Working" };
+          await never;
+        },
+      };
+      await expect(
+        execute(model, new AbortController(), "none", {
+          providerTimeoutMs: 20,
+        }),
+      ).rejects.toMatchObject({ name: "ModelTimeoutError", timeoutMs: 20 });
+    }, 2_000);
+  });
+
   it("fails truncated output by default and allows an explicit partial-output policy", async () => {
     const truncatedModel: ModelAdapter = {
       generate: async () => ({

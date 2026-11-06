@@ -94,25 +94,45 @@ const modelOperation = (
   };
 };
 
+/**
+ * Run `start` unless the signal is already aborted, and settle with whichever
+ * comes first: the operation or the abort. The operation is started here, not
+ * by the caller, so a cancelled request never starts work whose rejection
+ * nothing would observe; once started, its outcome is always observed.
+ */
 const raceWithSignal = async <T>(
-  operation: Promise<T>,
+  start: () => Promise<T>,
   signal?: AbortSignal,
 ): Promise<T> => {
-  if (!signal) return operation;
+  if (!signal) return start();
   if (signal.aborted) throw abortReason(signal);
   return new Promise<T>((resolve, reject) => {
-    const onAbort = (): void => reject(abortReason(signal));
+    const cleanup = (): void => signal.removeEventListener("abort", onAbort);
+    const onAbort = (): void => {
+      cleanup();
+      reject(abortReason(signal));
+    };
+    // Subscribe before invoking host code: start() may abort synchronously.
     signal.addEventListener("abort", onAbort, { once: true });
-    operation.then(
-      (value) => {
-        signal.removeEventListener("abort", onAbort);
-        resolve(value);
-      },
-      (error) => {
-        signal.removeEventListener("abort", onAbort);
-        reject(error);
-      },
-    );
+    if (signal.aborted) {
+      onAbort();
+      return;
+    }
+    try {
+      Promise.resolve(start()).then(
+        (value) => {
+          cleanup();
+          resolve(value);
+        },
+        (error) => {
+          cleanup();
+          reject(error);
+        },
+      );
+    } catch (error) {
+      cleanup();
+      reject(error);
+    }
   });
 };
 
@@ -482,6 +502,8 @@ export class PromptStepExecutor implements StepExecutor<PromptStep> {
 
     while (true) {
       if (!result) {
+        // A run cancelled during a tool call must not start another turn.
+        if (context.signal?.aborted) throw abortReason(context.signal);
         suspendIfExhausted();
         enforceInputLimits(context, messages);
         const providerOptions = modelOptions(context.step, context);
@@ -669,13 +691,20 @@ export class PromptStepExecutor implements StepExecutor<PromptStep> {
     request: ModelRequest,
   ): Promise<ModelResult> {
     if (!context.model?.stream) {
-      return raceWithSignal(context.model!.generate(request), request.signal);
+      return raceWithSignal(
+        () => context.model!.generate(request),
+        request.signal,
+      );
     }
+    if (request.signal?.aborted) throw abortReason(request.signal);
     let completed: ModelResult | undefined;
     const iterator = context.model.stream(request)[Symbol.asyncIterator]();
     try {
       while (true) {
-        const next = await raceWithSignal(iterator.next(), request.signal);
+        const next = await raceWithSignal(
+          () => iterator.next(),
+          request.signal,
+        );
         if (next.done) break;
         const event = next.value;
         if (event.type === "text-delta") {
@@ -687,7 +716,13 @@ export class PromptStepExecutor implements StepExecutor<PromptStep> {
         }
       }
     } finally {
-      if (request.signal?.aborted) await iterator.return?.();
+      // Ask the adapter to clean up, but do not wait: an async generator
+      // queues return() behind a pending next(), so awaiting it would block
+      // cancellation and timeouts on an adapter that ignores the signal.
+      if (request.signal?.aborted)
+        void Promise.resolve()
+          .then(() => iterator.return?.())
+          .catch(() => undefined);
     }
     if (!completed)
       throw new Error("Model stream ended without a completed result");

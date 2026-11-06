@@ -180,6 +180,73 @@ describe("ApprovalStepExecutor", () => {
     await vi.advanceTimersByTimeAsync(25);
     await rejection;
   });
+
+  it("settles cancellation raised synchronously by an approval adapter", async () => {
+    const step: ApprovalStep = {
+      id: "approval-startup",
+      type: "approval",
+      prompt: "Approve {{ quarter }}?",
+    };
+    const controller = new AbortController();
+    await expect(
+      new ApprovalStepExecutor().execute({
+        runId: "r",
+        manifest: manifestFor(step),
+        step,
+        stepIndex: 0,
+        variables: { quarter: "Q4" },
+        signal: controller.signal,
+        approvals: {
+          requestApproval: (request) => {
+            expect(request.prompt).toBe("Approve Q4?");
+            controller.abort(new Error("cancelled at startup"));
+            return new Promise(() => undefined);
+          },
+        },
+        emit: eventCollector().emit,
+      }),
+    ).rejects.toThrow("cancelled at startup");
+  }, 1_000);
+
+  it("does not start an approval request once the run is cancelled", async () => {
+    const step: ApprovalStep = {
+      id: "approval-cancelled",
+      type: "approval",
+      prompt: "Continue?",
+    };
+    const controller = new AbortController();
+    const requested = vi.fn(async () => {
+      // e.g. a durable host that suspends the run until a person decides.
+      throw new Error("suspended");
+    });
+    const unhandled: unknown[] = [];
+    const listener = (reason: unknown) => unhandled.push(reason);
+    process.on("unhandledRejection", listener);
+    try {
+      await expect(
+        new ApprovalStepExecutor().execute({
+          runId: "run-1",
+          manifest: manifestFor(step),
+          step,
+          stepIndex: 0,
+          variables: {},
+          approvals: { requestApproval: requested },
+          signal: controller.signal,
+          emit: async (type, data) => {
+            // The user cancels while the host handles the event.
+            if (type === "approval.requested")
+              controller.abort(new Error("cancelled"));
+            return eventCollector().emit(type, data);
+          },
+        }),
+      ).rejects.toThrow("cancelled");
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    } finally {
+      process.off("unhandledRejection", listener);
+    }
+    expect(requested).not.toHaveBeenCalled();
+    expect(unhandled).toEqual([]);
+  });
 });
 
 describe("WebhookStepExecutor", () => {
@@ -390,6 +457,38 @@ describe("WebhookStepExecutor", () => {
 
     await expect(execution).rejects.toBeInstanceOf(WebhookResponseError);
     expect(cancelled).toBe(true);
+  });
+});
+
+describe("code step cancellation admission", () => {
+  it("does not start the sandbox after cancellation in code.execution.started", async () => {
+    const step: CodeStep = {
+      id: "cancel-code",
+      type: "code",
+      language: "python",
+      code: "print('hello')",
+    };
+    const controller = new AbortController();
+    const execute = vi.fn(async () => {
+      throw new Error("should not start");
+    });
+    await expect(
+      new CodeStepExecutor().execute({
+        runId: "r",
+        manifest: manifestFor(step),
+        step,
+        stepIndex: 0,
+        variables: {},
+        signal: controller.signal,
+        sandbox: { execute },
+        emit: async (type, data) => {
+          if (type === "code.execution.started")
+            controller.abort(new Error("cancelled"));
+          return eventCollector().emit(type, data);
+        },
+      }),
+    ).rejects.toThrow("cancelled");
+    expect(execute).not.toHaveBeenCalled();
   });
 });
 
