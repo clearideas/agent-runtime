@@ -501,11 +501,15 @@ describe.skipIf(!hasPython)(
             context,
           ),
         ).resolves.toMatchObject({
-          output: { files: expect.arrayContaining([expect.objectContaining({ path: "facts.txt" })]) },
+          output: {
+            files: expect.arrayContaining([
+              expect.objectContaining({ path: "facts.txt" }),
+            ]),
+          },
         });
       }
 
-
+      const wc = await composed.tools!.executeTool(
         { id: "call-3", name: "mem__wc", input: { file: ".\\facts.txt" } },
         context,
       );
