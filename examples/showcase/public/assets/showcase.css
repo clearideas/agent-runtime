@@ -30,6 +30,7 @@
   --red: #f87171;
   --violet: #a78bfa;
   --radius: 14px;
+  --nav-height: 64px;
   --font:
     ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto,
     "Helvetica Neue", Arial, sans-serif;
@@ -82,6 +83,7 @@ textarea {
 /* ───────────── Top bar ───────────── */
 
 .topbar {
+  height: var(--nav-height);
   position: sticky;
   top: 0;
   z-index: 20;
@@ -93,7 +95,8 @@ textarea {
 .topbar-inner {
   max-width: 1280px;
   margin: 0 auto;
-  padding: 12px 28px;
+  height: 100%;
+  padding: 0 28px;
   display: flex;
   align-items: center;
   gap: 16px;
@@ -101,6 +104,8 @@ textarea {
 
 .brand {
   display: flex;
+  flex-shrink: 0;
+  white-space: nowrap;
   align-items: center;
   gap: 12px;
   color: color-mix(in srgb, var(--text) 78%, transparent);
@@ -131,6 +136,45 @@ textarea {
 
 .spacer {
   flex: 1;
+}
+
+/* Controls must not change the shared header height between pages. */
+.topbar .button {
+  height: 40px;
+  flex-shrink: 0;
+  padding: 0 14px;
+  line-height: 1.2;
+  white-space: nowrap;
+}
+
+@media (max-width: 600px) {
+  .topbar-inner {
+    padding: 0 16px;
+    gap: 8px;
+  }
+  .topbar .brand {
+    gap: 8px;
+  }
+  .topbar #sandbox-chip {
+    font-size: 0;
+    padding: 8px;
+    gap: 0;
+  }
+  .topbar .chip:not(#sandbox-chip) {
+    display: none;
+  }
+  .topbar .button {
+    height: 36px;
+    padding: 0 10px;
+    gap: 6px;
+    font-size: 13px;
+  }
+}
+
+@media (max-width: 380px) {
+  .topbar .brand span {
+    display: none;
+  }
 }
 
 /* ───────────── Basics ───────────── */
