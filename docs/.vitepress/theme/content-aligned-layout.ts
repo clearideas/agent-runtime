@@ -9,19 +9,19 @@ import {
 import { useRoute } from "vitepress";
 import DefaultTheme from "vitepress/theme";
 
-/** Keep the brand aligned with the rendered article, including aside/route changes. */
+/** Keep the brand aligned with the main content area before its inner text padding, including aside/route changes. */
 export default defineComponent({
   setup() {
     const route = useRoute();
     let observer: ResizeObserver | undefined;
     let frame = 0;
     const update = () => {
-      const article = document.querySelector(".VPDoc .content-container");
+      const content = document.querySelector(".VPDoc > .container > .content");
       const style = document.documentElement.style;
-      if (article)
+      if (content)
         style.setProperty(
           "--docs-content-left",
-          `${article.getBoundingClientRect().left}px`,
+          `${content.getBoundingClientRect().left}px`,
         );
       else style.removeProperty("--docs-content-left");
     };
@@ -29,22 +29,22 @@ export default defineComponent({
       cancelAnimationFrame(frame);
       frame = requestAnimationFrame(update);
     };
-    const observeArticle = () => {
+    const observeContent = () => {
       if (!observer) return;
       observer.disconnect();
       observer.observe(document.documentElement);
-      const article = document.querySelector(".VPDoc .content-container");
-      if (article) observer.observe(article);
+      const content = document.querySelector(".VPDoc > .container > .content");
+      if (content) observer.observe(content);
       schedule();
     };
     onMounted(() => {
       observer = new ResizeObserver(schedule);
-      observeArticle();
+      observeContent();
       window.addEventListener("resize", schedule);
     });
     watch(
       () => route.path,
-      () => void nextTick(observeArticle),
+      () => void nextTick(observeContent),
       { flush: "post" },
     );
     onUnmounted(() => {

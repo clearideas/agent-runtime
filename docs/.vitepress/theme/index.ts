@@ -1,13 +1,13 @@
 import { inBrowser, type Theme } from "vitepress";
 import DefaultTheme from "vitepress/theme";
-import ArticleAlignedLayout from "./article-aligned-layout";
+import ContentAlignedLayout from "./content-aligned-layout";
 
 import { initializeDocumentationAnalytics } from "./analytics";
 import "./style.css";
 
 const theme: Theme = {
   extends: DefaultTheme,
-  Layout: ArticleAlignedLayout,
+  Layout: ContentAlignedLayout,
   enhanceApp({ router }) {
     if (inBrowser) {
       void initializeDocumentationAnalytics(router);

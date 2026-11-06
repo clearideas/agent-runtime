@@ -89,7 +89,7 @@
   .VPNavBar.has-sidebar > .wrapper > .container {
     align-items: center;
     padding: 0 32px 0
-      var(--docs-content-left, calc(var(--vp-sidebar-width) + 64px));
+      var(--docs-content-left, calc(var(--vp-sidebar-width) + 32px));
   }
 
   .VPNavBar.has-sidebar > .wrapper > .container > .title {
@@ -107,7 +107,6 @@
   .VPNavBar.has-sidebar .content {
     min-width: 0;
     padding: 0 0 0 24px;
-    min-width: 0;
     position: static;
   }
 
@@ -117,7 +116,7 @@
   }
 }
 
-/* Keep navigation usable when the article-aligned brand leaves less room. */
+/* Keep navigation usable when the content-aligned brand leaves less room. */
 @media (min-width: 960px) and (max-width: 1279px) {
   .VPNavBar.has-sidebar .content {
     padding-left: 16px;
