@@ -336,23 +336,37 @@ const operationSignal = (
 };
 
 const raceWithSignal = async <T>(
-  promise: Promise<T>,
+  start: () => Promise<T>,
   signal: AbortSignal,
 ): Promise<T> => {
   if (signal.aborted) throw abortReason(signal);
   return new Promise<T>((resolve, reject) => {
-    const onAbort = (): void => reject(abortReason(signal));
+    const cleanup = (): void => signal.removeEventListener("abort", onAbort);
+    const onAbort = (): void => {
+      cleanup();
+      reject(abortReason(signal));
+    };
+    // Subscribe before invoking host code: start() may abort synchronously.
     signal.addEventListener("abort", onAbort, { once: true });
-    promise.then(
-      (value) => {
-        signal.removeEventListener("abort", onAbort);
-        resolve(value);
-      },
-      (error) => {
-        signal.removeEventListener("abort", onAbort);
-        reject(error);
-      },
-    );
+    if (signal.aborted) {
+      onAbort();
+      return;
+    }
+    try {
+      Promise.resolve(start()).then(
+        (value) => {
+          cleanup();
+          resolve(value);
+        },
+        (error) => {
+          cleanup();
+          reject(error);
+        },
+      );
+    } catch (error) {
+      cleanup();
+      reject(error);
+    }
   });
 };
 
@@ -429,6 +443,7 @@ export class ApprovalStepExecutor implements StepExecutor<ApprovalStep> {
         `Approval step ${context.step.id} requires an ApprovalAdapter`,
       );
     }
+    const approvals = context.approvals;
     if (context.signal?.aborted) throw abortReason(context.signal);
 
     await context.emit("approval.requested", {
@@ -438,20 +453,21 @@ export class ApprovalStepExecutor implements StepExecutor<ApprovalStep> {
     let result;
     try {
       result = await raceWithSignal(
-        context.approvals.requestApproval(
-          {
-            runId: context.runId,
-            stepId: context.step.id,
-            prompt: compilePromptTemplate(
-              context.step.prompt,
-              context.variables,
-            ),
-            ...(context.step.metadata
-              ? { details: context.step.metadata }
-              : {}),
-          },
-          { signal: operation.signal },
-        ),
+        () =>
+          approvals.requestApproval(
+            {
+              runId: context.runId,
+              stepId: context.step.id,
+              prompt: compilePromptTemplate(
+                context.step.prompt,
+                context.variables,
+              ),
+              ...(context.step.metadata
+                ? { details: context.step.metadata }
+                : {}),
+            },
+            { signal: operation.signal },
+          ),
         operation.signal,
       );
     } catch (error) {
@@ -749,7 +765,7 @@ export class WebhookStepExecutor implements StepExecutor<WebhookStep> {
       let output: JsonValue | undefined;
       try {
         output = await raceWithSignal(
-          readWebhookOutput(response, this.#maximumResponseBytes),
+          () => readWebhookOutput(response, this.#maximumResponseBytes),
           operation.signal,
         );
       } catch (error) {
@@ -824,6 +840,7 @@ export class CodeStepExecutor implements StepExecutor<CodeStep> {
     if (!context.sandbox) {
       throw new Error(`Code step ${context.step.id} requires a SandboxAdapter`);
     }
+    const sandbox = context.sandbox;
     if (context.signal?.aborted) throw abortReason(context.signal);
     const timeoutMs = positiveInteger(
       context.step.timeoutMs,
@@ -840,20 +857,21 @@ export class CodeStepExecutor implements StepExecutor<CodeStep> {
     let result;
     try {
       result = await raceWithSignal(
-        context.sandbox.execute(
-          {
-            runId: context.runId,
-            stepId: context.step.id,
-            language: context.step.language,
-            code: context.step.code,
-            variables: context.variables,
-            ...(context.step.environment
-              ? { environment: context.step.environment }
-              : {}),
-            timeoutMs,
-          },
-          { signal: operation.signal },
-        ),
+        () =>
+          sandbox.execute(
+            {
+              runId: context.runId,
+              stepId: context.step.id,
+              language: context.step.language,
+              code: context.step.code,
+              variables: context.variables,
+              ...(context.step.environment
+                ? { environment: context.step.environment }
+                : {}),
+              timeoutMs,
+            },
+            { signal: operation.signal },
+          ),
         operation.signal,
       );
     } catch (error) {

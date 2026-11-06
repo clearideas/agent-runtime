@@ -26,6 +26,69 @@ function request(overrides: Partial<ModelRequest> = {}): ModelRequest {
 }
 
 describe("AiSdkModelAdapter", () => {
+  it("keeps remote tool artifacts as tagged URLs", async () => {
+    let received: AiSdkCallOptions | undefined;
+    const adapter = new AiSdkModelAdapter({
+      resolveModel: () => fakeModel,
+      generateText: async (options) => {
+        received = options;
+        return { text: "done", toolCalls: [] };
+      },
+    });
+    await adapter.generate(
+      request({
+        messages: [
+          {
+            role: "tool",
+            content: [
+              {
+                type: "tool-result",
+                result: {
+                  callId: "call-1",
+                  name: "image",
+                  artifacts: [
+                    {
+                      id: "remote",
+                      name: "image.png",
+                      mediaType: "image/png",
+                      uri: "https://example.test/image.png",
+                    },
+                  ],
+                },
+              },
+            ],
+          },
+        ],
+      }),
+    );
+    expect(received?.messages).toEqual([
+      {
+        role: "tool",
+        content: [
+          {
+            type: "tool-result",
+            toolCallId: "call-1",
+            toolName: "image",
+            output: {
+              type: "content",
+              value: [
+                {
+                  type: "file",
+                  mediaType: "image/png",
+                  filename: "image.png",
+                  data: {
+                    type: "url",
+                    url: new URL("https://example.test/image.png"),
+                  },
+                },
+              ],
+            },
+          },
+        ],
+      },
+    ]);
+  });
+
   it.each(["setup", "stream"])(
     "propagates %s failures without SDK stderr logging",
     async (phase) => {
@@ -217,8 +280,10 @@ describe("AiSdkModelAdapter", () => {
       openai: { reasoningEffort: "low" },
     });
     expect(received?.maxOutputTokens).toBe(256);
+    // A tool-call turn is not the final answer: its structured output is not
+    // read (the real AI SDK throws when it is), and the turn's text is kept.
     expect(result).toEqual({
-      output: { answer: 42 },
+      output: "",
       transcript: [
         {
           id: "message_1",
@@ -414,7 +479,7 @@ describe("AiSdkModelAdapter", () => {
                 { type: "text", text: '{"found":true}' },
                 {
                   type: "file",
-                  data: new URL("data:image/png;base64,AQID"),
+                  data: { type: "data", data: "AQID" },
                   mediaType: "image/png",
                   filename: "result.png",
                 },

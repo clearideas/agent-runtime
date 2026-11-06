@@ -287,8 +287,12 @@ export class AiSdkModelAdapter implements ModelAdapter {
       }
     }
 
+    // A turn that calls tools is not the step's final answer, so there is no
+    // structured output to read yet; only the final turn is parsed.
     const structuredOutput =
-      request.outputSchema == null ? undefined : await result.output;
+      request.outputSchema == null || toolCalls.length > 0
+        ? undefined
+        : await result.output;
     const responseMessages =
       result.responseMessages == null
         ? undefined
@@ -364,17 +368,21 @@ export class AiSdkModelAdapter implements ModelAdapter {
     request: ModelRequest,
     result: AiSdkGenerateResult,
   ): ModelResult {
+    const toolCalls = result.toolCalls.map(toToolCall);
     return this.#buildModelResult({
       request,
       text: result.text,
       reasoning: result.reasoningText ?? "",
-      toolCalls: result.toolCalls.map(toToolCall),
+      toolCalls,
       finishReason: result.finishReason,
       usage: result.totalUsage,
       providerMetadata: result.providerMetadata,
       responseMessages: result.responseMessages,
+      // Reading `output` on a tool-call turn throws (there is no final answer).
       structuredOutput:
-        request.outputSchema == null ? undefined : result.output,
+        request.outputSchema == null || toolCalls.length > 0
+          ? undefined
+          : result.output,
     });
   }
 
@@ -499,13 +507,32 @@ type AiSdkToolResultPart = Extract<
   { type: "tool-result" }
 >;
 
+type ToolResultContentValue = Extract<
+  AiSdkToolResultPart["output"],
+  { type: "content" }
+>["value"];
+
+/**
+ * Tool-result files accept only tagged file data in AI SDK 7. step-prompt
+ * resolves stored artifacts to base64 data: URLs, which are sent as inline
+ * bytes; any other URI is sent as a URL.
+ */
+const toolResultFileData = (
+  uri: string,
+): { type: "data"; data: string } | { type: "url"; url: URL } => {
+  const inline = /^data:[^,]*;base64,(.*)$/su.exec(uri);
+  return inline
+    ? { type: "data", data: inline[1]! }
+    : { type: "url", url: new URL(uri) };
+};
+
 const toAiSdkToolResultPart = (
   part: Extract<ModelMessage["content"][number], { type: "tool-result" }>,
 ): AiSdkToolResultPart => {
   const result = part.result;
   let output: AiSdkToolResultPart["output"];
   if (result.artifacts != null && result.artifacts.length > 0) {
-    const value: Array<Record<string, unknown>> = [];
+    const value: ToolResultContentValue = [];
     if (result.output !== undefined) {
       value.push({
         type: "text",
@@ -523,12 +550,12 @@ const toAiSdkToolResultPart = (
       }
       value.push({
         type: "file",
-        data: new URL(artifact.uri),
+        data: toolResultFileData(artifact.uri),
         mediaType: artifact.mediaType,
         filename: artifact.name,
       });
     }
-    output = { type: "content", value } as AiSdkToolResultPart["output"];
+    output = { type: "content", value };
   } else {
     output =
       result.error == null
