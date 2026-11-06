@@ -311,12 +311,29 @@ Application-native tools implement `ToolAdapter`:
 ```ts
 interface ToolAdapter {
   listTools(): Promise<AgentTool[]>;
+  isToolExcluded?(name: string): boolean;
   executeTool(
     call: ToolCall,
     context: ToolExecutionContext,
   ): Promise<ToolResult>;
 }
 ```
+
+A wrapper around another `ToolAdapter` must preserve its exclusion behavior.
+Forward `isToolExcluded` as well as discovery and execution, keeping the inner
+adapter as the method receiver:
+
+```ts
+isToolExcluded(name: string): boolean {
+  return this.inner.isToolExcluded?.(name) === true;
+}
+```
+
+This distinguishes tools explicitly removed by host policy from misspelled or
+unavailable tools. Without forwarding, a prompt step naming an excluded tool
+fails with `Tool <name> is not available`. Adapters that never exclude tools
+can omit the method. See the showcase's `ObservedToolAdapter` for a wrapper
+that preserves this behavior.
 
 Example runtime module:
 

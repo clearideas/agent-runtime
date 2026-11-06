@@ -32,7 +32,9 @@
     "release:check": "npm run validate",
     "release:packages": "changeset publish",
     "test:examples": "node --test examples/patterns/patterns.test.mjs examples/patterns/anthropic-compatibility.test.mjs",
-    "check:consumer": "node scripts/check-consumer.mjs"
+    "check:consumer": "node scripts/check-consumer.mjs",
+    "example:showcase": "npm --prefix examples/showcase start",
+    "test:showcase": "npm --prefix examples/showcase test"
   },
   "engines": {
     "node": ">=24"

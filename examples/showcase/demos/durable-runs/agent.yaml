@@ -1,0 +1,84 @@
+schemaVersion: "1.0"
+id: quarterly-report
+name: Quarterly report
+description: >-
+  Draft a quarterly revenue report from read-only data, wait for a person to
+  approve it, then publish it. The run can pause for as long as it needs.
+
+model:
+  ref: default
+
+variables:
+  - key: quarter
+    type: string
+    value: Q3
+    description: The quarter to report on.
+
+workspaces:
+  # Read-only: the agent can look but never change the source data.
+  - ref: sales-data
+    alias: data
+    mode: read
+    tools: [list_files, read_file]
+  # Read-write: drafts written here outlive the run's sandbox.
+  - ref: reports
+    alias: reports
+    mode: read_write
+    tools: [list_files, read_file, write_file]
+
+limits:
+  maxToolCallsPerIteration: 8
+  providerTimeoutMs: 120000
+
+steps:
+  - id: draft
+    name: Draft
+    type: prompt
+    systemPrompt: >-
+      You prepare concise quarterly revenue reports. Read the data files with
+      data__read_file, compare with the previous quarter, and write a Markdown
+      draft with reports__write_file. A tool's path is relative to that
+      tool's own workspace, never prefixed with the workspace's name; call
+      reports__list_files first and match the bare filenames you see there,
+      such as README.md. Use only numbers from the files.
+    prompt: |-
+      Prepare the draft {{ quarter }} revenue report. List the reports
+      workspace, then write the report with reports__write_file using
+      exactly the path "{{ quarter }}-draft.md", then summarize it in one
+      sentence.
+    tools:
+      [
+        data__list_files,
+        data__read_file,
+        reports__list_files,
+        reports__write_file,
+      ]
+    outputVariable: draftSummary
+
+  # The host's ApprovalAdapter decides. This host pauses the run until a
+  # person responds in the browser; the run is saved while it waits.
+  - id: review
+    name: Review
+    type: approval
+    # The prompt is templated like a prompt step's, so the reviewer sees
+    # which report they are approving.
+    prompt: Publish the {{ quarter }} revenue report?
+    outputVariable: approval
+
+  - id: publish
+    name: Publish
+    type: prompt
+    systemPrompt: >-
+      You publish approved reports. Call reports__list_files first and read
+      the listed path whose name is {{ quarter }}-draft.md with
+      reports__read_file, even if an earlier attempt placed it somewhere
+      other than the workspace's own root; do not guess the path without
+      listing. Mark it approved with the reviewer's name and write the final
+      report with reports__write_file as {{ quarter }}-report.md at the
+      workspace's own root. Do not change the numbers.
+    prompt: |-
+      Publish {{ quarter }}-draft.md as {{ quarter }}-report.md.
+      Approval: {{ approval }}
+    tools: [reports__list_files, reports__read_file, reports__write_file]
+    outputVariable: publication
+    includeInFinalOutput: true

@@ -143,3 +143,58 @@ jobs:
           node --input-type=module -e 'import { BubblewrapSandboxProvider } from "./packages/sandbox/dist/index.js"; await new BubblewrapSandboxProvider().probe();'
       - run: npm test --workspace @clearideas/agent-runtime-sandbox
       - run: npm test --workspace @clearideas/agent-runtime
+
+  showcase:
+    name: Showcase example (${{ matrix.sandbox }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        sandbox:
+          - bubblewrap
+          - unisolated
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: 24
+      - name: Install the sandbox
+        if: matrix.sandbox == 'bubblewrap'
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes bubblewrap python3
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+      - run: npm ci
+        working-directory: examples/showcase
+      - run: npm audit --audit-level=moderate
+        working-directory: examples/showcase
+      - name: Require the selected sandbox
+        working-directory: examples/showcase
+        run: >-
+          node --input-type=module -e 'import assert from "node:assert/strict"; import { detectEnvironment } from "./lib/environment.ts"; const environment = await detectEnvironment({ host: "127.0.0.1", preference: process.env.SHOWCASE_SANDBOX }); assert.equal(environment.sandbox.kind, process.env.SHOWCASE_SANDBOX);'
+        env:
+          SHOWCASE_SANDBOX: ${{ matrix.sandbox }}
+      - run: npm test
+        working-directory: examples/showcase
+        env:
+          SHOWCASE_SANDBOX: ${{ matrix.sandbox }}
+
+  showcase-windows:
+    name: Showcase host on Windows
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: 24
+      - run: npm ci
+        working-directory: examples/showcase
+      - run: npm audit --audit-level=moderate
+        working-directory: examples/showcase
+      - name: Test the HTTP host, orchestration and browser state
+        run: npm test
+        working-directory: examples/showcase
+        env:
+          SHOWCASE_SANDBOX: none

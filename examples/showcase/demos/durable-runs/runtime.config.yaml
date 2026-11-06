@@ -1,0 +1,27 @@
+version: "1.0"
+
+# Used in Live mode. Scripted mode supplies its own model adapter.
+models:
+  default:
+    provider: openai
+    model: gpt-6-luna
+
+workspaces:
+  sales-data:
+    driver: local
+    root:
+      env: SHOWCASE_SALES_ROOT
+    mode: read
+  reports:
+    driver: local
+    root:
+      env: SHOWCASE_REPORTS_ROOT
+    mode: read_write
+
+# A new sandbox opens for every attempt: when the run pauses, the sandbox
+# closes; when it resumes, files are staged again from the host's stores.
+sandbox:
+  driver: bubblewrap
+  limits:
+    commandTimeoutMs: 30000
+    maxCommandsPerRun: 24

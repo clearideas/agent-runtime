@@ -38,6 +38,7 @@ if (rootManifest.private !== true) {
 for (const relativeManifest of [
   path.join("docs", "package.json"),
   path.join("examples", "interactive-web", "package.json"),
+  path.join("examples", "showcase", "package.json"),
 ]) {
   const manifest = JSON.parse(
     await readFile(path.join(root, relativeManifest), "utf8"),

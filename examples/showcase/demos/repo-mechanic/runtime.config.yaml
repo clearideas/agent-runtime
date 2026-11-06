@@ -1,0 +1,35 @@
+version: "1.0"
+
+# Used in Live mode. Scripted mode supplies its own model adapter, and
+# SHOWCASE_PROVIDER / SHOWCASE_MODEL override this profile at startup.
+models:
+  default:
+    provider: openai
+    model: gpt-6-luna
+
+workspaces:
+  invoice-service:
+    driver: local
+    # The host resolves the directory per run; manifests never contain paths.
+    root:
+      env: SHOWCASE_REPO_ROOT
+    mode: read_write
+    include: ["README.md", "src/**", "tests/**"]
+    exclude: ["**/__pycache__/**"]
+    maxFileBytes: 262144
+
+# One isolated sandbox per run attempt. The showcase swaps in Docker, or a
+# clearly labelled unisolated fallback, when bubblewrap is unavailable.
+sandbox:
+  driver: bubblewrap
+  limits:
+    commandTimeoutMs: 30000
+    maxCommandsPerRun: 16
+    maxTotalSandboxSeconds: 120
+  commands:
+    # A fixed argv: the model can run the tests but cannot change the command.
+    run_tests:
+      description: Run the repository's unit tests and return their output.
+      argv: [python3, -B, -m, unittest, discover, -s, tests, -v]
+  shell:
+    enabled: false

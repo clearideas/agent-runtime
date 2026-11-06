@@ -40,6 +40,20 @@ npm install @clearideas/agent-runtime
 
 See [embedding](https://agent-runtime.clearideas.com/embedding) for a minimal host.
 
+## Run the showcase
+
+Explore five end-to-end demos with real workspaces, sandbox commands, approvals,
+checkpoints, MCP tools and remote execution. Scripted mode needs no API key.
+
+```sh
+cd examples/showcase
+npm ci
+npm start
+```
+
+Open http://127.0.0.1:4178. See the [showcase guide](examples/showcase/README.md)
+for Docker on Windows, live models and setup checks.
+
 ## Learn three patterns
 
 From a source checkout, `npm ci && npm run build`, then try the

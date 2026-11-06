@@ -1,0 +1,4 @@
+# Keep fixtures and sources byte-identical on every platform. Windows
+# checkouts would otherwise convert the demo files to CRLF line endings.
+* text=auto eol=lf
+*.png binary
