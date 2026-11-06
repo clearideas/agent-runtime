@@ -20,7 +20,7 @@ const requiredPages = [
   "README.md",
   "index.md",
   "quickstart.md",
-  "interactive-example.md",
+  "showcase.md",
   "concepts.md",
   "build-agents.md",
   "manifests.md",
@@ -104,9 +104,19 @@ const yamlExamples = (await readdir(exampleDirectory)).filter(
     file.endsWith(".run.yaml") ||
     file.endsWith(".config.yaml"),
 );
-const sourceAgentExamples = [
-  path.join("examples", "interactive-web", "interactive-brief.agent.yaml"),
+const showcaseDemos = [
+  "repo-mechanic",
+  "durable-runs",
+  "guardrails",
+  "document-library",
+  "orchestration",
 ];
+const sourceAgentExamples = showcaseDemos.map((demo) =>
+  path.join("examples", "showcase", "demos", demo, "agent.yaml"),
+);
+const sourceConfigExamples = showcaseDemos.map((demo) =>
+  path.join("examples", "showcase", "demos", demo, "runtime.config.yaml"),
+);
 
 const rootName = (variablePath) => variablePath?.split(".")[0]?.trim();
 const templateReference = /\{\{\s*([^}]+?)\s*\}\}/gu;
@@ -268,11 +278,19 @@ for (const relativeFile of sourceAgentExamples) {
   }
 }
 
+for (const relativeFile of sourceConfigExamples) {
+  await validateYaml(
+    relativeFile,
+    agentRuntimeConfigSchema,
+    `Host configuration ${relativeFile}`,
+  );
+}
+
 if (failures.length > 0) {
   for (const failure of failures) process.stderr.write(`- ${failure}\n`);
   process.exitCode = 1;
 } else {
   process.stdout.write(
-    `Agent Runtime docs OK: ${pages.length} pages, ${requiredPages.length} required pages, ${yamlExamples.length + sourceAgentExamples.length} schema- and reference-validated YAML examples.\n`,
+    `Agent Runtime docs OK: ${pages.length} pages, ${requiredPages.length} required pages, ${yamlExamples.length + sourceAgentExamples.length + sourceConfigExamples.length} schema- and reference-validated YAML examples.\n`,
   );
 }

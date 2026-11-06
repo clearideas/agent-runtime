@@ -29,8 +29,5 @@
   "baseBranch": "main",
   "updateInternalDependencies": "patch",
   "bumpVersionsWithWorkspaceProtocolOnly": false,
-  "ignore": [
-    "@clearideas/agent-runtime-docs",
-    "@clearideas/agent-runtime-example-interactive-web"
-  ]
+  "ignore": ["@clearideas/agent-runtime-docs"]
 }

@@ -1,0 +1,7 @@
+version: "1.0"
+
+# Used in Live mode. Scripted mode supplies its own model adapter.
+models:
+  default:
+    provider: openai
+    model: gpt-6-luna

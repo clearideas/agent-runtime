@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      name="description"
+      content="Self-hosted demos of Clear Ideas Agent Runtime."
+    />
+    <title>Agent Runtime Showcase</title>
+    <link rel="icon" href="/assets/clearideas-logo.svg" />
+    <link rel="stylesheet" href="/assets/showcase.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="topbar-inner">
+        <a class="brand" href="/">
+          <img src="/assets/clearideas-logo.svg" alt="Clear Ideas" />
+          <span>Showcase</span>
+        </a>
+        <span class="spacer"></span>
+        <span class="chip">Agent Runtime 0.6.2</span>
+      </div>
+    </header>
+
+    <main class="shell">
+      <p id="isolation-banner" class="notice" role="note" hidden></p>
+
+      <section class="hero">
+        <div>
+          <h1>Agent Runtime, running on your machine.</h1>
+          <p>
+            Each demo runs a real agent and shows what happens step by step. No
+            API key needed: a scripted model makes the decisions, and everything
+            else is real.
+          </p>
+        </div>
+        <section class="card" aria-label="This machine">
+          <div id="environment" class="env-list"></div>
+        </section>
+      </section>
+
+      <section id="gallery" class="gallery" aria-label="Demos"></section>
+    </main>
+    <script src="/assets/gallery.js" type="module"></script>
+  </body>
+</html>

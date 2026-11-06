@@ -1,0 +1,186 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      name="description"
+      content="Pause an agent run for approval or a token budget, then resume it."
+    />
+    <title>Durable Runs · Agent Runtime Showcase</title>
+    <link rel="icon" href="/assets/clearideas-logo.svg" />
+    <link rel="stylesheet" href="/assets/showcase.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="topbar-inner">
+        <a class="brand" href="/">
+          <img src="/assets/clearideas-logo.svg" alt="Clear Ideas" />
+          <span>Showcase</span>
+        </a>
+        <span class="spacer"></span>
+        <span id="sandbox-chip" class="chip"><i></i>Sandbox…</span>
+        <button
+          id="run-button"
+          class="button primary"
+          type="button"
+          data-state="idle"
+        >
+          <span class="spinner" aria-hidden="true"></span>
+          <span id="run-label">Run agent</span>
+        </button>
+      </div>
+    </header>
+
+    <main class="shell">
+      <p id="isolation-banner" class="notice" role="note" hidden></p>
+
+      <section class="demo-intro">
+        <h1>Durable Runs</h1>
+        <p>
+          An agent drafts a revenue report, then waits for a person to approve
+          it. While it waits, the run is saved to disk and its sandbox is shut
+          down. Approving resumes the run in a new attempt, with a new sandbox,
+          and the draft is still there.
+        </p>
+      </section>
+
+      <div class="run-options">
+        <label class="toggle">
+          <input id="token-budget" type="checkbox" />
+          <span>
+            <strong>Token budget</strong>
+            <small id="budget-help"
+              >Also pause the run when it has used its token budget.</small
+            >
+          </span>
+        </label>
+
+        <details class="more-options">
+          <summary>More options</summary>
+          <div class="more-options-body">
+            <label class="field">
+              <span>Your name (recorded with the approval)</span>
+              <input id="reviewer" type="text" value="Dana" maxlength="60" />
+            </label>
+            <div class="field">
+              <span>Model</span>
+              <div class="segmented" role="radiogroup" aria-label="Model">
+                <label
+                  ><input type="radio" name="mode" value="scripted" checked />
+                  Scripted</label
+                >
+                <label id="live-label"
+                  ><input type="radio" name="mode" value="live" /> Live</label
+                >
+              </div>
+              <small id="mode-help"></small>
+            </div>
+            <div class="field">
+              <span>Speed</span>
+              <div class="segmented" role="radiogroup" aria-label="Speed">
+                <label
+                  ><input type="radio" name="pace" value="2" checked />
+                  Normal</label
+                >
+                <label><input type="radio" name="pace" value="1" /> Fast</label>
+                <label
+                  ><input type="radio" name="pace" value="0.35" />
+                  Fastest</label
+                >
+              </div>
+            </div>
+          </div>
+        </details>
+      </div>
+
+      <section id="stage" aria-label="Live execution"></section>
+
+      <section class="card result-card" aria-labelledby="result-heading">
+        <header>
+          <h2 id="result-heading">Published report</h2>
+        </header>
+        <div class="card-body" id="result-body"></div>
+      </section>
+
+      <details class="card under-the-hood">
+        <summary>
+          <span>Under the hood</span>
+          <small>Code, audit trail, and raw events</small>
+        </summary>
+        <div class="card-body">
+          <div class="tabs hood-tabs" role="tablist" aria-label="Details">
+            <button
+              type="button"
+              role="tab"
+              aria-selected="true"
+              data-hood="code"
+            >
+              Code
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected="false"
+              data-hood="audit"
+            >
+              Audit trail
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected="false"
+              data-hood="events"
+            >
+              Events
+            </button>
+          </div>
+
+          <div data-hood-panel="code">
+            <div
+              id="source-tabs"
+              class="file-tabs"
+              role="tablist"
+              aria-label="Files"
+            ></div>
+            <p id="source-caption" class="caption"></p>
+            <pre id="source" class="source"><code>Loading…</code></pre>
+          </div>
+
+          <div data-hood-panel="audit" hidden>
+            <p class="caption">
+              One record per sandbox command, as stored in the run's durable
+              transcript.
+            </p>
+            <div class="table-scroll">
+              <table class="audit">
+                <thead>
+                  <tr>
+                    <th>Command</th>
+                    <th>Step</th>
+                    <th>Tool</th>
+                    <th>argv</th>
+                    <th>Exit</th>
+                    <th>Time</th>
+                    <th>Changed</th>
+                  </tr>
+                </thead>
+                <tbody id="audit-rows"></tbody>
+              </table>
+            </div>
+          </div>
+
+          <div data-hood-panel="events" hidden>
+            <p class="caption">Every event the runtime emitted, in order.</p>
+            <ol id="events" class="events"></ol>
+          </div>
+        </div>
+      </details>
+    </main>
+
+    <script src="/vendor/marked.js"></script>
+    <script src="/vendor/purify.js"></script>
+    <script src="/vendor/highlight.js"></script>
+    <script src="/assets/durable-runs.js" type="module"></script>
+  </body>
+</html>

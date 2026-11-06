@@ -6,8 +6,8 @@ variables, streams each run to the browser, and saves manifests and run history
 to local files.
 
 Use this example when you want to understand how an application embeds Agent
-Runtime. The more advanced `interactive-web` example covers remote execution,
-MCP tools, dependency visualization, and OpenTelemetry.
+Runtime. The [Showcase](../showcase/README.md) adds end-to-end demonstrations of
+workspaces, durable runs, guardrails, MCP tools and remote execution.
 
 ## Run it
 

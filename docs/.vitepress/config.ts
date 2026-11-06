@@ -69,7 +69,7 @@ export default defineConfig({
   },
   themeConfig: {
     siteTitle: "Agent Runtime",
-    logo: "/clearideas-logo.svg",
+    logo: { src: "/clearideas-logo.svg", alt: "Clear Ideas" },
     socialLinks: [
       {
         icon: "github",
@@ -92,7 +92,7 @@ export default defineConfig({
         items: [
           { text: "Overview", link: "/" },
           { text: "Quick start", link: "/quickstart" },
-          { text: "Interactive example", link: "/interactive-example" },
+          { text: "Showcase", link: "/showcase" },
           { text: "Core concepts", link: "/concepts" },
           { text: "Build agents", link: "/build-agents" },
           { text: "Three examples", link: "/examples" },

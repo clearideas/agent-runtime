@@ -105,20 +105,19 @@ npx agent-runtime run \
 Use the TypeScript API for execution handles, event consumption, cancellation,
 and host adapters. Use the CLI for direct execution and shell automation.
 
-## Interactive example
+## Browser showcase
 
-The browser example is repository source for contributors. It can run the same
-agent through local or remote execution:
+The [Showcase](./showcase.md) runs real agents from a browser. In the
+Orchestration demo, choose **This process** to use InProcessExecutionEngine,
+or **Remote worker** to run the same agent in a separate Node.js process.
+Both stream through ExecutionClient.follow().
 
 ```sh
 git clone https://github.com/clearideas/agent-runtime.git
-cd agent-runtime
+cd agent-runtime/examples/showcase
 npm ci
-export OPENAI_API_KEY="..."
-npm run build
-npm --prefix examples/interactive-web start
+npm start
 ```
 
-Choose Local to use `InProcessExecutionEngine`. Choose Remote to use the worker
-protocol and HTTP callbacks. Both modes stream through
-`ExecutionClient.follow()`.
+Scripted mode needs no provider key. The Showcase guide explains the sandbox
+requirements, demo controls and expected results.

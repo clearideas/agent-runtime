@@ -1,0 +1,177 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      name="description"
+      content="Parallel steps, conditions, and loops, in this process or a remote worker."
+    />
+    <title>Orchestration · Agent Runtime Showcase</title>
+    <link rel="icon" href="/assets/clearideas-logo.svg" />
+    <link rel="stylesheet" href="/assets/showcase.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="topbar-inner">
+        <a class="brand" href="/">
+          <img src="/assets/clearideas-logo.svg" alt="Clear Ideas" />
+          <span>Showcase</span>
+        </a>
+        <span class="spacer"></span>
+        <span id="sandbox-chip" class="chip" hidden><i></i>Sandbox…</span>
+        <button
+          id="run-button"
+          class="button primary"
+          type="button"
+          data-state="idle"
+        >
+          <span class="spinner" aria-hidden="true"></span>
+          <span id="run-label">Run agent</span>
+        </button>
+      </div>
+    </header>
+
+    <main class="shell">
+      <section class="demo-intro">
+        <h1>Orchestration</h1>
+        <p>
+          A launch-plan agent researches in parallel, branches on risk, writes
+          one pitch per channel, and rewrites its headline until a critique
+          approves it. Run it in this process or hand it to a separate worker
+          process: the same events come back either way.
+        </p>
+      </section>
+
+      <div class="run-options">
+        <div class="field">
+          <span>Runs in</span>
+          <div
+            class="segmented"
+            role="radiogroup"
+            aria-label="Execution engine"
+          >
+            <label
+              ><input type="radio" name="engine" value="local" checked /> This
+              process</label
+            >
+            <label
+              ><input type="radio" name="engine" value="remote" /> Remote
+              worker</label
+            >
+          </div>
+        </div>
+        <div class="field">
+          <span>Scheduling</span>
+          <div class="segmented" role="radiogroup" aria-label="Scheduling">
+            <label
+              ><input type="radio" name="scheduling" value="sequential" />
+              Sequential</label
+            >
+            <label
+              ><input type="radio" name="scheduling" value="parallel" checked />
+              Parallel</label
+            >
+          </div>
+        </div>
+        <label class="toggle">
+          <input id="regulated" type="checkbox" checked />
+          <span>
+            <strong>Regulated market</strong>
+            <small>Off: risk is low and the Mitigation step is skipped.</small>
+          </span>
+        </label>
+
+        <details class="more-options">
+          <summary>More options</summary>
+          <div class="more-options-body">
+            <div class="field">
+              <span>Model</span>
+              <div class="segmented" role="radiogroup" aria-label="Model">
+                <label
+                  ><input type="radio" name="mode" value="scripted" checked />
+                  Scripted</label
+                >
+                <label id="live-label"
+                  ><input type="radio" name="mode" value="live" /> Live</label
+                >
+              </div>
+              <small id="mode-help"></small>
+            </div>
+            <div class="field">
+              <span>Speed</span>
+              <div class="segmented" role="radiogroup" aria-label="Speed">
+                <label
+                  ><input type="radio" name="pace" value="2" checked />
+                  Normal</label
+                >
+                <label><input type="radio" name="pace" value="1" /> Fast</label>
+                <label
+                  ><input type="radio" name="pace" value="0.35" />
+                  Fastest</label
+                >
+              </div>
+            </div>
+          </div>
+        </details>
+      </div>
+
+      <section id="stage" aria-label="Live execution"></section>
+
+      <section class="card result-card" aria-labelledby="result-heading">
+        <header>
+          <h2 id="result-heading">Launch plan</h2>
+        </header>
+        <div class="card-body" id="result-body"></div>
+      </section>
+
+      <details class="card under-the-hood">
+        <summary>
+          <span>Under the hood</span>
+          <small>Code and raw events</small>
+        </summary>
+        <div class="card-body">
+          <div class="tabs hood-tabs" role="tablist" aria-label="Details">
+            <button
+              type="button"
+              role="tab"
+              aria-selected="true"
+              data-hood="code"
+            >
+              Code
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected="false"
+              data-hood="events"
+            >
+              Events
+            </button>
+          </div>
+
+          <div data-hood-panel="code">
+            <div
+              id="source-tabs"
+              class="file-tabs"
+              role="tablist"
+              aria-label="Files"
+            ></div>
+            <p id="source-caption" class="caption"></p>
+            <pre id="source" class="source"><code>Loading…</code></pre>
+          </div>
+
+          <div data-hood-panel="events" hidden>
+            <p class="caption">Every event the runtime emitted, in order.</p>
+            <ol id="events" class="events"></ol>
+          </div>
+        </div>
+      </details>
+    </main>
+
+    <script src="/vendor/marked.js"></script>
+    <script src="/vendor/purify.js"></script>
+    <script src="/vendor/highlight.js"></script>
+    <script src="/assets/orchestration.js" type="module"></script>
+  </body>
+</html>

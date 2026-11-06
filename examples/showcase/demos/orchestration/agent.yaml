@@ -1,0 +1,138 @@
+schemaVersion: "1.0"
+id: launch-plan
+name: Launch plan
+description: >-
+  Plan a product launch: fan out research in parallel, branch on risk, loop
+  over channels, and refine a headline until a reviewer approves it.
+
+model:
+  ref: default
+
+variables:
+  - key: product
+    type: string
+    value: Agent Runtime 0.6
+    description: What is launching.
+  - key: regulatedMarket
+    type: boolean
+    value: true
+    description: Launching in a regulated market raises the risk level.
+  - key: channels
+    type: array
+    value: [blog, newsletter, social]
+    description: One pitch is written per channel.
+  - key: review
+    type: object
+    value:
+      approved: false
+      feedback: No review yet.
+
+steps:
+  - id: brief
+    name: Brief
+    type: prompt
+    prompt: Write a two-sentence launch brief for {{ product }}.
+    outputVariable: brief
+
+  # These three read only the brief, so parallel scheduling runs them together.
+  - id: audience
+    name: Audience
+    type: prompt
+    prompt: "Who is the primary audience? Brief: {{ brief }}"
+    outputVariable: audience
+
+  - id: risks
+    name: Risks
+    type: prompt
+    prompt: |-
+      List launch risks. Regulated market: {{ regulatedMarket }}.
+      Brief: {{ brief }}
+    outputSchema:
+      type: object
+      additionalProperties: false
+      required: [level, items]
+      properties:
+        level:
+          type: string
+          enum: [low, high]
+        items:
+          type: array
+          items:
+            type: string
+    outputVariable: risks
+
+  - id: pricing
+    name: Pricing
+    type: prompt
+    prompt: "Suggest launch pricing in one sentence. Brief: {{ brief }}"
+    outputVariable: pricing
+
+  # A condition: only runs when the risk review says the risk is high.
+  - id: mitigation
+    name: Mitigation
+    type: prompt
+    when: risks.level == "high"
+    prompt: "Write a mitigation plan for: {{ risks.items }}"
+    outputVariable: mitigation
+
+  # A collection loop: one child run per channel.
+  - id: pitches
+    name: Channel pitches
+    type: loop
+    loop:
+      source: channels
+      itemVariable: channel
+      outputMode: array
+      maxIterations: 10
+    steps:
+      - id: pitch
+        name: Pitch
+        type: prompt
+        prompt: "Write a one-line {{ channel }} pitch for {{ audience }}."
+    outputVariable: pitches
+
+  # A goal loop: draft and critique until the critique approves.
+  - id: headline
+    name: Headline
+    type: loop
+    loop:
+      goal: review.approved == true
+      maxIterations: 4
+      outputMode: final
+      resultVariable: candidate
+    steps:
+      - id: draft-headline
+        name: Draft
+        type: prompt
+        prompt: |-
+          Write a launch headline for {{ product }}.
+          Previous feedback: {{ review.feedback }}
+        outputVariable: candidate
+      - id: critique
+        name: Critique
+        type: prompt
+        prompt: "Critique this headline strictly: {{ candidate }}"
+        outputSchema:
+          type: object
+          additionalProperties: false
+          required: [approved, feedback]
+          properties:
+            approved:
+              type: boolean
+            feedback:
+              type: string
+        outputVariable: review
+    outputVariable: headline
+
+  - id: plan
+    name: Launch plan
+    type: prompt
+    prompt: |-
+      Assemble the launch plan.
+      Headline: {{ headline }}
+      Audience: {{ audience }}
+      Pricing: {{ pricing }}
+      Mitigation: {{ mitigation }}
+      Pitches: {{ pitches }}
+    outputVariable: plan
+    includeInFinalOutput: true

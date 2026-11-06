@@ -1,0 +1,29 @@
+version: "1.0"
+
+models:
+  default:
+    provider: openai
+    model: gpt-6-luna
+
+workspaces:
+  policy-library:
+    driver: local
+    root:
+      env: SHOWCASE_LIBRARY_ROOT
+    mode: read
+    # Only published policies are visible. Everything else stays on the host
+    # and is never staged into the sandbox.
+    include: ["policies/**/*.md", "policies/**/*.png"]
+    exclude: ["**/*-draft.md", "policies/archive/**"]
+
+connections:
+  tickets:
+    driver: mcp
+    transport: streamable-http
+    url:
+      env: SHOWCASE_TICKETS_URL
+    mode: read_write
+    tools: [create]
+
+sandbox:
+  driver: bubblewrap

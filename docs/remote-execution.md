@@ -72,44 +72,27 @@ The environment map is the complete set of process variables visible to inline
 configuration. Worker mode does not install a webhook executor; hosts add one
 with an `authorizeDestination` policy when webhook steps are allowed.
 
-## HTTPS worker
+## HTTP worker example
 
-The interactive example in `examples/interactive-web` can execute the same run
-locally or through authenticated HTTP worker endpoints:
+The [Showcase Orchestration demo](./showcase.md#orchestration) executes the same
+agent locally or in a separate Node.js worker process. Choose **Remote worker**
+under **Runs in** to try it without a cloud account or provider key.
 
-1. The host reserves an execution.
-2. The compute launcher sends the invocation to the worker endpoint.
-3. After the control plane records the launch, the host activates the worker.
-4. The worker executes the agent.
-5. The worker sends events and the terminal result to the host callback URL.
-6. `ExecutionClient.follow()` reads the ordered event stream from the control
-   plane.
+1. RemoteExecutionEngine creates a versioned worker invocation.
+2. The host's RemoteComputeLauncher starts the worker and sends the invocation
+   to its authenticated HTTP endpoint.
+3. The worker runs the agent and sends ordered events and the terminal result
+   to an authenticated, execution-specific callback URL.
+4. InMemoryRemoteExecutionControlPlane records the updates, and
+   ExecutionClient.follow() streams them to the browser.
 
-The server creates the remote engine once:
+The host chooses an engine, then follows the same client interface:
 
-```js
-const remoteExecution = createRemoteExecution({
-  baseUrl: serverBaseUrl,
-  workerToken: crypto.randomUUID(),
-  callbackToken: crypto.randomUUID(),
-  dataDirectory: path.join(dataDirectory, "remote"),
-  runtime,
-});
-const remoteClient = new ExecutionClient(remoteExecution.engine);
-```
-
-Its HTTP server delegates authenticated worker and callback requests to the
-remote adapter:
-
-```js
-if (await remoteExecution.route(request, response, url)) return;
-```
-
-The run handler selects an execution client and consumes the same event stream
-for both modes:
-
-```js
-const client = input.execution === "remote" ? remoteClient : localClient;
+```ts
+const engine = remote
+  ? new RemoteExecutionEngine(launcher, controlPlane)
+  : localEngine;
+const client = new ExecutionClient(engine);
 const handle = await client.submit(executionRequest);
 const completed = await client.follow(handle, {
   signal,
@@ -117,16 +100,18 @@ const completed = await client.follow(handle, {
 });
 ```
 
-Run the interactive example and choose Remote:
+See the runnable [host](https://github.com/clearideas/agent-runtime/blob/main/examples/showcase/demos/orchestration/host.ts)
+and [worker](https://github.com/clearideas/agent-runtime/blob/main/examples/showcase/demos/orchestration/worker.ts)
+for launch authentication, per-execution callback tokens and cancellation.
 
 ```sh
-npm run build
-export OPENAI_API_KEY="..."
-npm --prefix examples/interactive-web start
+cd examples/showcase
+npm ci
+npm start
 ```
 
-The example uses loopback HTTP. Deployments expose the worker and callback
-routes through HTTPS.
+The demo uses loopback HTTP. Production deployments expose worker and
+callback routes through HTTPS and provide a durable control plane.
 
 ## Compute adapters
 

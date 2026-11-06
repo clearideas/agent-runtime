@@ -26,6 +26,21 @@
   --vp-c-bg-soft: #1f1f1f;
 }
 
+.VPNavBar .wrapper {
+  padding: 0;
+}
+
+.VPNavBar > .wrapper > .container {
+  max-width: none;
+  padding: 0 8px 0 var(--docs-content-left, 24px);
+}
+
+@media (min-width: 768px) {
+  .VPNavBar > .wrapper > .container {
+    padding-right: 32px;
+  }
+}
+
 .VPNavBar {
   background-color: var(--vp-nav-bg-color) !important;
 }
@@ -71,12 +86,13 @@
 }
 
 @media (min-width: 960px) {
-  .VPNavBar.has-sidebar .container {
+  .VPNavBar.has-sidebar > .wrapper > .container {
     align-items: center;
-    padding: 0 32px;
+    padding: 0 32px 0
+      var(--docs-content-left, calc(var(--vp-sidebar-width) + 32px));
   }
 
-  .VPNavBar.has-sidebar .container > .title {
+  .VPNavBar.has-sidebar > .wrapper > .container > .title {
     flex: 0 0 auto;
     padding: 0;
     position: static;
@@ -97,6 +113,36 @@
   .VPNavBar.has-sidebar .content-body {
     position: static;
     width: 100%;
+  }
+}
+
+/* Keep navigation usable when the content-aligned brand leaves less room. */
+@media (min-width: 960px) and (max-width: 1279px) {
+  .VPNavBar.has-sidebar .content {
+    padding-left: 16px;
+  }
+  .VPNavBar .VPNavBarSearch {
+    padding-left: 0;
+    flex-grow: 0;
+  }
+  .VPNavBar .DocSearch-Button {
+    justify-content: center;
+    width: 40px;
+    padding: 0;
+    background: transparent;
+  }
+  .VPNavBar .DocSearch-Button .DocSearch-Search-Icon {
+    margin-right: 0;
+  }
+  .VPNavBar .DocSearch-Button-Placeholder,
+  .VPNavBar .DocSearch-Button-Keys {
+    display: none;
+  }
+}
+
+@media (min-width: 960px) and (max-width: 1199px) {
+  .VPNavBarTitle .title > span {
+    display: none;
   }
 }
 

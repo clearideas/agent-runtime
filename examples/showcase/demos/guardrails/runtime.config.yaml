@@ -1,0 +1,59 @@
+version: "1.0"
+
+models:
+  default:
+    provider: openai
+    model: gpt-6-luna
+
+workspaces:
+  public-docs:
+    driver: local
+    root:
+      env: SHOWCASE_DOCS_ROOT
+    mode: read
+    # Workspaces are staged: only visible files are copied into the sandbox.
+    # Excluded files are never staged, so nothing in the sandbox can read them.
+    exclude: ["finance/**"]
+  scratch:
+    driver: local
+    root:
+      env: SHOWCASE_SCRATCH_ROOT
+    mode: read_write
+    # Writes larger than this are refused.
+    maxFileBytes: 65536
+
+connections:
+  vendor-notes:
+    driver: mcp
+    transport: streamable-http
+    url:
+      env: SHOWCASE_VENDOR_MCP_URL
+    mode: read
+    tools: [search, changelog]
+    readTools: [search, changelog]
+    # Digests of the tool definitions the host reviewed. A changed definition
+    # is dropped before any model sees it.
+    toolIntegrity:
+      digests:
+        search: sha256:853408fbcf1670dab707b4a070ebd6fc4f179cc40fa6fd74d8831db17905084c
+        changelog: sha256:47ae032ffd7fcc76cef1bae8fae1ec9e17b20618c62f684d480ddb805db18ab2
+      onFailure: exclude
+
+sandbox:
+  driver: bubblewrap
+  limits:
+    # Small on purpose, so the demo can exhaust it.
+    maxCommandsPerRun: 8
+    commandTimeoutMs: 10000
+  commands:
+    run_script:
+      description: Run a Python script file from the scratch workspace.
+      program: python3
+      workspaces: [scratch]
+      args:
+        maxCount: 2
+        # Only a script file name. Flags such as -c (inline code) are refused.
+        allowPatterns: ['^[A-Za-z0-9][A-Za-z0-9_-]*\.py$']
+        denyPatterns: ["^-"]
+  shell:
+    enabled: false
