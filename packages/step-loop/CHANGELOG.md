@@ -1,5 +1,12 @@
 # @clearideas/agent-runtime-step-loop
 
+## 0.6.3
+
+### Patch Changes
+
+- @clearideas/agent-runtime-contracts@0.6.3
+  - @clearideas/agent-runtime-core@0.6.3
+
 ## 0.6.2
 
 ### Patch Changes

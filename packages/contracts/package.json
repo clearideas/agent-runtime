@@ -1,6 +1,6 @@
 {
   "name": "@clearideas/agent-runtime-contracts",
-  "version": "0.6.2",
+  "version": "0.6.3",
   "description": "Versioned, persistence-independent contracts for Clear Ideas Agent Runtime.",
   "license": "Apache-2.0",
   "author": "Clear Ideas Incorporated",
@@ -40,7 +40,7 @@
   },
   "devDependencies": {
     "typescript": "^7.0.2",
-    "vitest": "^5.0.0"
+    "vitest": "^5.1.0"
   },
   "engines": {
     "node": ">=24"

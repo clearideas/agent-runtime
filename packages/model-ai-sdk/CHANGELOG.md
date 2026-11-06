@@ -1,5 +1,13 @@
 # @clearideas/agent-runtime-model-ai-sdk
 
+## 0.6.3
+
+### Patch Changes
+
+- Refresh compatible AI SDK and provider dependencies, retaining the xAI v4 API. Update the standalone Agent Runner to the current runtime and patched transitive dependencies. Monitor both standalone examples with Dependabot and audit their locked installations in CI.
+- @clearideas/agent-runtime-contracts@0.6.3
+  - @clearideas/agent-runtime-core@0.6.3
+
 ## 0.6.2
 
 ### Patch Changes

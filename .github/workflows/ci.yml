@@ -30,7 +30,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Set up Node.js
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: ${{ matrix.node }}
           cache: npm
@@ -65,10 +65,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
         with:
           node-version: 24
-      - run: npm install
+      - run: npm ci
+        working-directory: examples/agent-runner
+      - run: npm audit --audit-level=moderate
         working-directory: examples/agent-runner
       - run: npm test
         working-directory: examples/agent-runner
@@ -83,7 +85,7 @@ jobs:
         anthropic: [4.0.71, 4.0.72, 4.0.84, 4.0.97]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
         with:
           node-version: 24
           cache: npm
@@ -106,16 +108,22 @@ jobs:
         ai: [7.0.98, 7.0.146, 7.0.163]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
         with:
           node-version: 24
           cache: npm
       - run: npm ci
+      - name: Select the compatibility SDK in workspace manifests
+        run: >-
+          node --input-type=module -e 'import fs from "node:fs"; for (const directory of ["packages/model-ai-sdk", "packages/runtime"]) { const file = `${directory}/package.json`; const manifest = JSON.parse(fs.readFileSync(file, "utf8")); manifest.dependencies.ai = process.env.EXPECTED_AI_VERSION; fs.writeFileSync(file, JSON.stringify(manifest, null, 2) + "\n"); }'
+        env:
+          EXPECTED_AI_VERSION: ${{ matrix.ai }}
       - name: Install the selected AI SDK without changing the lockfile
-        run: npm install --no-save --package-lock=false ai@${{ matrix.ai }}
+        run: npm install --no-save --package-lock=false --ignore-scripts ai@${{ matrix.ai }}
       - run: npm run build
       - name: Require the selected SDK version
-        run: node --input-type=module -e 'import fs from "node:fs"; import assert from "node:assert/strict"; assert.equal(JSON.parse(fs.readFileSync("node_modules/ai/package.json", "utf8")).version, process.env.EXPECTED_AI_VERSION);'
+        run: >-
+          node --input-type=module -e 'import fs from "node:fs"; import assert from "node:assert/strict"; import { createRequire } from "node:module"; import path from "node:path"; for (const directory of ["packages/model-ai-sdk", "packages/runtime"]) { const require = createRequire(path.resolve(directory, "package.json")); assert.equal(JSON.parse(fs.readFileSync(require.resolve("ai/package.json"), "utf8")).version, process.env.EXPECTED_AI_VERSION, directory); }'
         env:
           EXPECTED_AI_VERSION: ${{ matrix.ai }}
       - run: npm test --workspace @clearideas/agent-runtime-model-ai-sdk
@@ -126,7 +134,7 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
         with:
           node-version: 24
           cache: npm
@@ -156,7 +164,7 @@ jobs:
           - unisolated
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
         with:
           node-version: 24
       - name: Install the sandbox
@@ -186,7 +194,7 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
         with:
           node-version: 24
       - run: npm ci

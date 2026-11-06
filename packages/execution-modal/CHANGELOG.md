@@ -1,5 +1,12 @@
 # @clearideas/agent-runtime-execution-modal
 
+## 0.6.3
+
+### Patch Changes
+
+- @clearideas/agent-runtime-contracts@0.6.3
+  - @clearideas/agent-runtime-execution@0.6.3
+
 ## 0.6.2
 
 ### Patch Changes
