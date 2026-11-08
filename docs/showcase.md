@@ -148,11 +148,8 @@ every model request is a bar, split by message kind, against the limit.
 durable transcript keeps every tool result either way. See
 [Context management](./context-management.md).
 
-Long Investigation needs a runtime with context management. Until that
-release is published, the showcase's published 0.6.3 packages mark it **Needs a
-newer runtime**; run `npm run use-local-runtime` in `examples/showcase` (after
-`npm ci` and `npm run build` at the repository root) to use the repository's
-packages.
+The showcase pins Agent Runtime 0.7.1, which includes the context management
+needed by Long Investigation.
 
 ## Use a live model
 

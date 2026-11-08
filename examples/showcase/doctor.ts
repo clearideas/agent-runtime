@@ -144,8 +144,8 @@ if (sandbox.kind !== "none") {
         "Guardrails: a script reached the network (expected without an isolated sandbox)",
       );
 
-    // Long Investigation needs context management, which is newer than the
-    // published 0.6.3 runtime; an older runtime is reported, not a failure.
+    // Long Investigation needs context management from runtime 0.7.0 or later;
+    // an older runtime is reported, not a failure.
     const catalog = (await (await fetch(base)).json()) as Array<{
       id: string;
       status: string;

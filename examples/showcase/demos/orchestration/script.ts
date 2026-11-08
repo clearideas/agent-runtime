@@ -20,7 +20,7 @@ export const orchestrationScript: Script = ({ prompt }) => {
   if (prompt.startsWith("Write a two-sentence launch brief"))
     return {
       output:
-        "Agent Runtime 0.6 lets agents work on real files inside an isolated sandbox under host policy. Runs pause for people or budgets and resume later without losing work.",
+        "Agent Runtime 0.7.1 lets agents work on real files inside an isolated sandbox under host policy. Runs pause for people or budgets and resume later without losing work.",
     };
   if (prompt.startsWith("Who is the primary audience"))
     return {
@@ -57,7 +57,7 @@ export const orchestrationScript: Script = ({ prompt }) => {
     const firstTry = after(prompt, "Previous feedback") === "No review yet.";
     return {
       output: firstTry
-        ? "Agent Runtime 0.6 is here"
+        ? "Agent Runtime 0.7.1 is here"
         : "Give your agents a workspace, not the keys",
     };
   }
