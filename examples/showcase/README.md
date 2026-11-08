@@ -1,6 +1,6 @@
 # Agent Runtime Showcase
 
-Self-hosted, animated demos of Clear Ideas Agent Runtime 0.7.0. Each demo runs a
+Self-hosted, animated demos of Clear Ideas Agent Runtime 0.7.1. Each demo runs a
 real agent manifest through the real runtime on your machine — real run
 sandboxes, real workspace files, real checkpoints — and visualizes the event
 stream as it happens. Every page also shows the manifest, host configuration,
@@ -15,7 +15,7 @@ and integration code that produced it.
 | **Orchestration**      | A parallel wave, a condition, a collection loop, and a goal loop, in this process or in a separate worker process                |
 | **Long Investigation** | A step that reads more than three times its input limit; Agent Runtime prunes or summarizes its context so it finishes           |
 
-The example targets the published **0.7.0** runtime and uses a separate lockfile;
+The example targets the published **0.7.1** runtime and uses a separate lockfile;
 its dependencies are installed independently of the repository workspaces.
 
 ## Run it
@@ -357,7 +357,7 @@ model and whichever sandbox the machine provides. Force a sandbox with
 ## Notes
 
 - **Developing against unreleased runtime changes.** `package.json` pins the
-  published `@clearideas/agent-runtime` 0.7.0 packages, including the context
+  published `@clearideas/agent-runtime` 0.7.1 packages, including the context
   management used by Long Investigation. To use the repository's own packages
   instead:
 

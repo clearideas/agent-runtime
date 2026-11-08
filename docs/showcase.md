@@ -148,7 +148,7 @@ every model request is a bar, split by message kind, against the limit.
 durable transcript keeps every tool result either way. See
 [Context management](./context-management.md).
 
-The showcase pins Agent Runtime 0.7.0, which includes the context management
+The showcase pins Agent Runtime 0.7.1, which includes the context management
 needed by Long Investigation.
 
 ## Use a live model
