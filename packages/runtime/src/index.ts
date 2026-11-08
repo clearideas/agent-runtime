@@ -67,6 +67,7 @@ export {
   createConfiguredModelAdapter,
   type ModelAuthorizationPolicy,
   type ResolvedModelDefinition,
+  manifestModelReferences,
   resolveModelReference,
   validateModelCapabilities,
 } from "./providers.js";
@@ -97,6 +98,7 @@ import type { ConfiguredMcpToolAdapterOptions } from "./mcp-tools.js";
 import {
   createConfiguredModelAdapter,
   type ModelAuthorizationPolicy,
+  manifestModelReferences,
   resolveModelReference,
   validateModelCapabilities,
 } from "./providers.js";
@@ -157,23 +159,12 @@ const hostWorkspaceToolNames = (config: AgentRuntimeConfig): Set<string> => {
   return names;
 };
 
-const stepModelReferences = (
-  steps: AgentManifest["steps"],
-): NonNullable<AgentManifest["model"]>[] =>
-  steps.flatMap((step) => [
-    ...(step.type === "prompt" && step.model ? [step.model] : []),
-    ...(step.type === "loop" ? stepModelReferences(step.steps) : []),
-  ]);
-
 export const validateRuntimeConfiguration = (
   manifest: AgentManifest,
   config: AgentRuntimeConfig,
 ): void => {
   validateModelCapabilities(manifest, config);
-  const references = [
-    ...(manifest.model ? [manifest.model] : []),
-    ...stepModelReferences(manifest.steps),
-  ];
+  const references = manifestModelReferences(manifest);
   for (const reference of references) {
     const resolved = resolveModelReference(reference, config);
     if (

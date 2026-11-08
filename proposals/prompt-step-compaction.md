@@ -1,6 +1,31 @@
 # Proposal: in-step context compaction for prompt steps
 
-Status: draft for discussion. No code changes accompany this document.
+Status: implemented, with the changes listed below. The user documentation is
+[Context management](../docs/context-management.md) and
+[Execution policies](../docs/execution-policies.md). The rest of this document
+is the original draft, kept for its design rationale.
+
+## Implementation notes
+
+The implementation keeps this draft's core design: the durable transcript is
+never edited, reductions are marker items, the model's input is a pure function
+of the transcript, rounds are compacted whole, and resume rebuilds the same
+view without repeating model calls. It differs in these ways:
+
+| Draft                                                        | Implementation                                                                                                                                                                        |
+| ------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `compaction` field on prompt steps, opt-in                   | `policies.context` on the host, the manifest, or a step. The default strategy is `prune`, so every step has a safety net.                                                             |
+| Model compactor only; deterministic strategies deferred      | `summarize`, `prune`, `summarize-or-prune`, and `fail`. Pruning stubs old tool outputs, removes the oldest rounds with a note, and clips retained results.                             |
+| Compactor failure fails the step                             | Only under `summarize`. `summarize-or-prune` falls back to pruning.                                                                                                                   |
+| The segment is replayed as real messages                     | The segment is rendered as text, so summarizer requests never carry tool-call history (some providers reject that without tool definitions) and can be split into chunks.             |
+| The runtime never contains a summarization prompt            | Built-in default prompts, replaceable by `summarizer.systemPrompt` and `summarizer.prompt`.                                                                                            |
+| Only tool rounds are compacted; the opening prompt is not    | Oversized interpolated variables in the opening prompt are reduced one slot at a time, with per-variable `keep`, `strategy`, and `maxBytes`. Single large tool results are capped. |
+| `inputBytes` and `toolRounds` triggers                       | Also `inputTokens` (calibrated estimate), `contextRatio` of `ModelAdapter.describeModel().maxInputTokens`, the hard limits, and a reactive trigger on provider context-overflow errors. |
+| `type: "message"` item with `replaces`, placed by filtering  | Same marker approach, plus an `anchor` so a summary appears before the retained rounds, `rewrites` for substituted content, and invisible `input` markers for opening-prompt reductions. |
+| New `model.compaction.*` events                              | One `context.reduced` event, `purpose: "summarize"` on model events, and `model.retry` for provider overflows.                                                                        |
+| `maxCompactions` default 10                                  | Default 25. Under `summarize`, reaching it stops further summarizing.                                                                                                                 |
+| Segment: all rounds except `retain.recentToolRounds`         | A reduction aims for `reduceTo` × the trigger (default 0.25). It keeps fewer recent rounds, down to the newest, when that reaches the goal, then reduces everything older in one pass. |
+
 
 ## Summary
 

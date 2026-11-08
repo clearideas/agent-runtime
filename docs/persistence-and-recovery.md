@@ -77,6 +77,64 @@ it is not an additional allowance. Omitting the limit reuses the prior value.
 If the effective limit is not greater than cumulative consumed tokens, the run
 suspends again without issuing another model request or pending tool call.
 
+## Run states
+
+| Status        | Meaning                                                                 | Resumable                        |
+| ------------- | ----------------------------------------------------------------------- | -------------------------------- |
+| `running`     | an attempt owns the run                                                 | only with `allowRunningTakeover` |
+| `suspended`   | waiting on purpose; `run.suspended` carries a `kind` (below)            | yes                              |
+| `interrupted` | infrastructure stopped the attempt: a timeout, a shutdown, a lost lease | yes                              |
+| `failed`      | the run could not proceed                                               | yes, after the cause is fixed    |
+| `completed`   | finished                                                                | no                               |
+| `cancelled`   | ended by a person                                                       | no                               |
+
+A suspension's `kind` says what the run is waiting for:
+
+| `kind`            | Suspension reason | Resumes when                            |
+| ----------------- | ----------------- | --------------------------------------- |
+| `awaiting-input`  | `approval`        | a person responds                       |
+| `awaiting-child`  | `sub-run`         | the child run finishes                  |
+| `awaiting-budget` | `token-budget`    | the host supplies a higher token budget |
+| `paused`          | `paused`          | the host or user resumes it             |
+
+Suspended and interrupted runs are not failures. A failed run can also be
+resumed, but it stopped because something was wrong; fix the cause first, or
+the same step fails again.
+
+## Pausing and interrupting a run
+
+A run's `signal` decides how an abort ends the attempt. The abort reason
+selects the outcome:
+
+```ts
+import {
+  createRunPauseRequest,
+  RunInterruptedError,
+} from "@clearideas/agent-runtime";
+
+const controller = new AbortController();
+const running = agentRuntime.run({
+  manifest,
+  runId,
+  signal: controller.signal,
+});
+
+// A user pauses: the run is suspended with kind "paused".
+controller.abort(createRunPauseRequest({ requestedBy: "user-123" }));
+
+// The host is shutting down: the run is interrupted and can be resumed.
+controller.abort(new RunInterruptedError("shutdown"));
+
+// Any other reason cancels the run.
+controller.abort(new Error("Cancelled by user"));
+```
+
+In every case the latest checkpoint is kept, and work in flight when the
+signal fired is repeated on resume. An `InProcessExecutionEngine` timeout
+interrupts the run instead of cancelling it. Stores implement the optional
+`RunStore.interruptRun`; a store without it records a retryable
+`RUN_INTERRUPTED` failure, which is also resumable.
+
 ## Suspension
 
 Approval and sub-run adapters, and cumulative token budgets, can suspend a run.

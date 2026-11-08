@@ -36,6 +36,18 @@ const illustrations = {
     <rect class="faint" x="188" y="28" width="40" height="68" rx="5"/>
     <rect class="faint" x="104" y="40" width="16" height="4" rx="2"/>
     <rect class="faint" x="152" y="48" width="16" height="4" rx="2"/>`,
+  "long-investigation": `
+    <path class="bad-stroke" d="M40 30 H290" stroke-dasharray="6 5"/>
+    <rect class="accent" x="52" y="78" width="16" height="22" rx="2"/>
+    <rect class="accent" x="76" y="64" width="16" height="36" rx="2"/>
+    <rect class="accent" x="100" y="48" width="16" height="52" rx="2"/>
+    <rect class="violet" x="124" y="66" width="16" height="34" rx="2"/>
+    <rect class="accent" x="148" y="52" width="16" height="48" rx="2"/>
+    <rect class="accent" x="172" y="38" width="16" height="62" rx="2"/>
+    <rect class="violet" x="196" y="64" width="16" height="36" rx="2"/>
+    <rect class="accent" x="220" y="50" width="16" height="50" rx="2"/>
+    <rect class="accent" x="244" y="38" width="16" height="62" rx="2"/>
+    <rect class="violet" x="268" y="62" width="16" height="38" rx="2"/>`,
   orchestration: `
     <path class="line" d="M70 60 C110 60 110 32 150 32 M70 60 C110 60 110 88 150 88 M150 32 C190 32 190 60 230 60 M150 88 C190 88 190 60 230 60"/>
     <circle class="accent-stroke" cx="70" cy="60" r="10"/>
@@ -55,11 +67,14 @@ const illustration = (id) => {
 
 const card = (entry) => {
   const ready = entry.status === "ready";
+  // A demo the installed runtime cannot run still opens: its page says why.
+  const opens = ready || entry.status === "unavailable";
   return h(
-    `${ready ? "a" : "article"}.card.demo-card`,
+    `${opens ? "a" : "article"}.card.demo-card`,
     {
-      href: ready ? `/demos/${entry.id}` : undefined,
+      href: opens ? `/demos/${entry.id}` : undefined,
       dataset: { status: entry.status },
+      title: entry.unavailable,
     },
     h("div.illustration", {}, illustration(entry.id)),
     h(
@@ -71,7 +86,9 @@ const card = (entry) => {
         h("h2", { text: entry.title }),
         ready
           ? h("span.open", { text: "Open →" })
-          : h("span.soon", { text: "Coming soon" }),
+          : entry.status === "unavailable"
+            ? h("span.soon", { text: "Needs a newer runtime" })
+            : h("span.soon", { text: "Coming soon" }),
       ),
       h("p", { text: entry.summary }),
     ),

@@ -638,4 +638,115 @@ describe("runner checkpoint contracts", () => {
   ])("rejects a malformed or ambiguous checkpoint", (value) => {
     expect(() => parseRunCheckpoint(value)).toThrow();
   });
+
+  it("accepts layered execution policies and rejects prompt-only policies elsewhere", () => {
+    const valid = safeParseAgentManifest({
+      schemaVersion: "1.0",
+      policies: {
+        context: {
+          strategy: "summarize-or-prune",
+          summarizer: {
+            model: { ref: "fast" },
+            maxOutputTokens: 800,
+            prompts: { transcript: "Notes for {{ context.task }}." },
+            summaryShare: 0.2,
+            minSummaryBytes: 512,
+            maxSummaryBytes: 8000,
+            chunkBytes: 32000,
+            maxCalls: 40,
+            maxPasses: 3,
+          },
+          overflowRetries: 2,
+          trigger: { contextRatio: 0.75, toolRounds: 6 },
+          retain: { recentToolRounds: 1 },
+          reduceTo: 0.25,
+          openingShare: 0.2,
+          maxToolResultBytes: 20000,
+          toolResultShare: 0.3,
+          variables: {
+            "report.body": { strategy: "summarize", maxBytes: 4000 },
+          },
+        },
+        toolCallLimit: "finalize",
+        modelRetry: { maxAttempts: 4, initialDelayMs: 500 },
+        outputRepair: { maxAttempts: 2 },
+        onError: "fail",
+      },
+      steps: [
+        {
+          id: "research",
+          type: "prompt",
+          prompt: "Research.",
+          policies: { context: { strategy: "prune" }, onError: "continue" },
+        },
+        {
+          id: "review",
+          type: "approval",
+          prompt: "Ship?",
+          onReject: "continue",
+          policies: { onError: "continue" },
+        },
+      ],
+    });
+    expect(valid.success).toBe(true);
+
+    const promptOnly = safeParseAgentManifest({
+      schemaVersion: "1.0",
+      steps: [
+        {
+          id: "each",
+          type: "loop",
+          loop: { source: "items" },
+          steps: [
+            {
+              id: "hook",
+              type: "webhook",
+              url: "https://example.test",
+              policies: { context: { strategy: "prune" } },
+            },
+          ],
+        },
+      ],
+    });
+    expect(promptOnly.success).toBe(false);
+    expect(JSON.stringify(promptOnly.error?.issues)).toContain(
+      "policies.context applies only to prompt steps",
+    );
+
+    for (const policies of [
+      { context: { strategy: "shrink" } },
+      { context: { trigger: { contextRatio: 1.5 } } },
+      { context: { trigger: { inputBytes: 0 } } },
+      { context: { reduceTo: 0 } },
+      { context: { reduceTo: 1 } },
+      { context: { openingShare: 1.5 } },
+      { context: { toolResultShare: 0 } },
+      {
+        context: {
+          summarizer: { minSummaryBytes: 9000, maxSummaryBytes: 2000 },
+        },
+      },
+      { context: { summarizer: { chunkBytes: 10 } } },
+      { context: { summarizer: { maxPasses: 0 } } },
+      { context: { summarizer: { prompts: { other: "x" } } } },
+      { context: { overflowRetries: 11 } },
+      { modelRetry: { maxAttempts: 0 } },
+      { onError: "ignore" },
+      { context: { unknown: true } },
+    ]) {
+      expect(
+        safeParseAgentManifest({
+          schemaVersion: "1.0",
+          policies,
+          steps: [],
+        }).success,
+      ).toBe(false);
+    }
+    expect(
+      safeParseAgentManifest({
+        schemaVersion: "1.0",
+        steps: [{ id: "a", type: "approval", prompt: "?", onReject: "ignore" }],
+      }).success,
+    ).toBe(false);
+  });
 });

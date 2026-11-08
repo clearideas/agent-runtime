@@ -203,6 +203,8 @@ export class LoopStepExecutor implements StepExecutor<LoopStep> {
       context.resume?.transcript ?? [],
     );
     const artifacts: ArtifactRef[] = clone(context.resume?.artifacts ?? []);
+    /** A child asked to end the run (for example a rejected approval with onReject: complete). */
+    let endRun = false;
 
     if (!restored?.finished) {
       for (
@@ -281,6 +283,10 @@ export class LoopStepExecutor implements StepExecutor<LoopStep> {
           transcript.push(...(result.transcript ?? []));
           artifacts.push(...(result.artifacts ?? []));
           if (result.output !== undefined) lastOutput = clone(result.output);
+          if (result.endRun === true) {
+            endRun = true;
+            break;
+          }
 
           const nextChildIndex = childIndex + 1;
           const nextChild = context.step.steps[nextChildIndex];
@@ -343,7 +349,7 @@ export class LoopStepExecutor implements StepExecutor<LoopStep> {
           sourceIndex: iteration,
         });
 
-        const finished = goalMet || iteration + 1 >= iterationLimit;
+        const finished = endRun || goalMet || iteration + 1 >= iterationLimit;
         await checkpoint({
           state,
           cursor: {
@@ -367,7 +373,7 @@ export class LoopStepExecutor implements StepExecutor<LoopStep> {
           artifacts,
         });
         startChild = 0;
-        if (goalMet) break;
+        if (goalMet || endRun) break;
       }
     }
 
@@ -392,6 +398,7 @@ export class LoopStepExecutor implements StepExecutor<LoopStep> {
       statePatch: { set: state },
       transcript,
       artifacts,
+      ...(endRun ? { endRun: true } : {}),
       metadata: {
         iterations: outputs.length,
         outputMode: config.outputMode ?? "array",

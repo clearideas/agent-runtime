@@ -2,6 +2,7 @@
 import { documentLibrary } from "../demos/document-library/host.ts";
 import { durableRuns } from "../demos/durable-runs/host.ts";
 import { guardrails } from "../demos/guardrails/host.ts";
+import { longInvestigation } from "../demos/long-investigation/host.ts";
 import { orchestration } from "../demos/orchestration/host.ts";
 import { repoMechanic } from "../demos/repo-mechanic/host.ts";
 import type { ShowcaseDemo } from "./demo.ts";
@@ -12,6 +13,7 @@ export const demos: ShowcaseDemo[] = [
   guardrails,
   documentLibrary,
   orchestration,
+  longInvestigation,
 ];
 
 export interface CatalogEntry {
@@ -20,7 +22,9 @@ export interface CatalogEntry {
   summary: string;
   tagline: string;
   features: string[];
-  status: "ready";
+  status: "ready" | "unavailable";
+  /** Why the demo cannot run with the installed runtime. */
+  unavailable?: string;
 }
 
 export const catalog = (): CatalogEntry[] =>
@@ -30,5 +34,6 @@ export const catalog = (): CatalogEntry[] =>
     summary: demo.summary,
     tagline: demo.tagline,
     features: demo.features,
-    status: "ready",
+    status: demo.unavailable ? "unavailable" : "ready",
+    ...(demo.unavailable ? { unavailable: demo.unavailable } : {}),
   }));

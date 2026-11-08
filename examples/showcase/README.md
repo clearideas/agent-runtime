@@ -6,13 +6,14 @@ sandboxes, real workspace files, real checkpoints — and visualizes the event
 stream as it happens. Every page also shows the manifest, host configuration,
 and integration code that produced it.
 
-| Demo                 | What it shows                                                                                                                    |
-| -------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
-| **Repo Mechanic**    | A workspace, the run sandbox, an allowlisted test command, an `authorizeCommand` hook, a code step, and sync-back                |
-| **Durable Runs**     | An approval step and a token budget pause the run; it resumes in a new attempt with a new sandbox, even after a restart          |
-| **Guardrails**       | An untrusted agent and a hostile model, stopped by configuration, tool digests, path and argument rules, a hook, and the sandbox |
-| **Document Library** | A read-only workspace with visibility globs, an image passed to the model as an artifact, and an MCP ticket tool                 |
-| **Orchestration**    | A parallel wave, a condition, a collection loop, and a goal loop, in this process or in a separate worker process                |
+| Demo                   | What it shows                                                                                                                    |
+| ---------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
+| **Repo Mechanic**      | A workspace, the run sandbox, an allowlisted test command, an `authorizeCommand` hook, a code step, and sync-back                |
+| **Durable Runs**       | An approval step and a token budget pause the run; it resumes in a new attempt with a new sandbox, even after a restart          |
+| **Guardrails**         | An untrusted agent and a hostile model, stopped by configuration, tool digests, path and argument rules, a hook, and the sandbox |
+| **Document Library**   | A read-only workspace with visibility globs, an image passed to the model as an artifact, and an MCP ticket tool                 |
+| **Orchestration**      | A parallel wave, a condition, a collection loop, and a goal loop, in this process or in a separate worker process                |
+| **Long Investigation** | A step that reads more than three times its input limit; Agent Runtime prunes or summarizes its context so it finishes           |
 
 The example targets the published **0.6.2** runtime and uses a separate lockfile;
 its dependencies are installed independently of the repository workspaces.
@@ -112,16 +113,17 @@ live models. Use PowerShell for these steps.
 `$env:` variables last only for that PowerShell window. In `cmd.exe`, use
 `set OPENAI_API_KEY=sk-...` instead.
 
-| You see                                 | Do this                                                                                   |
-| --------------------------------------- | ----------------------------------------------------------------------------------------- |
-| `Docker is not reachable`               | Start Docker Desktop, wait for the engine, then restart the showcase                      |
-| `Docker is running windows containers`  | Right-click the Docker icon, choose **Switch to Linux containers**                        |
-| **Not isolated** in the top bar         | Docker was not running when the showcase started; start Docker, then restart the showcase |
-| Live is greyed out                      | Set the provider key in the window that runs `npm start`, then restart                    |
-| The live check fails with an auth error | Check the API key                                                                         |
-| The live check fails with a model error | Set `SHOWCASE_MODEL` to a model your account can use                                      |
-| The first run is slow                   | The image is being pulled; run `npm run doctor` once beforehand                           |
-| A tool call fails (red in the terminal) | The reason is shown under it and printed in the `npm start` window; include it in reports |
+| You see                                  | Do this                                                                                                                                         |
+| ---------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| `Docker is not reachable`                | Start Docker Desktop, wait for the engine, then restart the showcase                                                                            |
+| `Docker is running windows containers`   | Right-click the Docker icon, choose **Switch to Linux containers**                                                                              |
+| **Not isolated** in the top bar          | Docker was not running when the showcase started; start Docker, then restart the showcase                                                       |
+| Live is greyed out                       | Set the provider key in the window that runs `npm start`, then restart                                                                          |
+| The live check fails with an auth error  | Check the API key                                                                                                                               |
+| The live check fails with a model error  | Set `SHOWCASE_MODEL` to a model your account can use                                                                                            |
+| The first run is slow                    | The image is being pulled; run `npm run doctor` once beforehand                                                                                 |
+| `EPERM: operation not permitted, rename` | Run data is in a OneDrive or antivirus-scanned folder; set `SHOWCASE_DATA` to a local folder such as `$env:LOCALAPPDATA\agent-runtime-showcase` |
+| A tool call fails (red in the terminal)  | The reason is shown under it and printed in the `npm start` window; include it in reports                                                       |
 
 ## Sandboxes
 
@@ -270,6 +272,30 @@ between `InProcessExecutionEngine` and a `RemoteExecutionEngine` whose worker
 is a separate process reached over HTTP with signed callbacks. The browser
 code is the same for both.
 
+## Long Investigation
+
+An on-call agent reads sixteen service logs and a 29 KB runbook to find why
+checkout failed. Together they are more than three times the step's
+`limits.maxInputBytes` (40 KB). Pick a context strategy:
+
+- **Summarize** (`summarize-or-prune`): a summarizer condenses the runbook
+  before the first request, then folds older tool rounds into one running
+  summary while the newest two rounds stay verbatim.
+- **Prune**: the runbook is clipped, older tool outputs become stubs, and the
+  oldest rounds are removed with a note. No extra model calls.
+- **Off** (`fail`): nothing is reduced, and the step fails at the limit.
+
+The context-window chart draws every request the step sends, split by message
+kind, against the limit. The host measures requests with a thin
+`ModelAdapter` wrapper and streams sizes and kinds only, never content. The
+host chooses the strategy as a host default policy; the manifest's own
+`policies.context` merges over it: the 25% reduction goal, the opening
+prompt's share, the summarizer's size limits and chunk size, and a variable
+that is never shortened. The host also supplies a summarizer adapter that
+wraps the built-in summarizer and reports each summarization (what it
+condensed, the size it was asked for, the size it produced) to the reductions
+log.
+
 ## How the showcase is built
 
 ```text
@@ -286,7 +312,8 @@ lib/unisolated-provider.ts       the Not isolated demo fallback
 public/assets/lib/run-state.js   event stream → view state (DOM-free, unit tested)
 public/assets/lib/stage.js       the shared stage: agent → policy → sandbox → host files
 public/assets/lib/demo-page.js   page wiring shared by every demo
-public/assets/<demo>.js          what each page adds (attack board, graph, decision panel)
+public/assets/lib/context-state.js  model-input + context.reduced → context chart state (DOM-free)
+public/assets/<demo>.js          what each page adds (attack board, graph, decision panel, context chart)
 ```
 
 `model.tool.*` events carry tool names, never payloads. To show inputs and
@@ -328,6 +355,28 @@ model and whichever sandbox the machine provides. Force a sandbox with
 `SHOWCASE_SANDBOX=unisolated npm test`.
 
 ## Notes
+
+- **Developing against unreleased runtime changes.** `package.json` pins the
+  published `@clearideas/agent-runtime` packages, and Long Investigation
+  needs the context management added after 0.6.3. With an older runtime the
+  demo is marked **Needs a newer runtime** and the other demos run as usual.
+  To use the repository's own packages instead:
+
+  ```sh
+  # at the repository root
+  npm ci
+  npm run build
+  # in examples/showcase
+  npm ci
+  npm run use-local-runtime
+  ```
+
+  The script removes the published `@clearideas` packages from this
+  example's `node_modules`, so Node resolves them from the repository's
+  workspace. Rebuild at the root after changing runtime code; run `npm ci`
+  here to return to the published packages. At release, pin both
+  `@clearideas` dependencies (and the lockfile) to the published version that
+  contains context management.
 
 - The unisolated fallback runs the interpreter that `python3` resolves to
   when the server starts, so pyenv or asdf shims and the macOS developer-tools

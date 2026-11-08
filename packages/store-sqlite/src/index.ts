@@ -374,6 +374,52 @@ export class SqliteRunStore implements RunStore {
     }
   }
 
+  async interruptRun(
+    runId: string,
+    error: RunError,
+    interruptedAt: string,
+    expectedAttempt: number,
+  ): Promise<void> {
+    this.#database.exec("BEGIN IMMEDIATE");
+    try {
+      const row = this.#database
+        .prepare(
+          "SELECT record_json AS json FROM agent_runtime_runs WHERE run_id = ?",
+        )
+        .get(runId) as JsonRow | undefined;
+      if (!row) throw new Error(`Run ${runId} does not exist`);
+      const current = parse<RunRecord>(row.json);
+      if (current.status !== "created" && current.status !== "running") {
+        throw new Error(`Cannot interrupt ${current.status} run ${runId}`);
+      }
+      if ((current.attempt ?? 1) !== expectedAttempt) {
+        throw new Error(`Run ${runId} is owned by another attempt`);
+      }
+      const interruptedRecord: RunRecord = {
+        ...current,
+        status: "interrupted",
+        updatedAt: interruptedAt,
+      };
+      this.#database
+        .prepare(
+          `
+          UPDATE agent_runtime_runs
+          SET record_json = ?, failure_json = ?
+          WHERE run_id = ?
+        `,
+        )
+        .run(
+          serialize(interruptedRecord),
+          serialize({ error, interruptedAt }),
+          runId,
+        );
+      this.#database.exec("COMMIT");
+    } catch (caught) {
+      this.#database.exec("ROLLBACK");
+      throw caught;
+    }
+  }
+
   async cancelRun(
     runId: string,
     cancelledAt: string,
@@ -395,7 +441,8 @@ export class SqliteRunStore implements RunStore {
       if (
         current.status !== "created" &&
         current.status !== "running" &&
-        current.status !== "suspended"
+        current.status !== "suspended" &&
+        current.status !== "interrupted"
       ) {
         throw new Error(`Cannot cancel ${current.status} run ${runId}`);
       }

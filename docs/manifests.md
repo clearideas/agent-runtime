@@ -270,7 +270,12 @@ Approval:
   type: approval
   prompt: Approve publishing this result?
   action: pause
+  onReject: continue
 ```
+
+`onReject` decides what a rejection does: `fail` (default), `cancel`,
+`complete`, or `continue`. See
+[Execution policies](./execution-policies.md#approvals).
 
 Code:
 
@@ -311,3 +316,24 @@ steps:
 ```
 
 Host adapters authorize network access, approvals, sandboxes, and sub-runs.
+
+## Execution policies
+
+The optional `policies` block, on the manifest or on a step, decides how the
+run handles oversized input, model errors, invalid output, the tool-call
+limit, and failed steps:
+
+```yaml
+policies:
+  context:
+    strategy: summarize-or-prune
+    trigger:
+      contextRatio: 0.8
+  toolCallLimit: finalize
+  modelRetry:
+    maxAttempts: 3
+  onError: fail
+```
+
+See [Execution policies](./execution-policies.md) and
+[Context management](./context-management.md).

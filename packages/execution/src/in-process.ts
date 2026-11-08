@@ -259,11 +259,17 @@ export class InProcessExecutionEngine implements ExecutionEngine {
       timeout = setTimeout(
         () =>
           record.controller.abort(
-            new ExecutionEngineError({
-              code: "EXECUTION_TIMEOUT",
-              message: `Execution timed out after ${request.timeoutMs}ms.`,
-              retryable: true,
-            }),
+            // An interruption, not a cancellation: Agent Runtime records the
+            // run as interrupted and it can be resumed from its checkpoint.
+            Object.assign(
+              new ExecutionEngineError({
+                code: "EXECUTION_TIMEOUT",
+                message: `Execution timed out after ${request.timeoutMs}ms.`,
+                retryable: true,
+                details: { timeoutMs: request.timeoutMs! },
+              }),
+              { interruption: "execution-timeout" },
+            ),
           ),
         request.timeoutMs,
       );

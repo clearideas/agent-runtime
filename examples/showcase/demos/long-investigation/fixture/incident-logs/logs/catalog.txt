@@ -1,0 +1,81 @@
+2026-07-14T13:55:00.824Z INFO  catalog       GET /health 200 1ms
+2026-07-14T13:55:25.918Z INFO  catalog       GET /health 200 1ms
+2026-07-14T13:55:47.499Z INFO  catalog       GET /health 200 1ms
+2026-07-14T13:56:01.415Z INFO  catalog       GET /health 200 1ms
+2026-07-14T13:56:20.384Z INFO  catalog       GET /health 200 1ms
+2026-07-14T13:56:39.886Z INFO  catalog       GET /health 200 1ms
+2026-07-14T13:56:53.890Z INFO  catalog       GET /health 200 1ms
+2026-07-14T13:57:14.236Z INFO  catalog       cache refresh for category lighting
+2026-07-14T13:57:29.940Z INFO  catalog       GET /items/63553 200 9ms
+2026-07-14T13:57:54.989Z INFO  catalog       GET /health 200 1ms
+2026-07-14T13:58:12.954Z INFO  catalog       cache refresh for category lighting
+2026-07-14T13:58:32.054Z INFO  catalog       GET /items/75558 200 9ms
+2026-07-14T13:58:46.687Z INFO  catalog       GET /items/32066 200 9ms
+2026-07-14T13:59:03.244Z INFO  catalog       GET /items/55701 200 9ms
+2026-07-14T13:59:26.794Z INFO  catalog       GET /health 200 1ms
+2026-07-14T13:59:49.589Z INFO  catalog       GET /health 200 1ms
+2026-07-14T14:00:06.279Z INFO  catalog       GET /items/17521 200 9ms
+2026-07-14T14:00:30.267Z INFO  catalog       GET /health 200 1ms
+2026-07-14T14:00:56.101Z INFO  catalog       GET /items/61131 200 9ms
+2026-07-14T14:01:12.785Z INFO  catalog       cache refresh for category lighting
+2026-07-14T14:01:28.276Z INFO  catalog       GET /health 200 1ms
+2026-07-14T14:01:46.604Z INFO  catalog       cache refresh for category lighting
+2026-07-14T14:02:01.401Z INFO  catalog       GET /health 200 1ms
+2026-07-14T14:02:24.381Z INFO  catalog       GET /health 200 1ms
+2026-07-14T14:02:44.079Z INFO  catalog       GET /items/72326 200 9ms
+2026-07-14T14:03:06.416Z INFO  catalog       GET /items/20242 200 9ms
+2026-07-14T14:03:22.490Z INFO  catalog       GET /health 200 1ms
+2026-07-14T14:03:43.808Z INFO  catalog       GET /items/22176 200 9ms
+2026-07-14T14:04:03.882Z INFO  catalog       GET /items/62930 200 9ms
+2026-07-14T14:04:17.142Z INFO  catalog       GET /health 200 1ms
+2026-07-14T14:04:40.686Z INFO  catalog       cache refresh for category lighting
+2026-07-14T14:04:56.663Z INFO  catalog       GET /health 200 1ms
+2026-07-14T14:05:18.103Z INFO  catalog       cache refresh for category lighting
+2026-07-14T14:05:39.303Z INFO  catalog       GET /items/96132 200 9ms
+2026-07-14T14:06:02.745Z INFO  catalog       GET /health 200 1ms
+2026-07-14T14:06:28.719Z INFO  catalog       GET /items/47497 200 9ms
+2026-07-14T14:06:54.531Z INFO  catalog       GET /health 200 1ms
+2026-07-14T14:07:12.381Z INFO  catalog       GET /items/12678 200 9ms
+2026-07-14T14:07:28.624Z INFO  catalog       cache refresh for category lighting
+2026-07-14T14:07:42.072Z INFO  catalog       cache refresh for category lighting
+2026-07-14T14:08:03.389Z INFO  catalog       GET /health 200 1ms
+2026-07-14T14:08:27.899Z INFO  catalog       GET /items/46110 200 9ms
+2026-07-14T14:08:48.235Z INFO  catalog       GET /health 200 1ms
+2026-07-14T14:09:05.941Z INFO  catalog       GET /items/68898 200 9ms
+2026-07-14T14:09:23.530Z INFO  catalog       cache refresh for category lighting
+2026-07-14T14:09:42.226Z INFO  catalog       cache refresh for category lighting
+2026-07-14T14:10:00.742Z INFO  catalog       cache refresh for category lighting
+2026-07-14T14:10:23.383Z INFO  catalog       GET /health 200 1ms
+2026-07-14T14:10:47.451Z INFO  catalog       cache refresh for category lighting
+2026-07-14T14:11:06.836Z INFO  catalog       GET /items/48645 200 9ms
+2026-07-14T14:11:30.993Z INFO  catalog       cache refresh for category lighting
+2026-07-14T14:11:44.277Z INFO  catalog       GET /items/61681 200 9ms
+2026-07-14T14:12:07.745Z INFO  catalog       GET /items/99630 200 9ms
+2026-07-14T14:12:21.644Z INFO  catalog       cache refresh for category lighting
+2026-07-14T14:12:39.789Z INFO  catalog       GET /items/25779 200 9ms
+2026-07-14T14:12:57.107Z INFO  catalog       cache refresh for category lighting
+2026-07-14T14:13:21.795Z INFO  catalog       GET /health 200 1ms
+2026-07-14T14:13:47.618Z INFO  catalog       GET /items/84236 200 9ms
+2026-07-14T14:14:12.706Z INFO  catalog       GET /items/18082 200 9ms
+2026-07-14T14:14:32.098Z INFO  catalog       cache refresh for category lighting
+2026-07-14T14:14:54.173Z INFO  catalog       GET /items/16324 200 9ms
+2026-07-14T14:15:12.978Z INFO  catalog       GET /health 200 1ms
+2026-07-14T14:15:38.643Z INFO  catalog       GET /items/68081 200 9ms
+2026-07-14T14:15:54.813Z INFO  catalog       GET /health 200 1ms
+2026-07-14T14:16:19.470Z INFO  catalog       GET /items/66764 200 9ms
+2026-07-14T14:16:42.274Z INFO  catalog       GET /items/22404 200 9ms
+2026-07-14T14:17:01.292Z INFO  catalog       GET /items/83922 200 9ms
+2026-07-14T14:17:25.159Z INFO  catalog       GET /items/13487 200 9ms
+2026-07-14T14:17:48.228Z INFO  catalog       GET /items/22969 200 9ms
+2026-07-14T14:18:05.252Z INFO  catalog       cache refresh for category lighting
+2026-07-14T14:18:20.415Z INFO  catalog       cache refresh for category lighting
+2026-07-14T14:18:40.069Z INFO  catalog       GET /health 200 1ms
+2026-07-14T14:19:04.984Z INFO  catalog       GET /items/23363 200 9ms
+2026-07-14T14:19:20.811Z INFO  catalog       GET /items/88429 200 9ms
+2026-07-14T14:19:42.418Z INFO  catalog       GET /items/30151 200 9ms
+2026-07-14T14:19:57.308Z INFO  catalog       GET /items/16501 200 9ms
+2026-07-14T14:20:13.825Z INFO  catalog       GET /items/75373 200 9ms
+2026-07-14T14:20:39.009Z INFO  catalog       GET /health 200 1ms
+2026-07-14T14:21:01.560Z INFO  catalog       GET /items/53279 200 9ms
+2026-07-14T14:21:20.960Z INFO  catalog       cache refresh for category lighting
+2026-07-14T14:21:40.405Z INFO  catalog       GET /health 200 1ms

@@ -38,6 +38,7 @@ import {
   assertModeAllowed,
 } from "../../lib/environment.ts";
 import {
+  mirrorRefusedCalls,
   mirrorTools,
   summarizeResult,
   toJson,
@@ -396,18 +397,27 @@ export const guardrails: ShowcaseDemo = {
       if (!composed.tools) throw new Error("Tools were not composed.");
 
       // ─── 3. Run it ─────────────────────────────────────────────────────────
-      const runtime = new AgentRuntime({
-        ...composed,
-        model: new ScriptedModelAdapter(guardrailsScript, {
+      // A call to a tool the step does not name is refused by Agent Runtime
+      // itself, before any host adapter sees it; mirror those calls too.
+      const refused = mirrorRefusedCalls(
+        new ScriptedModelAdapter(guardrailsScript, {
           pace: request.pace,
           // The attacker keeps going after refusals.
           stopOnSandboxFailure: false,
         }),
+        emit,
+      );
+      const runtime = new AgentRuntime({
+        ...composed,
+        model: refused.model,
         tools: mirrorTools(composed.tools, emit),
         runStore: new FileRunStore(path.join(context.dataDirectory, "runs")),
         stepExecutors: stepExecutors(),
         conditionEvaluator: new JexlConditionEvaluator(),
-        eventSinks: [{ emit: (event) => emit({ kind: "event", event }) }],
+        eventSinks: [
+          { emit: (event) => emit({ kind: "event", event }) },
+          refused.eventSink,
+        ],
       });
       const runId = `guardrails-${randomUUID()}`;
       emit({

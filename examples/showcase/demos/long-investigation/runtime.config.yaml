@@ -1,0 +1,19 @@
+version: "1.0"
+
+models:
+  default:
+    provider: openai
+    model: gpt-6-luna
+
+workspaces:
+  incident-logs:
+    driver: local
+    root:
+      env: SHOWCASE_LOGS_ROOT
+    mode: read
+
+sandbox:
+  driver: bubblewrap
+  limits:
+    commandTimeoutMs: 30000
+    maxCommandsPerRun: 40

@@ -126,6 +126,45 @@ describe("mapRunEventToTelemetry", () => {
     expect(serialized).not.toContain("toolResult");
   });
 
+  it("maps context reduction, retries, and interruptions without content", () => {
+    sequence = 0;
+    const reduced = mapRunEventToTelemetry(
+      event("context.reduced", {
+        stepId: "research",
+        data: {
+          scope: "transcript",
+          strategy: "summarize",
+          reason: "input-size",
+          bytesBefore: 120_000,
+          bytesAfter: 40_000,
+          summary: "private summary",
+        },
+      }),
+    );
+    expect(reduced.attributes).toMatchObject({
+      "agent_runtime.context.scope": "transcript",
+      "agent_runtime.context.strategy": "summarize",
+      "agent_runtime.context.bytes_before": 120_000,
+      "agent_runtime.context.bytes_after": 40_000,
+    });
+    expect(JSON.stringify(reduced)).not.toContain("private");
+    const summarizer = mapRunEventToTelemetry(
+      event("model.started", {
+        data: { model: "ref/fast", purpose: "summarize" },
+      }),
+    );
+    expect(summarizer.attributes["agent_runtime.model.purpose"]).toBe(
+      "summarize",
+    );
+    const interrupted = mapRunEventToTelemetry(
+      event("run.interrupted", { data: { reason: "execution-timeout" } }),
+    );
+    expect(interrupted.action).toBe("end");
+    expect(interrupted.attributes["agent_runtime.run.stop_reason"]).toBe(
+      "execution-timeout",
+    );
+  });
+
   it("redacts error messages by default and permits an explicit opt-in", () => {
     sequence = 0;
     const failed = event("run.failed", {

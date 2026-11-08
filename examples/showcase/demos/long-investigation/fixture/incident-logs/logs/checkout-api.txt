@@ -1,0 +1,86 @@
+2026-07-14T13:55:00.003Z INFO  checkout-api  checkout k-80376 started
+2026-07-14T13:55:20.358Z INFO  checkout-api  checkout k-73045 completed in 402ms
+2026-07-14T13:55:46.862Z INFO  checkout-api  tax quote received in 31ms
+2026-07-14T13:56:03.737Z INFO  checkout-api  shipping quote received in 44ms
+2026-07-14T13:56:20.998Z INFO  checkout-api  shipping quote received in 44ms
+2026-07-14T13:56:44.518Z INFO  checkout-api  checkout k-92256 completed in 402ms
+2026-07-14T13:57:01.079Z INFO  checkout-api  tax quote received in 31ms
+2026-07-14T13:57:22.403Z INFO  checkout-api  shipping quote received in 44ms
+2026-07-14T13:57:47.928Z INFO  checkout-api  tax quote received in 31ms
+2026-07-14T13:58:04.094Z INFO  checkout-api  tax quote received in 31ms
+2026-07-14T13:58:22.208Z INFO  checkout-api  shipping quote received in 44ms
+2026-07-14T13:58:44.502Z INFO  checkout-api  checkout k-55571 started
+2026-07-14T13:59:07.954Z INFO  checkout-api  checkout k-84726 started
+2026-07-14T13:59:23.164Z INFO  checkout-api  shipping quote received in 44ms
+2026-07-14T13:59:44.104Z INFO  checkout-api  tax quote received in 31ms
+2026-07-14T14:00:08.259Z INFO  checkout-api  checkout k-92393 completed in 402ms
+2026-07-14T14:00:28.681Z INFO  checkout-api  checkout k-24353 started
+2026-07-14T14:00:42.674Z INFO  checkout-api  tax quote received in 31ms
+2026-07-14T14:01:00.538Z INFO  checkout-api  tax quote received in 31ms
+2026-07-14T14:01:15.697Z INFO  checkout-api  tax quote received in 31ms
+2026-07-14T14:01:32.743Z INFO  checkout-api  checkout k-85168 started
+2026-07-14T14:01:48.882Z INFO  checkout-api  checkout k-39122 completed in 402ms
+2026-07-14T14:02:13.706Z INFO  checkout-api  tax quote received in 31ms
+2026-07-14T14:02:31.726Z INFO  checkout-api  checkout k-16582 completed in 402ms
+2026-07-14T14:02:48.345Z INFO  checkout-api  checkout k-63123 completed in 402ms
+2026-07-14T14:03:05.850Z INFO  checkout-api  shipping quote received in 44ms
+2026-07-14T14:03:21.646Z INFO  checkout-api  checkout k-26468 started
+2026-07-14T14:03:45.006Z INFO  checkout-api  checkout k-20654 started
+2026-07-14T14:04:09.898Z INFO  checkout-api  shipping quote received in 44ms
+2026-07-14T14:04:28.897Z INFO  checkout-api  checkout k-23391 started
+2026-07-14T14:04:47.747Z INFO  checkout-api  checkout k-68701 completed in 402ms
+2026-07-14T14:05:05.250Z ERROR checkout-api  payment authorization timed out: payments-api returned 504
+2026-07-14T14:05:09.805Z INFO  checkout-api  shipping quote received in 44ms
+2026-07-14T14:05:25.788Z INFO  checkout-api  checkout k-51552 completed in 402ms
+2026-07-14T14:05:40.588Z WARN  checkout-api  latency p99 9.8s (baseline 410ms)
+2026-07-14T14:05:49.968Z INFO  checkout-api  checkout k-58205 completed in 402ms
+2026-07-14T14:06:09.339Z INFO  checkout-api  checkout k-13030 completed in 402ms
+2026-07-14T14:06:35.635Z INFO  checkout-api  checkout k-67141 started
+2026-07-14T14:07:01.186Z INFO  checkout-api  checkout k-42152 started
+2026-07-14T14:07:15.724Z INFO  checkout-api  tax quote received in 31ms
+2026-07-14T14:07:30.953Z INFO  checkout-api  checkout k-25109 started
+2026-07-14T14:07:52.866Z INFO  checkout-api  checkout k-72370 completed in 402ms
+2026-07-14T14:08:18.174Z INFO  checkout-api  shipping quote received in 44ms
+2026-07-14T14:08:38.220Z INFO  checkout-api  tax quote received in 31ms
+2026-07-14T14:08:59.867Z INFO  checkout-api  checkout k-81755 started
+2026-07-14T14:09:03.427Z ERROR checkout-api  payment authorization timed out: payments-api returned 504
+2026-07-14T14:09:17.912Z INFO  checkout-api  tax quote received in 31ms
+2026-07-14T14:09:32.922Z INFO  checkout-api  shipping quote received in 44ms
+2026-07-14T14:09:55.857Z INFO  checkout-api  tax quote received in 31ms
+2026-07-14T14:10:18.472Z INFO  checkout-api  checkout k-44428 started
+2026-07-14T14:10:33.983Z INFO  checkout-api  checkout k-35477 started
+2026-07-14T14:10:55.654Z INFO  checkout-api  tax quote received in 31ms
+2026-07-14T14:11:19.943Z INFO  checkout-api  tax quote received in 31ms
+2026-07-14T14:11:35.621Z INFO  checkout-api  checkout k-62645 started
+2026-07-14T14:11:49.305Z INFO  checkout-api  shipping quote received in 44ms
+2026-07-14T14:12:05.835Z INFO  checkout-api  tax quote received in 31ms
+2026-07-14T14:12:24.287Z INFO  checkout-api  checkout k-98071 started
+2026-07-14T14:12:48.480Z INFO  checkout-api  checkout k-32296 started
+2026-07-14T14:13:04.984Z INFO  checkout-api  checkout k-49198 started
+2026-07-14T14:13:30.079Z INFO  checkout-api  checkout k-17033 completed in 402ms
+2026-07-14T14:13:45.754Z INFO  checkout-api  shipping quote received in 44ms
+2026-07-14T14:14:02.407Z INFO  checkout-api  tax quote received in 31ms
+2026-07-14T14:14:20.972Z INFO  checkout-api  checkout k-23275 completed in 402ms
+2026-07-14T14:14:35.878Z INFO  checkout-api  checkout k-54153 completed in 402ms
+2026-07-14T14:15:01.033Z INFO  checkout-api  checkout k-90303 completed in 402ms
+2026-07-14T14:15:27.615Z INFO  checkout-api  tax quote received in 31ms
+2026-07-14T14:15:41.143Z INFO  checkout-api  checkout k-17530 completed in 402ms
+2026-07-14T14:16:00.469Z INFO  checkout-api  checkout k-99791 started
+2026-07-14T14:16:23.862Z INFO  checkout-api  checkout k-40489 completed in 402ms
+2026-07-14T14:16:43.977Z INFO  checkout-api  checkout k-42542 started
+2026-07-14T14:17:04.697Z INFO  checkout-api  checkout k-60719 started
+2026-07-14T14:17:22.248Z INFO  checkout-api  tax quote received in 31ms
+2026-07-14T14:17:42.854Z INFO  checkout-api  checkout k-64574 completed in 402ms
+2026-07-14T14:18:01.670Z INFO  checkout-api  latency p99 back to 420ms
+2026-07-14T14:18:08.817Z INFO  checkout-api  tax quote received in 31ms
+2026-07-14T14:18:24.151Z INFO  checkout-api  checkout k-19303 started
+2026-07-14T14:18:44.175Z INFO  checkout-api  tax quote received in 31ms
+2026-07-14T14:19:09.508Z INFO  checkout-api  checkout k-92491 completed in 402ms
+2026-07-14T14:19:23.365Z INFO  checkout-api  tax quote received in 31ms
+2026-07-14T14:19:39.358Z INFO  checkout-api  tax quote received in 31ms
+2026-07-14T14:20:05.467Z INFO  checkout-api  shipping quote received in 44ms
+2026-07-14T14:20:19.728Z INFO  checkout-api  checkout k-72785 started
+2026-07-14T14:20:35.935Z INFO  checkout-api  checkout k-23814 started
+2026-07-14T14:21:01.074Z INFO  checkout-api  tax quote received in 31ms
+2026-07-14T14:21:16.450Z INFO  checkout-api  checkout k-52610 completed in 402ms
+2026-07-14T14:21:40.992Z INFO  checkout-api  checkout k-38605 completed in 402ms

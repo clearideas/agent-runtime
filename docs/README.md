@@ -20,13 +20,15 @@ results commit in manifest order.
 ## Start here
 
 - [Quick start](./quickstart.md) — run an agent with only a model API key
-- [Showcase](./showcase.md) — five end-to-end demos you can run locally without an API key
+- [Showcase](./showcase.md) — six end-to-end demos you can run locally without an API key
 - [Core concepts](./concepts.md) — manifests, configuration, state, steps, and adapters
 - [Build agents](./build-agents.md) — prompt chains, routing, loops, tools, and approvals
 - [Agent manifests and agent run manifests](./manifests.md) — reusable definitions and runtime inputs
 - [Models and providers](./models-and-providers.md) — hosted and local models
 - [Connections and tools](./connections-and-tools.md) — MCP and custom tool adapters
 - [Memory and context](./memory-and-context.md) — variables, loop summaries, prior-run context, and host memory tools
+- [Context management](./context-management.md) — summarize or prune oversized prompts, tool results, and tool loops
+- [Execution policies](./execution-policies.md) — retries, output repair, tool-call limits, failed steps, and preflight checks
 - [Events and streaming](./events-and-streaming.md) — interactive output and lifecycle callbacks
 - [Embed Agent Runtime](./embedding.md) — compose the TypeScript API in an application
 - [Adapter catalog](./adapters.md) — packaged model, storage, compute, sandbox, and telemetry integrations

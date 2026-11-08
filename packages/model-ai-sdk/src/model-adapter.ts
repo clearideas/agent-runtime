@@ -83,6 +83,7 @@ export interface AiSdkCallOptions {
   system?: string | SystemModelMessage | SystemModelMessage[];
   messages: AiSdkModelMessage[];
   tools?: ToolSet;
+  toolChoice?: "auto" | "none" | "required";
   output?: unknown;
   providerOptions?: JsonObject;
   maxOutputTokens?: number;
@@ -108,6 +109,9 @@ export interface AiSdkToolCall {
   toolName: string;
   input: unknown;
   providerExecuted?: boolean;
+  /** Set by the AI SDK for unknown tool names and inputs that fail the tool schema. */
+  invalid?: boolean;
+  error?: unknown;
 }
 
 export interface AiSdkGenerateResult {
@@ -254,6 +258,9 @@ export class AiSdkModelAdapter implements ModelAdapter {
             ...(typeof part.providerExecuted === "boolean"
               ? { providerExecuted: part.providerExecuted }
               : {}),
+            ...(part.invalid === true
+              ? { invalid: true, error: part.error }
+              : {}),
           });
           toolCalls.push(call);
           yield { type: "tool-call", call };
@@ -343,6 +350,7 @@ export class AiSdkModelAdapter implements ModelAdapter {
     };
     if (request.tools != null && request.tools.length > 0) {
       options.tools = toAiSdkTools(request.tools);
+      if (request.toolChoice != null) options.toolChoice = request.toolChoice;
     }
     if (request.outputSchema != null) {
       options.output = Output.object({
@@ -913,6 +921,11 @@ function partsAsText(parts: ModelMessage["content"]): string {
     .join("\n");
 }
 
+/**
+ * Invalid calls (an unknown tool name, or input that fails the tool schema)
+ * are marked so Agent Runtime answers them with an error instead of running
+ * them. The AI SDK has already added a tool-error result to the response.
+ */
 function toToolCall(call: AiSdkToolCall): ToolCall {
   return {
     id: call.toolCallId,
@@ -920,6 +933,21 @@ function toToolCall(call: AiSdkToolCall): ToolCall {
     input: toJsonObject(call.input) ?? { value: toJsonValue(call.input) },
     ...(call.providerExecuted != null
       ? { providerExecuted: call.providerExecuted }
+      : {}),
+    ...(call.invalid === true
+      ? {
+          metadata: {
+            agentRuntime: {
+              invalid: true,
+              error:
+                call.error instanceof Error
+                  ? call.error.message
+                  : call.error == null
+                    ? "Invalid tool call."
+                    : String(call.error),
+            },
+          },
+        }
       : {}),
   };
 }

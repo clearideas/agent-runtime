@@ -15,6 +15,12 @@ export type FailedRunRecord = RunRecord & {
   failedAt: string;
 };
 
+export type InterruptedRunRecord = RunRecord & {
+  status: "interrupted";
+  error: RunError;
+  interruptedAt: string;
+};
+
 const clone = <T>(value: T): T => structuredClone(value);
 
 /** In-process persistence for tests, embedded use, and short-lived local runs. */
@@ -169,6 +175,29 @@ export class MemoryRunStore implements RunStore {
     this.#runs.set(runId, failedRecord);
   }
 
+  async interruptRun(
+    runId: string,
+    error: RunError,
+    interruptedAt: string,
+    expectedAttempt: number,
+  ): Promise<void> {
+    const existing = this.#requireRun(runId);
+    if (existing.status !== "created" && existing.status !== "running") {
+      throw new Error(`Cannot interrupt ${existing.status} run ${runId}`);
+    }
+    if ((existing.attempt ?? 1) !== expectedAttempt) {
+      throw new Error(`Run ${runId} is owned by another attempt`);
+    }
+    const interrupted: InterruptedRunRecord = {
+      ...existing,
+      status: "interrupted",
+      updatedAt: interruptedAt,
+      error: clone(error),
+      interruptedAt,
+    };
+    this.#runs.set(runId, interrupted);
+  }
+
   async cancelRun(
     runId: string,
     cancelledAt: string,
@@ -179,7 +208,8 @@ export class MemoryRunStore implements RunStore {
     if (
       existing.status !== "created" &&
       existing.status !== "running" &&
-      existing.status !== "suspended"
+      existing.status !== "suspended" &&
+      existing.status !== "interrupted"
     ) {
       throw new Error(`Cannot cancel ${existing.status} run ${runId}`);
     }

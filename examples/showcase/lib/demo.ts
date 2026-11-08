@@ -45,6 +45,30 @@ export type ShowcaseMessage =
   | { kind: "engine"; engine: string; providerData?: JsonValue }
   /** Whether anything reached the host's canary listener (Guardrails). */
   | { kind: "canary"; hit: boolean; url: string; path?: string }
+  /**
+   * One model request as the host measured it (Long Investigation): sizes and
+   * kinds only, never content, so the page can chart the context window.
+   */
+  | {
+      kind: "model-input";
+      stepId: string;
+      /** "step" for the step's own request, "summarize" for the summarizer. */
+      purpose: "step" | "summarize";
+      bytes: number;
+      limit: number | null;
+      segments: Array<{ kind: string; bytes: number; label: string }>;
+    }
+  /** One summarization, as the host's summarizer adapter saw it (sizes only). */
+  | {
+      kind: "summarizer";
+      stepId: string;
+      /** input, transcript, or tool-result */
+      summaryKind: string;
+      label: string;
+      inputBytes: number;
+      targetBytes: number;
+      outputBytes: number;
+    }
   | { kind: "result"; result: JsonValue }
   | { kind: "error"; error: { message: string; cancelled: boolean } };
 
@@ -84,6 +108,11 @@ export interface ShowcaseDemo {
   summary: string;
   tagline: string;
   features: string[];
+  /**
+   * Set when the installed Agent Runtime cannot run this demo (for example,
+   * an older published version); the gallery and page show the reason.
+   */
+  unavailable?: string;
   /** Source files shown under "How it's built". */
   sources: SourceFile[];
   /** Agent manifest and run defaults for the browser. */

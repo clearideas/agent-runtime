@@ -42,8 +42,9 @@ See [embedding](https://agent-runtime.clearideas.com/embedding) for a minimal ho
 
 ## Run the showcase
 
-Explore five end-to-end demos with real workspaces, sandbox commands, approvals,
-checkpoints, MCP tools and remote execution. Scripted mode needs no API key.
+Explore six end-to-end demos with real workspaces, sandbox commands, approvals,
+checkpoints, MCP tools, remote execution and context management. Scripted mode
+needs no API key.
 
 ```sh
 cd examples/showcase

@@ -1,0 +1,245 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      name="description"
+      content="An agent reads more than three times its input limit, and Agent Runtime prunes or summarizes its context so the run finishes."
+    />
+    <title>Long Investigation · Agent Runtime Showcase</title>
+    <link rel="icon" type="image/x-icon" href="/assets/icons/favicon.ico" />
+    <link
+      rel="apple-touch-icon"
+      sizes="180x180"
+      href="/assets/icons/apple-touch-icon.png"
+    />
+    <link
+      rel="icon"
+      type="image/png"
+      sizes="32x32"
+      href="/assets/icons/favicon-32x32.png"
+    />
+    <link
+      rel="icon"
+      type="image/png"
+      sizes="16x16"
+      href="/assets/icons/favicon-16x16.png"
+    />
+    <link rel="stylesheet" href="/assets/showcase.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="topbar-inner">
+        <a class="brand" href="/">
+          <img src="/assets/clearideas-logo.svg" alt="Clear Ideas" />
+          <span>Showcase</span>
+        </a>
+        <span class="spacer"></span>
+        <span id="sandbox-chip" class="chip"><i></i>Sandbox…</span>
+        <button
+          id="run-button"
+          class="button primary"
+          type="button"
+          data-state="idle"
+        >
+          <span class="spinner" aria-hidden="true"></span>
+          <span id="run-label">Run agent</span>
+        </button>
+      </div>
+    </header>
+
+    <main class="shell">
+      <p id="isolation-banner" class="notice" role="note" hidden></p>
+      <p id="unavailable-banner" class="notice" role="note" hidden></p>
+
+      <section class="demo-intro">
+        <h1>Long Investigation</h1>
+        <p>
+          An on-call agent must read sixteen service logs and a long runbook to
+          find an incident's root cause:
+          <strong id="material-size">more than three times</strong> what its
+          step may send to the model at once. Agent Runtime measures every
+          request before it is sent and, when it would be too large, prunes or
+          summarizes the opening prompt and the older tool rounds. The full
+          transcript is kept; only the model's view shrinks.
+        </p>
+      </section>
+
+      <div class="run-options">
+        <div class="field">
+          <span>Context strategy</span>
+          <div
+            id="strategies"
+            class="segmented"
+            role="radiogroup"
+            aria-label="Context strategy"
+          ></div>
+          <small id="strategy-help"></small>
+        </div>
+
+        <details class="more-options">
+          <summary>More options</summary>
+          <div class="more-options-body">
+            <div class="field">
+              <span>Model</span>
+              <div class="segmented" role="radiogroup" aria-label="Model">
+                <label
+                  ><input type="radio" name="mode" value="scripted" checked />
+                  Scripted</label
+                >
+                <label id="live-label"
+                  ><input type="radio" name="mode" value="live" /> Live</label
+                >
+              </div>
+              <small id="mode-help"></small>
+            </div>
+            <div class="field">
+              <span>Speed</span>
+              <div class="segmented" role="radiogroup" aria-label="Speed">
+                <label
+                  ><input type="radio" name="pace" value="2" checked />
+                  Normal</label
+                >
+                <label><input type="radio" name="pace" value="1" /> Fast</label>
+                <label
+                  ><input type="radio" name="pace" value="0.35" />
+                  Fastest</label
+                >
+              </div>
+            </div>
+          </div>
+        </details>
+      </div>
+
+      <section
+        class="card context-card"
+        id="context-card"
+        aria-labelledby="context-heading"
+      >
+        <header>
+          <h2 id="context-heading">Context window</h2>
+          <span id="context-strategy" class="chip"></span>
+          <span class="spacer"></span>
+          <small class="context-subtitle"
+            >Every model request the step sent, measured like
+            <code>limits.maxInputBytes</code></small
+          >
+        </header>
+        <div class="card-body">
+          <dl id="context-stats" class="context-stats"></dl>
+          <div class="context-main">
+            <figure class="context-chart-wrap">
+              <svg
+                id="context-chart"
+                class="context-chart"
+                viewBox="0 0 1000 300"
+                role="img"
+                aria-label="Model input size for each request"
+              ></svg>
+              <figcaption
+                id="context-legend"
+                class="context-legend"
+              ></figcaption>
+            </figure>
+            <aside class="context-view" aria-labelledby="view-heading">
+              <h3 id="view-heading">What the model sees now</h3>
+              <p id="view-caption" class="caption"></p>
+              <ol id="view-list" class="view-list"></ol>
+            </aside>
+          </div>
+          <h3 class="context-log-heading">Reductions</h3>
+          <ol id="context-log" class="context-log"></ol>
+        </div>
+      </section>
+
+      <section id="stage" aria-label="Live execution"></section>
+
+      <section class="card result-card" aria-labelledby="result-heading">
+        <header>
+          <h2 id="result-heading">Incident report</h2>
+        </header>
+        <div class="card-body" id="result-body"></div>
+      </section>
+
+      <details class="card under-the-hood">
+        <summary>
+          <span>Under the hood</span>
+          <small>Code, audit trail, and raw events</small>
+        </summary>
+        <div class="card-body">
+          <div class="tabs hood-tabs" role="tablist" aria-label="Details">
+            <button
+              type="button"
+              role="tab"
+              aria-selected="true"
+              data-hood="code"
+            >
+              Code
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected="false"
+              data-hood="audit"
+            >
+              Audit trail
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected="false"
+              data-hood="events"
+            >
+              Events
+            </button>
+          </div>
+
+          <div data-hood-panel="code">
+            <div
+              id="source-tabs"
+              class="file-tabs"
+              role="tablist"
+              aria-label="Files"
+            ></div>
+            <p id="source-caption" class="caption"></p>
+            <pre id="source" class="source"><code>Loading…</code></pre>
+          </div>
+
+          <div data-hood-panel="audit" hidden>
+            <p class="caption">
+              One record per sandbox command, as stored in the run's durable
+              transcript.
+            </p>
+            <div class="table-scroll">
+              <table class="audit">
+                <thead>
+                  <tr>
+                    <th>Command</th>
+                    <th>Step</th>
+                    <th>Tool</th>
+                    <th>argv</th>
+                    <th>Exit</th>
+                    <th>Time</th>
+                    <th>Changed</th>
+                  </tr>
+                </thead>
+                <tbody id="audit-rows"></tbody>
+              </table>
+            </div>
+          </div>
+
+          <div data-hood-panel="events" hidden>
+            <p class="caption">Every event the runtime emitted, in order.</p>
+            <ol id="events" class="events"></ol>
+          </div>
+        </div>
+      </details>
+    </main>
+
+    <script src="/vendor/marked.js"></script>
+    <script src="/vendor/purify.js"></script>
+    <script src="/vendor/highlight.js"></script>
+    <script src="/assets/long-investigation.js" type="module"></script>
+  </body>
+</html>

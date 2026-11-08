@@ -65,8 +65,14 @@ Profile and per-step `options` are forwarded as AI SDK `providerOptions`, so
 they must use the provider-keyed shape required by that SDK. Per-step values
 are merged over profile defaults. The runtime rejects tool use or structured
 output when the profile disables them, and enforces the declared per-step
-output-token limit. Other capability fields record the selected deployment's
+output-token limit. `maxInputTokens` sizes [context reduction](./context-management.md):
+by default a prompt step reduces its input before it reaches 80% of the
+window. Other capability fields record the selected deployment's
 capabilities.
+
+A summarizer model named in a [context policy](./context-management.md) is a
+model reference like any other: host model policy applies to it, and its
+provider must be configured.
 
 ## Hosted authorization policy
 
@@ -134,8 +140,20 @@ driver:
 interface ModelAdapter {
   generate(request: ModelRequest): Promise<ModelResult>;
   stream?(request: ModelRequest): AsyncIterable<ModelEvent>;
+  describeModel?(model: string): ModelDescription | undefined;
 }
 ```
+
+`describeModel` reports `maxInputTokens` and `maxOutputTokens` for a model, so
+prompt steps can size context reduction and output repair. The configured
+adapter derives them from model profile capabilities.
+
+`ModelRequest.toolChoice` is `none` when a prompt step asks for a final answer
+after its tool-call limit; tools stay defined so providers accept the history.
+Adapters should classify provider errors where they can: an error with
+`code: "MODEL_CONTEXT_OVERFLOW"` triggers context reduction, and errors marked
+`retryable: true` (or with a retryable HTTP status) are retried by the
+[model retry policy](./execution-policies.md#model-errors).
 
 `ModelAdapter` receives a resolved `provider/model` or `ref/profile`
 identifier and returns transcript items, tool calls, usage, and completion

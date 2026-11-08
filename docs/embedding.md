@@ -115,8 +115,28 @@ const agentRuntime = new AgentRuntime({
 });
 ```
 
-Register the executors and adapters available to agents. A run fails validation
-when its manifest requires an unavailable capability.
+Register the executors and adapters available to agents. Before a run is
+created, Agent Runtime checks that every step has a registered executor and
+the adapters it needs, that every condition parses, and that every tool a
+prompt step names exists. All problems are reported together in one
+`MANIFEST_PREFLIGHT_FAILED` error, before any model call.
+
+Set host default [execution policies](./execution-policies.md) with
+`policies`; manifests and steps override them. `enforcedPolicies` apply last
+and cannot be overridden. A `summarizer` adapter observes, changes, or replaces
+[context summarization](./context-management.md#a-host-summarizer):
+
+```ts
+const agentRuntime = new AgentRuntime({
+  runStore,
+  stepExecutors,
+  model,
+  policies: {
+    context: { strategy: "summarize-or-prune" },
+    modelRetry: { maxAttempts: 4 },
+  },
+});
+```
 
 ## Runtime modules
 
@@ -142,17 +162,26 @@ module that provides its own persistence adapter exports `runStore` or
 `createRunStore(context)` separately. Resume loads the manifest from that store
 before creating the remaining adapters.
 
-## Cancellation
+## Cancellation, pausing, and interruption
 
 Pass an `AbortSignal` to `agentRuntime.run()`. Adapters must propagate it to model,
 tool, approval, sandbox, and network operations and must terminate underlying
 resources when aborted.
 
+The abort reason decides the outcome: `createRunPauseRequest()` suspends the
+run with kind `paused`, `new RunInterruptedError(reason)` leaves it
+`interrupted`, and any other reason cancels it. Paused and interrupted runs
+resume from their latest checkpoint. See
+[Pausing and interrupting a run](./persistence-and-recovery.md#pausing-and-interrupting-a-run).
+
 ## Custom step executors
 
 A `StepExecutor` declares a `type` and receives immutable variables plus
-runtime-provided capabilities. Return output, a state patch, transcript items,
-artifacts, and metadata.
+runtime-provided capabilities, including the step's resolved `policies`.
+Return output, a state patch, transcript items, artifacts, and metadata. Set
+`endRun: true` to complete the run after this step. Implement
+`preflight(step, host)` to report missing host configuration before a run
+starts.
 
 Custom step types require a corresponding manifest contract extension. Use
 namespaced `extensions` for optional host metadata.

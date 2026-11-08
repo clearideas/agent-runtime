@@ -171,6 +171,8 @@ export class BubblewrapSandboxProvider implements SandboxProvider {
             "--die-with-parent",
             "--new-session",
             "--clearenv",
+            "--cap-drop",
+            "ALL",
             ...binds,
             "--proc",
             "/proc",
@@ -291,11 +293,16 @@ export class BubblewrapSandboxProvider implements SandboxProvider {
   ): AsyncIterable<SandboxProcessEvent> {
     const state = this.#state(handle);
     const binds = await this.#bindArgumentList();
+    // bwrap already runs an unprivileged user's command without capabilities.
+    // Started by root (a container, WSL as root, sudo), the command would keep
+    // them, including the override that ignores file modes; drop them all.
     const args = [
       "--unshare-all",
       "--die-with-parent",
       "--new-session",
       "--clearenv",
+      "--cap-drop",
+      "ALL",
       ...binds,
       "--proc",
       "/proc",

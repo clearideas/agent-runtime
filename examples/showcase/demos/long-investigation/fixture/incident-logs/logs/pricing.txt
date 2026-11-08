@@ -1,0 +1,84 @@
+2026-07-14T13:55:00.691Z INFO  pricing       price list v8 served for region eu-west
+2026-07-14T13:55:25.980Z INFO  pricing       price list v5 served for region eu-west
+2026-07-14T13:55:43.879Z INFO  pricing       promo LAMP20 evaluated
+2026-07-14T13:56:05.066Z INFO  pricing       promo LAMP20 evaluated
+2026-07-14T13:56:27.736Z INFO  pricing       promo LAMP20 evaluated
+2026-07-14T13:56:48.403Z INFO  pricing       price list v2 served for region eu-west
+2026-07-14T13:57:02.085Z INFO  pricing       GET /health 200 1ms
+2026-07-14T13:57:27.585Z INFO  pricing       GET /health 200 1ms
+2026-07-14T13:57:51.206Z INFO  pricing       GET /health 200 1ms
+2026-07-14T13:58:06.222Z INFO  pricing       promo LAMP20 evaluated
+2026-07-14T13:58:23.563Z INFO  pricing       price list v7 served for region eu-west
+2026-07-14T13:58:47.084Z INFO  pricing       promo LAMP20 evaluated
+2026-07-14T13:59:11.219Z INFO  pricing       promo LAMP20 evaluated
+2026-07-14T13:59:37.179Z INFO  pricing       GET /health 200 1ms
+2026-07-14T14:00:03.425Z INFO  pricing       GET /health 200 1ms
+2026-07-14T14:00:21.461Z INFO  pricing       GET /health 200 1ms
+2026-07-14T14:00:43.276Z INFO  pricing       price list v5 served for region eu-west
+2026-07-14T14:01:07.450Z INFO  pricing       price list v2 served for region eu-west
+2026-07-14T14:01:23.229Z INFO  pricing       promo LAMP20 evaluated
+2026-07-14T14:01:37.820Z INFO  pricing       GET /health 200 1ms
+2026-07-14T14:01:54.113Z INFO  pricing       promo LAMP20 evaluated
+2026-07-14T14:02:09.202Z INFO  pricing       GET /health 200 1ms
+2026-07-14T14:02:29.276Z INFO  pricing       promo LAMP20 evaluated
+2026-07-14T14:02:43.069Z INFO  pricing       price list v1 served for region eu-west
+2026-07-14T14:02:57.953Z INFO  pricing       price list v1 served for region eu-west
+2026-07-14T14:03:23.076Z INFO  pricing       GET /health 200 1ms
+2026-07-14T14:03:44.778Z INFO  pricing       promo LAMP20 evaluated
+2026-07-14T14:04:01.061Z INFO  pricing       promo LAMP20 evaluated
+2026-07-14T14:04:22.207Z INFO  pricing       GET /health 200 1ms
+2026-07-14T14:04:46.816Z INFO  pricing       price list v2 served for region eu-west
+2026-07-14T14:05:06.004Z INFO  pricing       promo LAMP20 evaluated
+2026-07-14T14:05:27.516Z INFO  pricing       GET /health 200 1ms
+2026-07-14T14:05:52.080Z INFO  pricing       promo LAMP20 evaluated
+2026-07-14T14:06:16.668Z INFO  pricing       price list v2 served for region eu-west
+2026-07-14T14:06:32.695Z INFO  pricing       GET /health 200 1ms
+2026-07-14T14:06:51.592Z INFO  pricing       price list v1 served for region eu-west
+2026-07-14T14:07:12.934Z INFO  pricing       GET /health 200 1ms
+2026-07-14T14:07:29.106Z INFO  pricing       GET /health 200 1ms
+2026-07-14T14:07:54.749Z INFO  pricing       promo LAMP20 evaluated
+2026-07-14T14:08:08.603Z INFO  pricing       GET /health 200 1ms
+2026-07-14T14:08:23.172Z INFO  pricing       price list v8 served for region eu-west
+2026-07-14T14:08:40.460Z INFO  pricing       promo LAMP20 evaluated
+2026-07-14T14:09:00.677Z INFO  pricing       GET /health 200 1ms
+2026-07-14T14:09:20.627Z INFO  pricing       promo LAMP20 evaluated
+2026-07-14T14:09:44.535Z INFO  pricing       promo LAMP20 evaluated
+2026-07-14T14:09:59.508Z INFO  pricing       promo LAMP20 evaluated
+2026-07-14T14:10:14.711Z INFO  pricing       price list v1 served for region eu-west
+2026-07-14T14:10:28.794Z INFO  pricing       promo LAMP20 evaluated
+2026-07-14T14:10:44.951Z INFO  pricing       price list v2 served for region eu-west
+2026-07-14T14:11:05.265Z INFO  pricing       price list v2 served for region eu-west
+2026-07-14T14:11:21.747Z INFO  pricing       GET /health 200 1ms
+2026-07-14T14:11:37.822Z INFO  pricing       promo LAMP20 evaluated
+2026-07-14T14:11:53.903Z INFO  pricing       GET /health 200 1ms
+2026-07-14T14:12:13.998Z INFO  pricing       GET /health 200 1ms
+2026-07-14T14:12:31.019Z INFO  pricing       GET /health 200 1ms
+2026-07-14T14:12:54.527Z INFO  pricing       GET /health 200 1ms
+2026-07-14T14:13:14.926Z INFO  pricing       promo LAMP20 evaluated
+2026-07-14T14:13:36.445Z INFO  pricing       promo LAMP20 evaluated
+2026-07-14T14:13:51.219Z INFO  pricing       price list v2 served for region eu-west
+2026-07-14T14:14:05.255Z INFO  pricing       GET /health 200 1ms
+2026-07-14T14:14:30.811Z INFO  pricing       promo LAMP20 evaluated
+2026-07-14T14:14:45.173Z INFO  pricing       price list v1 served for region eu-west
+2026-07-14T14:14:59.377Z INFO  pricing       promo LAMP20 evaluated
+2026-07-14T14:15:23.748Z INFO  pricing       price list v1 served for region eu-west
+2026-07-14T14:15:39.215Z INFO  pricing       promo LAMP20 evaluated
+2026-07-14T14:16:05.398Z INFO  pricing       GET /health 200 1ms
+2026-07-14T14:16:28.875Z INFO  pricing       GET /health 200 1ms
+2026-07-14T14:16:48.782Z INFO  pricing       GET /health 200 1ms
+2026-07-14T14:17:10.899Z INFO  pricing       GET /health 200 1ms
+2026-07-14T14:17:29.861Z INFO  pricing       GET /health 200 1ms
+2026-07-14T14:17:50.371Z INFO  pricing       price list v1 served for region eu-west
+2026-07-14T14:18:08.497Z INFO  pricing       promo LAMP20 evaluated
+2026-07-14T14:18:34.696Z INFO  pricing       GET /health 200 1ms
+2026-07-14T14:18:52.759Z INFO  pricing       price list v9 served for region eu-west
+2026-07-14T14:19:06.419Z INFO  pricing       GET /health 200 1ms
+2026-07-14T14:19:29.188Z INFO  pricing       GET /health 200 1ms
+2026-07-14T14:19:44.072Z INFO  pricing       promo LAMP20 evaluated
+2026-07-14T14:19:59.412Z INFO  pricing       price list v2 served for region eu-west
+2026-07-14T14:20:20.339Z INFO  pricing       promo LAMP20 evaluated
+2026-07-14T14:20:35.287Z INFO  pricing       promo LAMP20 evaluated
+2026-07-14T14:20:50.638Z INFO  pricing       price list v2 served for region eu-west
+2026-07-14T14:21:16.546Z INFO  pricing       price list v6 served for region eu-west
+2026-07-14T14:21:34.431Z INFO  pricing       GET /health 200 1ms
+2026-07-14T14:21:57.640Z INFO  pricing       price list v3 served for region eu-west

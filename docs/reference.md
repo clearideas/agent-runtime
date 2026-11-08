@@ -19,6 +19,7 @@ The exported TypeScript type is `AgentManifest`; validate external input with
 | `connections`               | array                         | host connection bindings                              |
 | `workspaces`                | array                         | host workspace bindings (code bases, document stores) |
 | `steps`                     | array                         | ordered execution plan                                |
+| `policies`                  | object                        | default execution policies; steps may override them   |
 | `limits`                    | object                        | step, output, tool-call, and provider bounds          |
 | `metadata`                  | JSON object                   | inert application metadata                            |
 | `extensions`                | JSON object                   | namespaced host extensions                            |
@@ -53,6 +54,37 @@ Each entry in the agent manifest's `variables` array has this shape:
 | `metadata`         | JSON object                                                 | optional application metadata                 |
 
 The default value must match the declared type.
+
+## Execution policies
+
+`policies` may appear on the manifest and on any step. Step values override
+manifest values, which override host defaults (`AgentRuntimeDependencies.policies`).
+Host-enforced policies (`AgentRuntimeDependencies.enforcedPolicies`) apply
+last and override all of them.
+
+| Field                             | Type                                                                                                                                                         | Notes                                                                                |
+| --------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------ |
+| `context.strategy`                | `summarize`, `prune`, `summarize-or-prune`, or `fail`                                                                                                        | default `prune`                                                                      |
+| `context.summarizer`              | `model`, `systemPrompt`, `prompt`, `prompts`, `maxOutputTokens`, `summaryShare`, `minSummaryBytes`, `maxSummaryBytes`, `chunkBytes`, `maxCalls`, `maxPasses` | see [Controlling the summarizer](./context-management.md#controlling-the-summarizer) |
+| `context.overflowRetries`         | integer from 0 to 10                                                                                                                                         | reduce-and-retry attempts after a provider overflow; default 3                       |
+| `context.trigger`                 | `inputBytes`, `inputTokens`, `contextRatio`, `toolRounds`                                                                                                    | any satisfied criterion triggers; `contextRatio` in (0, 1]                           |
+| `context.retain.recentToolRounds` | non-negative integer                                                                                                                                         | default 2                                                                            |
+| `context.maxCompactions`          | non-negative integer                                                                                                                                         | summarizer compactions per step execution; default 25                                |
+| `context.reduceTo`                | number from 0.05 to 0.95                                                                                                                                     | size a reduction aims for, × the trigger; default 0.25                               |
+| `context.openingShare`            | number from 0.05 to 1                                                                                                                                        | opening-prompt budget, × the trigger; default 0.5 / 0.9                              |
+| `context.maxToolResultBytes`      | positive integer                                                                                                                                             | single tool-result cap; overrides `toolResultShare`                                  |
+| `context.toolResultShare`         | number from 0.05 to 1                                                                                                                                        | single tool-result cap, × the trigger; default 0.4                                   |
+| `context.variables.<path>`        | `keep`, `strategy`, `maxBytes`                                                                                                                               | per-variable overrides for the opening prompt                                        |
+| `toolCallLimit`                   | `finalize` or `fail`                                                                                                                                         | default `finalize`                                                                   |
+| `modelRetry`                      | `maxAttempts` (1–10), `initialDelayMs`, `maxDelayMs`                                                                                                         | defaults 3, 1000, 20000                                                              |
+| `outputRepair.maxAttempts`        | integer from 0 to 5                                                                                                                                          | default 1                                                                            |
+| `onError`                         | `fail` or `continue`                                                                                                                                         | default `fail`; the only field allowed on non-prompt steps                           |
+
+See [Execution policies](./execution-policies.md) and
+[Context management](./context-management.md).
+
+An approval step's `onReject` is `fail` (default), `cancel`, `complete`, or
+`continue`.
 
 ## Agent run manifest
 
@@ -110,9 +142,11 @@ persists the effective limit and consumed reported tokens in every checkpoint.
 Before another model call, a run whose consumed tokens meet or exceed its limit
 suspends. Resume may provide a replacement limit; omitting it reuses the
 persisted limit, and a limit that is not higher than consumed usage suspends
-again. Budgeted model adapters must report `totalTokens`, or both `inputTokens`
-and `outputTokens`. Budgeted runs execute sequentially so concurrent calls
-cannot overspend one shared limit.
+again. Budgeted model adapters should report `totalTokens`, or both
+`inputTokens` and `outputTokens`; when they report neither, the prompt step
+records an estimate marked `metadata.estimated: true` and emits a
+`USAGE_ESTIMATED` diagnostic. Budgeted runs execute sequentially so concurrent
+calls cannot overspend one shared limit.
 
 ## Workspace binding
 
@@ -164,7 +198,9 @@ by its artifact. Opaque `metadata` is persisted but not forwarded to the model;
 
 Use `limits.maxMessagesPerPrompt` and `limits.maxInputBytes` to bound complete
 history size. Input-byte enforcement includes resolved base64 artifact data and
-is checked again after each new tool result.
+is checked before every model request. The step's
+[context policy](./context-management.md) reduces oversized input to fit these
+limits before it would fail.
 
 ## Runtime configuration
 
@@ -222,22 +258,27 @@ See [connections and tools](./connections-and-tools.md#verifying-mcp-tool-metada
 
 ## Adapter interfaces
 
-| Adapter interface              | Responsibility                                     |
-| ------------------------------ | -------------------------------------------------- |
-| `AgentManifestSource`          | load an agent manifest by opaque reference         |
-| `RunStore`                     | durable lifecycle, checkpoints, and fencing        |
-| `ModelAdapter`                 | generation and optional streaming                  |
-| `ToolAdapter`                  | list and execute host-authorized tools             |
-| `ConnectionCredentialProvider` | supply and invalidate host-managed connection auth |
-| `EventSink`                    | observe ordered run events                         |
-| `ArtifactStore`                | put/get artifact bytes by reference                |
-| `ApprovalAdapter`              | resolve a human approval request                   |
-| `SandboxAdapter`               | execute a per-step code sandbox                    |
-| `WorkspaceProvider`            | resolve workspace bindings to `WorkspaceStore`s    |
-| `WorkspaceStore`               | enumerate and move opaque workspace bytes          |
-| `RunSandboxProvider`           | open the per-run sandbox that executes commands    |
-| `SubRunAdapter`                | invoke an isolated child agent manifest            |
-| `ConditionEvaluator`           | evaluate `when`, loop conditions, and goals        |
+| Adapter interface              | Responsibility                                                           |
+| ------------------------------ | ------------------------------------------------------------------------ |
+| `AgentManifestSource`          | load an agent manifest by opaque reference                               |
+| `RunStore`                     | durable lifecycle, checkpoints, and fencing                              |
+| `ModelAdapter`                 | generation, optional streaming, and optional `describeModel` limits      |
+| `ToolAdapter`                  | list and execute host-authorized tools; optional `unavailableToolReason` |
+| `ConnectionCredentialProvider` | supply and invalidate host-managed connection auth                       |
+| `EventSink`                    | observe ordered run events                                               |
+| `ArtifactStore`                | put/get artifact bytes by reference                                      |
+| `ApprovalAdapter`              | resolve a human approval request                                         |
+| `SandboxAdapter`               | execute a per-step code sandbox                                          |
+| `WorkspaceProvider`            | resolve workspace bindings to `WorkspaceStore`s                          |
+| `WorkspaceStore`               | enumerate and move opaque workspace bytes                                |
+| `RunSandboxProvider`           | open the per-run sandbox that executes commands                          |
+| `SubRunAdapter`                | invoke an isolated child agent manifest                                  |
+| `ConditionEvaluator`           | evaluate `when`, loop conditions, and goals; optional `validate`         |
+| `StepExecutor`                 | execute one step type; optional `preflight` checks                       |
+| `ContextSummarizerAdapter`     | observe, change, or replace context summarization                        |
+
+`RunStore` implementations may add `interruptRun` to record the `interrupted`
+status; without it, interruptions are stored as retryable failures.
 
 ## Execution interface
 

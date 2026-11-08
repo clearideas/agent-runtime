@@ -1,12 +1,5 @@
 import { randomUUID } from "node:crypto";
-import {
-  access,
-  mkdir,
-  open,
-  readFile,
-  rename,
-  unlink,
-} from "node:fs/promises";
+import { access, mkdir, open, unlink } from "node:fs/promises";
 import path from "node:path";
 
 import type {
@@ -20,8 +13,12 @@ import type {
   RunStore,
 } from "@clearideas/agent-runtime-core";
 
+import { readTextWithRetry, renameWithRetry } from "./file-retry.js";
 import { safePathComponent } from "./path-component.js";
-import type { FailedRunRecord } from "./run-store.memory.js";
+import type {
+  FailedRunRecord,
+  InterruptedRunRecord,
+} from "./run-store.memory.js";
 
 const RUN_FILE = "run.json";
 const CHECKPOINT_FILE = "checkpoint.json";
@@ -38,7 +35,7 @@ const pathExists = async (filePath: string): Promise<boolean> => {
 
 const readJson = async <T>(filePath: string): Promise<T | null> => {
   try {
-    return JSON.parse(await readFile(filePath, "utf8")) as T;
+    return JSON.parse(await readTextWithRetry(filePath)) as T;
   } catch (error: any) {
     if (error?.code === "ENOENT") return null;
     throw error;
@@ -65,7 +62,7 @@ const writeJsonAtomically = async (
     await handle.sync();
     await handle.close();
     handle = undefined;
-    await rename(temporaryPath, filePath);
+    await renameWithRetry(temporaryPath, filePath);
   } catch (error) {
     await handle?.close().catch(() => undefined);
     await unlink(temporaryPath).catch(() => undefined);
@@ -250,6 +247,31 @@ export class FileRunStore implements RunStore {
     });
   }
 
+  async interruptRun(
+    runId: string,
+    error: RunError,
+    interruptedAt: string,
+    expectedAttempt: number,
+  ): Promise<void> {
+    return this.#withRunLock(runId, async () => {
+      const existing = await this.#requireRun(runId);
+      if (existing.status !== "created" && existing.status !== "running") {
+        throw new Error(`Cannot interrupt ${existing.status} run ${runId}`);
+      }
+      if ((existing.attempt ?? 1) !== expectedAttempt) {
+        throw new Error(`Run ${runId} is owned by another attempt`);
+      }
+      const interrupted: InterruptedRunRecord = {
+        ...existing,
+        status: "interrupted",
+        updatedAt: interruptedAt,
+        error,
+        interruptedAt,
+      };
+      await writeJsonAtomically(this.#runFile(runId), interrupted);
+    });
+  }
+
   async cancelRun(
     runId: string,
     cancelledAt: string,
@@ -261,7 +283,8 @@ export class FileRunStore implements RunStore {
       if (
         existing.status !== "created" &&
         existing.status !== "running" &&
-        existing.status !== "suspended"
+        existing.status !== "suspended" &&
+        existing.status !== "interrupted"
       ) {
         throw new Error(`Cannot cancel ${existing.status} run ${runId}`);
       }

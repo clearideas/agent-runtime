@@ -70,7 +70,12 @@ required. Hosted applications can also provide `authorizeConnection` and
 identity, tenant, and run.
 
 Optional connections use `required: false` on the manifest binding. Required
-bindings fail runtime validation when the host has not configured them.
+bindings fail runtime validation when the host has not configured them. When
+an optional connection is configured but unreachable during discovery, a
+prompt step that names its tools runs without them: the model is told which
+tools are unavailable and why, and a `TOOLS_UNAVAILABLE` diagnostic is
+emitted. Tools from a required connection that cannot be reached fail the run
+before it starts.
 
 ## Verifying MCP tool metadata
 
@@ -400,6 +405,21 @@ logical call, then checkpoints the returned result. Side-effecting application
 adapters must pass the key to an atomic deduplication mechanism in the target
 system. Configured MCP adapters forward it as
 `_meta["agent-runtime/idempotency-key"]`; the MCP server must honor that value.
+
+A prompt step executes only the tools it names in `tools`. A model request for
+any other tool, even one the adapter exposes to another step, and a call the
+model adapter marks invalid (the AI SDK adapter marks calls to unknown tool
+names), are answered with a `tool_not_allowed` or `tool_call_invalid` error
+result instead of being run. Each call receives exactly one result.
+
+When the step reaches `limits.maxToolCallsPerIteration`, the default
+`toolCallLimit: finalize` policy asks the model for a final answer without
+tools instead of failing the step. See
+[Execution policies](./execution-policies.md#tool-calls).
+
+A single tool result larger than the step's context budget is clipped or
+summarized for the model; the full result remains in the transcript. See
+[Context management](./context-management.md#tool-results).
 
 The tool adapter is also responsible for authorization, input validation
 beyond the declared schema, timeouts for non-MCP tools, rate limits, and

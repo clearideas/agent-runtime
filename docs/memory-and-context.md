@@ -34,7 +34,8 @@ record of what every model said; it is not model input.
 
 Inside a tool-enabled step, the model's context does grow: each tool round
 appends the model's response and the tool results until the step completes.
-See [Context growth inside one prompt step](#context-growth-inside-one-prompt-step).
+See [Context growth inside one prompt step](#context-growth-inside-one-prompt-step)
+and [Context management](./context-management.md).
 
 ## Run memory: variables
 
@@ -71,7 +72,9 @@ variable per step and combine them where they are consumed.
 
 Templates render the complete value. When a large value feeds several later
 steps, each reader pays for the full text. Add a step that writes a shorter
-summary and read that instead.
+summary and read that instead. If a value is too large for a step's input,
+the step's [context policy](./context-management.md#the-opening-prompt)
+prunes or summarizes it before the request is sent.
 
 ## Loop memory
 
@@ -264,25 +267,32 @@ subject to the store's data policy. See
 
 A prompt step with tools loops until the model stops requesting calls. Each
 round adds the model's response and the tool results to the model input for
-the next round. Agent Runtime bounds this loop but does not shrink it:
+the next round, and the opening prompt may already be large if it
+interpolates big variables.
 
-| Limit                             | Effect                                                |
-| --------------------------------- | ----------------------------------------------------- |
-| `limits.maxToolCallsPerIteration` | fails the step after this many tool calls             |
-| `limits.maxInputBytes`            | fails the step when the model input exceeds this size |
-| `limits.maxMessagesPerPrompt`     | fails the step when the message count exceeds this    |
-| `budget.maxTotalTokens`           | suspends the run when cumulative usage reaches this   |
+Agent Runtime keeps the step inside its limits with the `context` policy:
+oversized variables in the opening prompt, oversized tool results, and older
+tool rounds are pruned (the default) or summarized before a request would be
+too large. The durable transcript keeps everything; only the model's view is
+reduced. See [Context management](./context-management.md).
 
-There is no automatic summarization inside a step; a step that exceeds a limit
-fails. To keep long tool sessions within bounds:
+| Limit                             | Effect                                                                             |
+| --------------------------------- | ---------------------------------------------------------------------------------- |
+| `limits.maxInputBytes`            | the hard ceiling; input is reduced to fit, or the step fails with `strategy: fail` |
+| `limits.maxMessagesPerPrompt`     | older rounds are removed to fit, or the step fails with `strategy: fail`           |
+| `limits.maxToolCallsPerIteration` | the model is asked for a final answer (`toolCallLimit: finalize`)                  |
+| `budget.maxTotalTokens`           | suspends the run when cumulative usage reaches this                                |
 
-- split the work into several steps, each writing a variable, so that each
+Reduction is a safety net, not a design. Long tool sessions still work best
+when:
+
+- the work is split into several steps, each writing a variable, so that each
   step starts with a fresh context;
-- keep tool results small at the source—the tool adapter or MCP server can
+- tool results are small at the source—the tool adapter or MCP server can
   return excerpts, identifiers, or counts instead of full documents;
-- instruct the model to be selective about which calls it makes and to stop
+- the model is told to be selective about which calls it makes and to stop
   when it has enough;
-- choose a model profile with a larger input window for research-heavy steps.
+- research-heavy steps use a model profile with a larger input window.
 
 ## Parallel execution and shared state
 

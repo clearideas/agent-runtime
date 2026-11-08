@@ -12,9 +12,11 @@ import type {
   StepExecutionContext,
   StepExecutionResult,
   StepExecutor,
+  StepPreflightContext,
 } from "@clearideas/agent-runtime-core";
 import {
   compilePromptTemplate,
+  RunCancelledError,
   RunSuspendedError,
 } from "@clearideas/agent-runtime-core";
 
@@ -98,6 +100,12 @@ const getMappedVariable = (
  */
 export class SubRunStepExecutor implements StepExecutor<SubRunStep> {
   readonly type = "sub-run" as const;
+
+  preflight(step: SubRunStep, context: StepPreflightContext): string[] {
+    return context.subRuns
+      ? []
+      : [`Sub-run step ${step.id} requires a SubRunAdapter.`];
+  }
 
   async execute(
     context: StepExecutionContext & { step: SubRunStep },
@@ -425,6 +433,12 @@ export class ApprovalStepExecutor implements StepExecutor<ApprovalStep> {
   readonly type = "approval" as const;
   readonly #timeoutMs: number | undefined;
 
+  preflight(step: ApprovalStep, context: StepPreflightContext): string[] {
+    return context.approvals
+      ? []
+      : [`Approval step ${step.id} requires an ApprovalAdapter.`];
+  }
+
   constructor(options: ApprovalStepExecutorOptions = {}) {
     if (
       options.timeoutMs !== undefined &&
@@ -485,6 +499,34 @@ export class ApprovalStepExecutor implements StepExecutor<ApprovalStep> {
       hasResponse: result.response !== undefined,
     });
     if (!result.approved) {
+      const onReject = context.step.onReject ?? "fail";
+      if (onReject === "cancel") {
+        throw new RunCancelledError(
+          `Approval was rejected for step ${context.step.id}; the run was cancelled.`,
+          { stepId: context.step.id },
+        );
+      }
+      if (onReject === "continue" || onReject === "complete") {
+        const rejected: JsonObject = {
+          approved: false,
+          respondedAt: result.respondedAt,
+          ...(result.response !== undefined
+            ? { response: result.response }
+            : {}),
+        };
+        const rejectedPatch = statePatch(context.step.outputVariable, rejected);
+        return {
+          output: rejected,
+          ...(rejectedPatch ? { statePatch: rejectedPatch } : {}),
+          ...(onReject === "complete" ? { endRun: true } : {}),
+          metadata: {
+            approved: false,
+            hasResponse: result.response !== undefined,
+            action: context.step.action ?? "pause",
+            onReject,
+          },
+        };
+      }
       throw new ApprovalRejectedError(context.step.id, context.step.action);
     }
 
@@ -823,6 +865,20 @@ export class CodeStepExecutor implements StepExecutor<CodeStep> {
   readonly type = "code" as const;
   readonly #defaultTimeoutMs: number;
   readonly #maximumTimeoutMs: number;
+
+  preflight(step: CodeStep, context: StepPreflightContext): string[] {
+    const usesRunSandbox =
+      step.sandbox === "run" ||
+      (step.sandbox !== "step" && (step.workspaces?.length ?? 0) > 0);
+    if (usesRunSandbox) {
+      return context.runSandbox
+        ? []
+        : [`Code step ${step.id} requires a RunSandboxProvider.`];
+    }
+    return context.sandbox
+      ? []
+      : [`Code step ${step.id} requires a SandboxAdapter.`];
+  }
 
   constructor(options: CodeStepExecutorOptions = {}) {
     this.#defaultTimeoutMs = options.defaultTimeoutMs ?? 60_000;

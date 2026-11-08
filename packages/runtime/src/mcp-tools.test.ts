@@ -547,6 +547,24 @@ describe("configured MCP tool adapter", () => {
     },
   );
 
+  it("reports tools of an unreachable optional connection as unavailable", async () => {
+    mcp.connect.mockRejectedValueOnce(new Error("connect ECONNREFUSED"));
+    const adapter = new ConfiguredMcpToolAdapter(pinnedConfig(undefined), [
+      { ref: "documents", alias: "docs", required: false },
+    ]);
+    const composite = new CompositeToolAdapter([adapter]);
+    await expect(composite.listTools()).resolves.toEqual([]);
+    expect(composite.unavailableToolReason("docs__search")).toMatch(
+      /Connection "docs" is unavailable: connect ECONNREFUSED/u,
+    );
+    expect(composite.unavailableToolReason("docs__delete")).toBeDefined();
+    expect(composite.unavailableToolReason("docs__export")).toBeUndefined();
+    expect(composite.isToolExcluded("docs__search")).toBe(false);
+    // Once the connection is back, a fresh discovery clears the state.
+    await composite.listTools();
+    expect(composite.unavailableToolReason("docs__search")).toBeUndefined();
+  });
+
   it("lets a host reject discovered metadata without configured digests", async () => {
     const adapter = new ConfiguredMcpToolAdapter(
       pinnedConfig(undefined),
