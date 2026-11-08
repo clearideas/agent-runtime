@@ -1,5 +1,16 @@
 # @clearideas/agent-runtime-core
 
+## 0.7.1
+
+### Patch Changes
+
+- Keep parallel prompt waves atomic when prompt executors request checkpoints.
+  Nested progress checkpoints remain enabled for sequential steps, tool calls,
+  and budgeted execution. Parallel tool-free steps now commit only after the
+  whole wave succeeds, preventing checkpoint sequence conflicts and preventing
+  resume from skipping uncommitted sibling outputs.
+- @clearideas/agent-runtime-contracts@0.7.1
+
 ## 0.7.0
 
 ### Minor Changes

@@ -14,6 +14,7 @@ import {
   JexlConditionEvaluator,
   MemoryRunStore,
   PromptStepExecutor,
+  RunInterruptedError,
   type ModelAdapter,
   type ModelResult,
   type ToolCall,
@@ -37,6 +38,120 @@ const reply = (text: string, calls: ToolCall[] = []): ModelResult => ({
       usage: { inputTokens: 10, outputTokens: 5, totalTokens: 15 },
     },
   ],
+});
+
+describe("parallel prompt checkpoints", () => {
+  const manifest = defineAgent({
+    schemaVersion: "1.0",
+    model: { provider: "test", model: "m" },
+    policies: { modelRetry: { maxAttempts: 1 } },
+    steps: ["first", "second", "third"].map((id) => ({
+      id,
+      type: "prompt" as const,
+      prompt: id,
+      outputVariable: id,
+    })),
+  });
+
+  it("commits simultaneous prompt responses as one complete wave", async () => {
+    const runStore = new MemoryRunStore();
+    let started = 0;
+    let release!: () => void;
+    const barrier = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const checkpoints: number[] = [];
+    const runtime = new AgentRuntime({
+      runStore,
+      stepExecutors: [new PromptStepExecutor()],
+      eventSinks: [
+        {
+          emit: async (event) => {
+            if (event.type === "checkpoint.saved")
+              checkpoints.push(
+                (await runStore.loadLatestCheckpoint(event.runId))!.cursor
+                  .stepIndex,
+              );
+          },
+        },
+      ],
+      model: {
+        generate: async (request) => {
+          if (++started === 3) release();
+          await barrier;
+          const part = request.messages[0]!.content[0]!;
+          return reply(part.type === "text" ? part.text : "");
+        },
+      },
+    });
+    const result = await runtime.run({
+      runId: "parallel",
+      manifest,
+      execution: { mode: "parallel", maxConcurrency: 3 },
+    });
+    expect(result.state).toEqual({
+      first: "first",
+      second: "second",
+      third: "third",
+    });
+    expect(result.stepResults.map((step) => step.stepId)).toEqual([
+      "first",
+      "second",
+      "third",
+    ]);
+    expect(checkpoints).toEqual([0, 3]);
+  });
+
+  it("resumes an interrupted parallel wave from its start without skipping sibling outputs", async () => {
+    const runStore = new MemoryRunStore();
+    const calls: string[] = [];
+    let interrupt = true;
+    const runtime = new AgentRuntime({
+      runStore,
+      stepExecutors: [new PromptStepExecutor()],
+      model: {
+        generate: async (request) => {
+          const part = request.messages[0]!.content[0]!;
+          const text = part.type === "text" ? part.text : "";
+          calls.push(text);
+          if (text === "third" && interrupt) {
+            interrupt = false;
+            throw new RunInterruptedError("shutdown");
+          }
+          return reply(text);
+        },
+      },
+    });
+    await expect(
+      runtime.run({
+        runId: "interrupted-wave",
+        manifest,
+        execution: { mode: "parallel" },
+      }),
+    ).rejects.toMatchObject({ code: "RUN_INTERRUPTED" });
+    expect(
+      (await runStore.loadLatestCheckpoint("interrupted-wave"))?.cursor
+        .stepIndex,
+    ).toBe(0);
+    const result = await runtime.run({
+      runId: "interrupted-wave",
+      resume: true,
+      execution: { mode: "parallel" },
+    });
+    expect(result.state).toEqual({
+      first: "first",
+      second: "second",
+      third: "third",
+    });
+    expect(calls).toEqual([
+      "first",
+      "second",
+      "third",
+      "first",
+      "second",
+      "third",
+    ]);
+  });
 });
 
 describe("interrupted executions", () => {

@@ -1223,6 +1223,7 @@ export class AgentRuntime {
         const settled = await Promise.allSettled(
           wave.stepIndexes.map((stepIndex) =>
             this.#executeTopLevelStep({
+              checkpointEnabled: wave.stepIndexes.length === 1,
               runId,
               manifest,
               stepIndex,
@@ -1510,6 +1511,8 @@ export class AgentRuntime {
     runSandbox: (() => Promise<RunSandboxSession>) | undefined;
     signal?: AbortSignal | undefined;
     latestCheckpoint: RunCheckpoint | null;
+    /** Parallel prompt waves commit together; no cursor may advance within a wave. */
+    checkpointEnabled: boolean;
   }): Promise<TopLevelStepOutcome> {
     const step = input.manifest.steps[input.stepIndex];
     if (!step) {
@@ -1533,24 +1536,28 @@ export class AgentRuntime {
         step.id,
       );
       const checkpointNested = (nested: NestedCheckpointInput) =>
-        this.#checkpoint({
-          runId: input.runId,
-          manifest: input.manifest,
-          nextStepIndex: input.stepIndex,
-          cursor: {
-            stepIndex: input.stepIndex,
-            stepId: step.id,
-            stepPath: step.id,
-            ...(nested.cursor ?? {}),
-          },
-          variables: nested.state,
-          stepResults: [...input.stepResults],
-          transcript: [...input.transcript, ...(nested.transcript ?? [])],
-          artifacts: [...input.artifacts, ...(nested.artifacts ?? [])],
-          ...(nested.continuation ? { continuation: nested.continuation } : {}),
-          activeStepTranscript: nested.transcript ?? [],
-          activeStepArtifacts: nested.artifacts ?? [],
-        });
+        input.checkpointEnabled
+          ? this.#checkpoint({
+              runId: input.runId,
+              manifest: input.manifest,
+              nextStepIndex: input.stepIndex,
+              cursor: {
+                stepIndex: input.stepIndex,
+                stepId: step.id,
+                stepPath: step.id,
+                ...(nested.cursor ?? {}),
+              },
+              variables: nested.state,
+              stepResults: [...input.stepResults],
+              transcript: [...input.transcript, ...(nested.transcript ?? [])],
+              artifacts: [...input.artifacts, ...(nested.artifacts ?? [])],
+              ...(nested.continuation
+                ? { continuation: nested.continuation }
+                : {}),
+              activeStepTranscript: nested.transcript ?? [],
+              activeStepArtifacts: nested.artifacts ?? [],
+            })
+          : Promise.resolve();
 
       const result = await executor.execute({
         runId: input.runId,
@@ -1618,7 +1625,7 @@ export class AgentRuntime {
             stepResults: input.stepResults,
             checkpoint: checkpointNested,
           }),
-        checkpoint: checkpointNested,
+        ...(input.checkpointEnabled ? { checkpoint: checkpointNested } : {}),
         evaluateCondition: (expression, conditionVariables) =>
           this.#evaluateCondition(expression, conditionVariables),
       });
