@@ -119,6 +119,16 @@ exporter flushing in the OpenTelemetry SDK.
 
 ## Failure and recovery
 
+Choose [execution policies](./execution-policies.md) as host defaults so every
+agent gets the same mitigations: context reduction, model retries, output
+repair, and the tool-call limit. Decide which steps may continue after a
+failure with `onError: continue`; a step whose failure would make later steps
+meaningless should keep the default `fail`.
+
+Reconcile `interrupted` runs automatically: they were stopped by
+infrastructure, not by the agent. Review `failed` runs before resuming them,
+because the same step fails again unless its cause has changed.
+
 Classify failures as retryable only when repeating the operation is safe.
 Webhook steps support an explicit idempotency key. Prompt tool calls receive a
 stable runtime-generated `ToolExecutionContext.idempotencyKey`; side-effecting

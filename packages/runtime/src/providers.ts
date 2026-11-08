@@ -13,6 +13,7 @@ import type {
 } from "@clearideas/agent-runtime-contracts";
 import type {
   ModelAdapter,
+  ModelDescription,
   ModelEvent,
   ModelRequest,
   ModelResult,
@@ -267,10 +268,20 @@ const walkSteps = (
   }
 };
 
-const manifestModelReferences = (manifest: AgentManifest): ModelReference[] => {
+/**
+ * Every model a manifest can call: the manifest and step models, and the
+ * summarizer models named by manifest or step context policies.
+ */
+export const manifestModelReferences = (
+  manifest: AgentManifest,
+): ModelReference[] => {
   const references: ModelReference[] = manifest.model ? [manifest.model] : [];
+  const summarizer = manifest.policies?.context?.summarizer?.model;
+  if (summarizer) references.push(summarizer);
   walkSteps(manifest.steps, (step) => {
     if (step.type === "prompt" && step.model) references.push(step.model);
+    const stepSummarizer = step.policies?.context?.summarizer?.model;
+    if (stepSummarizer) references.push(stepSummarizer);
   });
   return references;
 };
@@ -369,6 +380,30 @@ class ConfiguredModelAdapter implements ModelAdapter {
     return this.#delegate.generate(this.#request(request));
   }
 
+  /** Limits from the configured model's `capabilities`, when known. */
+  describeModel(model: string): ModelDescription | undefined {
+    let capabilities: ConfiguredModelDefinition["capabilities"];
+    try {
+      const resolved = resolveRequestModel(model, this.#config);
+      capabilities =
+        resolved.capabilities ??
+        Object.values(this.#config.models).find(
+          (definition) =>
+            definition.provider === resolved.provider &&
+            definition.model === resolved.model,
+        )?.capabilities;
+    } catch {
+      return undefined;
+    }
+    if (!capabilities) return undefined;
+    const description: ModelDescription = {};
+    if (capabilities.maxInputTokens != null)
+      description.maxInputTokens = capabilities.maxInputTokens;
+    if (capabilities.maxOutputTokens != null)
+      description.maxOutputTokens = capabilities.maxOutputTokens;
+    return Object.keys(description).length > 0 ? description : undefined;
+  }
+
   stream(request: ModelRequest): AsyncIterable<ModelEvent> {
     const resolved = this.#request(request);
     return this.#delegate.stream
@@ -442,6 +477,21 @@ export const validateModelCapabilities = (
       throw new Error(
         `Prompt step ${step.id} requests ${step.maxOutputTokens} output tokens, exceeding the configured model limit of ${resolved.capabilities.maxOutputTokens}.`,
       );
+    }
+    const summarizer =
+      step.policies?.context?.summarizer ??
+      manifest.policies?.context?.summarizer;
+    if (summarizer?.maxOutputTokens) {
+      const summarizerResolved = resolveModelReference(
+        summarizer.model ?? reference,
+        config,
+      );
+      const limit = summarizerResolved.capabilities?.maxOutputTokens;
+      if (limit && summarizer.maxOutputTokens > limit) {
+        throw new Error(
+          `The summarizer for prompt step ${step.id} requests ${summarizer.maxOutputTokens} output tokens, exceeding the configured model limit of ${limit}.`,
+        );
+      }
     }
   });
 };

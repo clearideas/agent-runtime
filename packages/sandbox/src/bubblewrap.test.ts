@@ -139,6 +139,11 @@ describe.skipIf(!bubblewrapAvailable)(
         "python3 -c \"import socket; s=socket.socket(); s.settimeout(2); s.connect(('1.1.1.1',80))\"",
       );
       expect(network.exitCode).not.toBe(0);
+      // Even when the host runs as root, the command has no capabilities, so
+      // file modes bind it like any other user.
+      expect(
+        (await run("grep '^CapEff:' /proc/self/status")).stdout.trim(),
+      ).toBe("CapEff:\t0000000000000000");
       expect((await run("echo nope > /workspace/hello.txt")).exitCode).not.toBe(
         0,
       );

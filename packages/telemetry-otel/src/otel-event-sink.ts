@@ -125,6 +125,7 @@ const actionForEvent = (eventType: string): AgentRuntimeTelemetryAction => {
     eventType === "run.failed" ||
     eventType === "run.cancelled" ||
     eventType === "run.suspended" ||
+    eventType === "run.interrupted" ||
     eventType === "step.completed" ||
     eventType === "step.failed" ||
     eventType === "model.completed" ||
@@ -269,6 +270,64 @@ export const mapRunEventToTelemetry = (
     "agent_runtime.artifact.id",
     firstString(sources, ["artifactId"]),
   );
+  // Context reduction, retries, and lifecycle classification carry sizes,
+  // counts, and labels only; never content.
+  setIfDefined(
+    attributes,
+    "agent_runtime.model.purpose",
+    firstString(sources, ["purpose"]),
+  );
+  if (event.type === "context.reduced") {
+    setIfDefined(
+      attributes,
+      "agent_runtime.context.scope",
+      firstString(sources, ["scope"]),
+    );
+    setIfDefined(
+      attributes,
+      "agent_runtime.context.strategy",
+      firstString(sources, ["strategy"]),
+    );
+    setIfDefined(
+      attributes,
+      "agent_runtime.context.reason",
+      firstString(sources, ["reason"]),
+    );
+    setIfDefined(
+      attributes,
+      "agent_runtime.context.bytes_before",
+      firstNumber(sources, ["bytesBefore"]),
+    );
+    setIfDefined(
+      attributes,
+      "agent_runtime.context.bytes_after",
+      firstNumber(sources, ["bytesAfter"]),
+    );
+  }
+  if (event.type === "model.retry") {
+    setIfDefined(
+      attributes,
+      "agent_runtime.retry.reason",
+      firstString(sources, ["reason"]),
+    );
+    setIfDefined(
+      attributes,
+      "agent_runtime.retry.attempt",
+      firstNumber(sources, ["attempt"]),
+    );
+  }
+  if (event.type === "run.suspended" || event.type === "run.interrupted") {
+    setIfDefined(
+      attributes,
+      "agent_runtime.run.stop_reason",
+      firstString(sources, ["reason"]),
+    );
+    setIfDefined(
+      attributes,
+      "agent_runtime.run.suspension_kind",
+      firstString(sources, ["kind"]),
+    );
+  }
   setIfDefined(
     attributes,
     "agent_runtime.artifact.media_type",

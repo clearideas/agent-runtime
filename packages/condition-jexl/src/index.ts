@@ -54,6 +54,15 @@ export const resolveConditionExpression = (
   );
 
 export class JexlConditionEvaluator implements ConditionEvaluator {
+  /**
+   * Parse an expression without evaluating it. Legacy `{{ path }}` operands
+   * are replaced with null first, as evaluation would substitute a value.
+   */
+  validate(expression: string): void {
+    if (expression.trim() === "") return;
+    Jexl.compile(expression.replace(/\{\{\s*([^}]+?)\s*\}\}/g, "null"));
+  }
+
   async evaluate(
     expression: string,
     variables: Readonly<VariableState>,

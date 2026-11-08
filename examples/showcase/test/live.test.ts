@@ -13,6 +13,8 @@ import test from "node:test";
 
 import { documentLibraryScript } from "../demos/document-library/script.ts";
 import { durableRunsScript } from "../demos/durable-runs/script.ts";
+import { longInvestigation } from "../demos/long-investigation/host.ts";
+import { createInvestigationScript } from "../demos/long-investigation/script.ts";
 import { orchestrationScript } from "../demos/orchestration/script.ts";
 import { repoMechanicScript } from "../demos/repo-mechanic/script.ts";
 import { lastResult, outputOf, type Script } from "../lib/scripted-model.ts";
@@ -49,7 +51,12 @@ const startLive = async (
   const log: LiveModelLog = { calls: [] };
   const started = await startShowcase(context, {
     liveModel: (demoId) => {
-      const script = overrides[demoId] ?? scripts[demoId];
+      // Long Investigation's script keeps per-run notes: one per run.
+      const script =
+        overrides[demoId] ??
+        (demoId === "long-investigation"
+          ? createInvestigationScript()
+          : scripts[demoId]);
       if (!script) throw new Error(`No live script for ${demoId}`);
       return liveModel(script, log);
     },
@@ -309,3 +316,27 @@ test("the doctor's live check passes through the AI SDK adapter", async () => {
   assert.equal(lazy.ok, false);
   assert.match(lazy.lines[0]!.text, /without calling the tool/u);
 });
+
+test(
+  "Long Investigation summarizes its context through the AI SDK adapter",
+  { skip: longInvestigation.unavailable ?? skip },
+  async (context) => {
+    const { baseURL, log } = await startLive(context);
+    const messages = await live(baseURL, "long-investigation", {
+      strategy: "summarize-or-prune",
+    });
+    const result = resultOf(messages);
+    assert.equal(result.state.findings.filesRead, 16);
+    assert.match(result.state.findings.rootCause, /payments-db/u);
+    const summarizer = eventsOf(messages, "model.started").filter(
+      (event) => event.data.purpose === "summarize",
+    );
+    assert.ok(summarizer.length > 1);
+    // Every provider call, the summarizer's included, stayed under the limit.
+    for (const input of messages.filter(
+      (message) => message.kind === "model-input",
+    ))
+      assert.ok(input.bytes <= 40_000, `request of ${input.bytes} bytes`);
+    assert.ok(log.calls.some((call) => call.structured));
+  },
+);

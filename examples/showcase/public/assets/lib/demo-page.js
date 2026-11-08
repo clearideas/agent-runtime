@@ -27,6 +27,8 @@ export const createDemoPage = async ({
   createRenderer,
   /** Every raw stream message, including host-specific kinds. */
   onMessage = () => {},
+  /** The element scrolled into view when a run starts. */
+  scrollTarget = "#stage",
 }) => {
   const [environment, demo] = await Promise.all([
     getJson("/api/environment"),
@@ -121,7 +123,7 @@ export const createDemoPage = async ({
       }
       runButton.set("running");
       stage.running();
-      $("#stage").scrollIntoView({ behavior: "smooth", block: "start" });
+      $(scrollTarget).scrollIntoView({ behavior: "smooth", block: "start" });
       controller = new AbortController();
       try {
         await streamRun(url, body, dispatch, controller.signal);

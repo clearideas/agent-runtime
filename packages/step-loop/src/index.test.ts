@@ -303,4 +303,61 @@ describe("LoopStepExecutor", () => {
       "final-artifact",
     ]);
   });
+
+  it("ends the loop and the run when a child returns endRun", async () => {
+    const store = new MemoryRunStore();
+    const ran: string[] = [];
+    const runner = createRunner(store, {
+      type: "prompt",
+      execute: async ({ step, variables }) => {
+        ran.push(`${step.id}:${String(variables.item)}`);
+        return variables.item === "b"
+          ? { output: "stop", endRun: true }
+          : { output: String(variables.item) };
+      },
+    });
+    const loop: LoopStep = {
+      id: "each",
+      type: "loop",
+      loop: { source: "items" },
+      steps: [prompt("work", "result"), prompt("after", "later")],
+    };
+    const result = await runner.run({
+      manifest: {
+        ...manifest(loop, { items: ["a", "b", "c"] }),
+        steps: [loop, prompt("final", "finalValue")],
+      },
+    });
+    expect(ran).toEqual(["work:a", "after:a", "work:b"]);
+    expect(result.stepResults.map((entry) => entry.stepId)).toEqual(["each"]);
+  });
+
+  it("continues past a failed child whose onError is continue", async () => {
+    const store = new MemoryRunStore();
+    const runner = createRunner(store, {
+      type: "prompt",
+      execute: async ({ variables }) => {
+        if (variables.item === "b") throw new Error("item b is broken");
+        return { output: `ok ${String(variables.item)}` };
+      },
+    });
+    const loop: LoopStep = {
+      id: "each",
+      type: "loop",
+      loop: { source: "items" },
+      steps: [
+        { ...prompt("work", "result"), policies: { onError: "continue" } },
+      ],
+    };
+    const result = await runner.run({
+      manifest: manifest(loop, { items: ["a", "b", "c"] }),
+    });
+    expect(result.output).toEqual([
+      "ok a",
+      {
+        error: { code: "AGENT_EXECUTION_FAILED", message: "item b is broken" },
+      },
+      "ok c",
+    ]);
+  });
 });

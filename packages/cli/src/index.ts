@@ -9,8 +9,12 @@ import type {
   JsonValue,
   RunEvent,
   RunResult,
+  ExecutionPolicies,
 } from "@clearideas/agent-runtime-contracts";
-import { parseAgentVariableOverrides } from "@clearideas/agent-runtime-contracts";
+import {
+  executionPoliciesSchema,
+  parseAgentVariableOverrides,
+} from "@clearideas/agent-runtime-contracts";
 import {
   type ArtifactStore,
   type ApprovalAdapter,
@@ -23,6 +27,7 @@ import {
   type SandboxAdapter,
   type StepExecutor,
   type SubRunAdapter,
+  type ContextSummarizerAdapter,
   type ToolAdapter,
   type WorkspaceProvider,
 } from "@clearideas/agent-runtime-core";
@@ -483,6 +488,12 @@ export interface CliRuntime {
   sandboxProvider?: SandboxProvider;
   eventSinks?: EventSink[];
   stepExecutors?: StepExecutor[];
+  /** Host default execution policies; manifests and steps override them. */
+  policies?: ExecutionPolicies;
+  /** Host execution policies applied last; manifests cannot override them. */
+  enforcedPolicies?: ExecutionPolicies;
+  /** Observes, changes, or replaces context summarization. */
+  summarizer?: ContextSummarizerAdapter;
 }
 
 export interface CliRuntimeContext {
@@ -575,6 +586,10 @@ const validateRuntime = (runtime: CliRuntime): CliRuntime => {
     throw new Error("Runtime sandbox must implement SandboxAdapter.execute().");
   if (runtime.subRuns && !adapterMethod(runtime.subRuns, "execute"))
     throw new Error("Runtime subRuns must implement SubRunAdapter.execute().");
+  if (runtime.summarizer && !adapterMethod(runtime.summarizer, "summarize"))
+    throw new Error(
+      "Runtime summarizer must implement ContextSummarizerAdapter.summarize().",
+    );
   if (
     runtime.workspaces &&
     !adapterMethod(runtime.workspaces, "resolveWorkspace")
@@ -664,6 +679,17 @@ const normalizeRuntime = (runtime: CliRuntimeModule): CliRuntime => ({
   ...(runtime.sandboxProvider
     ? { sandboxProvider: runtime.sandboxProvider }
     : {}),
+  ...(runtime.policies
+    ? { policies: executionPoliciesSchema.parse(runtime.policies) }
+    : {}),
+  ...(runtime.enforcedPolicies
+    ? {
+        enforcedPolicies: executionPoliciesSchema.parse(
+          runtime.enforcedPolicies,
+        ),
+      }
+    : {}),
+  ...(runtime.summarizer ? { summarizer: runtime.summarizer } : {}),
   ...((runtime.eventSinks?.length ?? 0) > 0 || runtime.eventSink
     ? {
         eventSinks: [
@@ -955,6 +981,16 @@ class CliStreamingEventSink implements EventSink {
           return `✗ run failed (${event.runId})`;
         case "run.suspended":
           return `Ⅱ run suspended (${event.runId}): ${String(event.data?.reason ?? "awaiting input")}; resume with agent-runtime resume ${event.runId}`;
+        case "run.interrupted":
+          return `↯ run interrupted (${event.runId}): ${String(event.data?.reason ?? "interrupted")}; resume with agent-runtime resume ${event.runId}`;
+        case "step.failed":
+          return event.data?.handled === true
+            ? `! step failed, continuing (onError: continue)${event.stepId ? `: ${event.stepId}` : ""}`
+            : undefined;
+        case "context.reduced":
+          return `  context reduced: ${String(event.data?.scope ?? "")} by ${String(event.data?.strategy ?? "")}, ${String(event.data?.bytesBefore ?? "?")} → ${String(event.data?.bytesAfter ?? "?")} bytes`;
+        case "model.retry":
+          return `  model retry: ${String(event.data?.reason ?? "retry")}${event.data?.delayMs != null ? `, waiting ${String(event.data.delayMs)}ms` : ""}`;
         case "webhook.retry.scheduled":
           return `  webhook retry: ${String(event.data?.reason ?? "transient failure")}, waiting ${String(event.data?.delayMs ?? "unknown")}ms`;
         case "run.cancelled":
@@ -1176,6 +1212,11 @@ const execute = async (
       ...(runtime.subRuns ? { subRuns: runtime.subRuns } : {}),
       ...(runtime.workspaces ? { workspaces: runtime.workspaces } : {}),
       ...(runtime.runSandbox ? { runSandbox: runtime.runSandbox } : {}),
+      ...(runtime.policies ? { policies: runtime.policies } : {}),
+      ...(runtime.enforcedPolicies
+        ? { enforcedPolicies: runtime.enforcedPolicies }
+        : {}),
+      ...(runtime.summarizer ? { summarizer: runtime.summarizer } : {}),
       ...(runtime.artifactStore
         ? { artifacts: runtime.artifactStore }
         : artifactDirectory
@@ -1508,6 +1549,11 @@ export const executeWorkerInvocation = async (
       ...(runtime.subRuns ? { subRuns: runtime.subRuns } : {}),
       ...(runtime.workspaces ? { workspaces: runtime.workspaces } : {}),
       ...(runtime.runSandbox ? { runSandbox: runtime.runSandbox } : {}),
+      ...(runtime.policies ? { policies: runtime.policies } : {}),
+      ...(runtime.enforcedPolicies
+        ? { enforcedPolicies: runtime.enforcedPolicies }
+        : {}),
+      ...(runtime.summarizer ? { summarizer: runtime.summarizer } : {}),
       artifacts,
       ...(options.maxParallelSteps
         ? { maxParallelSteps: options.maxParallelSteps }

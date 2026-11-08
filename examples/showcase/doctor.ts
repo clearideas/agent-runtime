@@ -143,6 +143,36 @@ if (sandbox.kind !== "none") {
       warn(
         "Guardrails: a script reached the network (expected without an isolated sandbox)",
       );
+
+    // Long Investigation needs context management, which is newer than the
+    // published 0.6.3 runtime; an older runtime is reported, not a failure.
+    const catalog = (await (await fetch(base)).json()) as Array<{
+      id: string;
+      status: string;
+      unavailable?: string;
+    }>;
+    const investigation = catalog.find(
+      (entry) => entry.id === "long-investigation",
+    );
+    if (investigation?.status === "unavailable") {
+      warn(`Long Investigation is unavailable: ${investigation.unavailable}`);
+    } else {
+      const run = await post(`${base}/long-investigation/runs`, {
+        pace: 0,
+        options: { strategy: "prune" },
+      });
+      const findings = run.find((m) => m.kind === "result")?.result?.state
+        ?.findings;
+      const reductions = events(run, "context.reduced").length;
+      if (findings?.filesRead === 16)
+        ok(
+          `Long Investigation: read all 16 logs inside the 40 KB input limit (${reductions} context reductions)`,
+        );
+      else
+        fail(
+          `Long Investigation did not complete: ${run.find((m) => m.kind === "error")?.error.message ?? "no result"}`,
+        );
+    }
   } catch (error) {
     fail(
       `the demos could not run: ${error instanceof Error ? error.message : String(error)}`,

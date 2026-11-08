@@ -1,0 +1,81 @@
+2026-07-14T13:55:00.787Z INFO  tax           GET /health 200 1ms
+2026-07-14T13:55:22.873Z INFO  tax           quote for region eu-west in 28ms
+2026-07-14T13:55:47.099Z INFO  tax           rate table v3 loaded
+2026-07-14T13:56:03.801Z INFO  tax           quote for region eu-west in 28ms
+2026-07-14T13:56:21.491Z INFO  tax           quote for region eu-west in 28ms
+2026-07-14T13:56:37.809Z INFO  tax           rate table v6 loaded
+2026-07-14T13:57:00.984Z INFO  tax           quote for region eu-west in 28ms
+2026-07-14T13:57:26.948Z INFO  tax           rate table v5 loaded
+2026-07-14T13:57:40.496Z INFO  tax           GET /health 200 1ms
+2026-07-14T13:57:59.378Z INFO  tax           quote for region eu-west in 28ms
+2026-07-14T13:58:14.691Z INFO  tax           rate table v8 loaded
+2026-07-14T13:58:33.504Z INFO  tax           rate table v9 loaded
+2026-07-14T13:58:54.709Z INFO  tax           GET /health 200 1ms
+2026-07-14T13:59:09.713Z INFO  tax           quote for region eu-west in 28ms
+2026-07-14T13:59:34.980Z INFO  tax           rate table v3 loaded
+2026-07-14T13:59:55.343Z INFO  tax           rate table v7 loaded
+2026-07-14T14:00:20.609Z INFO  tax           rate table v4 loaded
+2026-07-14T14:00:35.430Z INFO  tax           GET /health 200 1ms
+2026-07-14T14:00:55.875Z INFO  tax           rate table v5 loaded
+2026-07-14T14:01:12.278Z INFO  tax           rate table v5 loaded
+2026-07-14T14:01:30.444Z INFO  tax           rate table v2 loaded
+2026-07-14T14:01:56.796Z INFO  tax           quote for region eu-west in 28ms
+2026-07-14T14:02:10.999Z INFO  tax           rate table v1 loaded
+2026-07-14T14:02:31.338Z INFO  tax           GET /health 200 1ms
+2026-07-14T14:02:53.330Z INFO  tax           rate table v8 loaded
+2026-07-14T14:03:11.109Z INFO  tax           GET /health 200 1ms
+2026-07-14T14:03:35.970Z INFO  tax           GET /health 200 1ms
+2026-07-14T14:03:55.620Z INFO  tax           quote for region eu-west in 28ms
+2026-07-14T14:04:11.779Z INFO  tax           quote for region eu-west in 28ms
+2026-07-14T14:04:34.742Z INFO  tax           GET /health 200 1ms
+2026-07-14T14:04:51.940Z INFO  tax           GET /health 200 1ms
+2026-07-14T14:05:15.195Z INFO  tax           quote for region eu-west in 28ms
+2026-07-14T14:05:41.520Z INFO  tax           GET /health 200 1ms
+2026-07-14T14:05:56.524Z INFO  tax           GET /health 200 1ms
+2026-07-14T14:06:15.241Z INFO  tax           quote for region eu-west in 28ms
+2026-07-14T14:06:40.520Z INFO  tax           GET /health 200 1ms
+2026-07-14T14:07:01.334Z INFO  tax           GET /health 200 1ms
+2026-07-14T14:07:19.715Z INFO  tax           quote for region eu-west in 28ms
+2026-07-14T14:07:41.836Z INFO  tax           rate table v5 loaded
+2026-07-14T14:07:58.032Z INFO  tax           rate table v9 loaded
+2026-07-14T14:08:16.083Z INFO  tax           GET /health 200 1ms
+2026-07-14T14:08:30.123Z INFO  tax           rate table v4 loaded
+2026-07-14T14:08:48.032Z INFO  tax           quote for region eu-west in 28ms
+2026-07-14T14:09:12.199Z INFO  tax           GET /health 200 1ms
+2026-07-14T14:09:31.081Z INFO  tax           quote for region eu-west in 28ms
+2026-07-14T14:09:45.349Z INFO  tax           rate table v5 loaded
+2026-07-14T14:10:09.175Z INFO  tax           rate table v5 loaded
+2026-07-14T14:10:24.322Z INFO  tax           quote for region eu-west in 28ms
+2026-07-14T14:10:47.571Z INFO  tax           rate table v8 loaded
+2026-07-14T14:11:03.805Z INFO  tax           rate table v1 loaded
+2026-07-14T14:11:22.973Z INFO  tax           rate table v7 loaded
+2026-07-14T14:11:38.461Z INFO  tax           GET /health 200 1ms
+2026-07-14T14:11:54.741Z INFO  tax           GET /health 200 1ms
+2026-07-14T14:12:11.286Z INFO  tax           GET /health 200 1ms
+2026-07-14T14:12:34.905Z INFO  tax           quote for region eu-west in 28ms
+2026-07-14T14:12:54.574Z INFO  tax           GET /health 200 1ms
+2026-07-14T14:13:15.235Z INFO  tax           rate table v8 loaded
+2026-07-14T14:13:34.886Z INFO  tax           rate table v3 loaded
+2026-07-14T14:13:57.186Z INFO  tax           quote for region eu-west in 28ms
+2026-07-14T14:14:21.379Z INFO  tax           rate table v5 loaded
+2026-07-14T14:14:39.228Z INFO  tax           rate table v2 loaded
+2026-07-14T14:15:03.083Z INFO  tax           GET /health 200 1ms
+2026-07-14T14:15:20.868Z INFO  tax           quote for region eu-west in 28ms
+2026-07-14T14:15:35.729Z INFO  tax           GET /health 200 1ms
+2026-07-14T14:15:59.061Z INFO  tax           rate table v3 loaded
+2026-07-14T14:16:25.181Z INFO  tax           GET /health 200 1ms
+2026-07-14T14:16:45.942Z INFO  tax           GET /health 200 1ms
+2026-07-14T14:17:03.855Z INFO  tax           quote for region eu-west in 28ms
+2026-07-14T14:17:22.940Z INFO  tax           quote for region eu-west in 28ms
+2026-07-14T14:17:46.330Z INFO  tax           GET /health 200 1ms
+2026-07-14T14:18:11.588Z INFO  tax           quote for region eu-west in 28ms
+2026-07-14T14:18:29.403Z INFO  tax           rate table v6 loaded
+2026-07-14T14:18:45.776Z INFO  tax           quote for region eu-west in 28ms
+2026-07-14T14:19:08.550Z INFO  tax           GET /health 200 1ms
+2026-07-14T14:19:22.511Z INFO  tax           quote for region eu-west in 28ms
+2026-07-14T14:19:48.840Z INFO  tax           rate table v6 loaded
+2026-07-14T14:20:10.022Z INFO  tax           quote for region eu-west in 28ms
+2026-07-14T14:20:31.375Z INFO  tax           GET /health 200 1ms
+2026-07-14T14:20:53.421Z INFO  tax           rate table v3 loaded
+2026-07-14T14:21:19.581Z INFO  tax           quote for region eu-west in 28ms
+2026-07-14T14:21:44.647Z INFO  tax           rate table v9 loaded

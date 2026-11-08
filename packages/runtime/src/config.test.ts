@@ -128,6 +128,76 @@ describe("runner runtime configuration", () => {
     ).toThrow("option overrides are not authorized");
   });
 
+  it("describes configured model limits and authorizes summarizer models", async () => {
+    const config = parseAgentRuntimeConfig({
+      version: "1.0",
+      providers: {
+        primary: { driver: "openai", apiKey: { env: "OPENAI_API_KEY" } },
+      },
+      models: {
+        main: {
+          provider: "primary",
+          model: "gpt-main",
+          capabilities: { maxInputTokens: 128000, maxOutputTokens: 8000 },
+        },
+        fast: {
+          provider: "primary",
+          model: "gpt-fast",
+          capabilities: { maxOutputTokens: 1000 },
+        },
+      },
+    });
+    const context = { environment: { OPENAI_API_KEY: "test-key" } };
+    const manifest: AgentManifest = {
+      ...promptManifest({ ref: "main" }),
+      policies: {
+        context: {
+          strategy: "summarize",
+          summarizer: { model: { ref: "fast" } },
+        },
+      },
+    };
+    const { model } = composeRuntime(manifest, config, context);
+    expect(await model!.describeModel!("ref/main")).toEqual({
+      maxInputTokens: 128000,
+      maxOutputTokens: 8000,
+    });
+    expect(await model!.describeModel!("primary/gpt-main")).toEqual({
+      maxInputTokens: 128000,
+      maxOutputTokens: 8000,
+    });
+    expect(await model!.describeModel!("ref/unknown")).toBeUndefined();
+
+    // A summarizer model is subject to the same host model policy.
+    expect(() =>
+      composeRuntime(manifest, config, context, {
+        modelPolicy: { allowedModels: ["primary/gpt-main"] },
+      }),
+    ).toThrow('Model "primary/gpt-fast" is not authorized by this host');
+    expect(() =>
+      validateRuntimeConfiguration(
+        {
+          ...manifest,
+          policies: {
+            context: {
+              summarizer: { model: { ref: "fast" }, maxOutputTokens: 5000 },
+            },
+          },
+        },
+        config,
+      ),
+    ).toThrow("summarizer for prompt step answer requests 5000 output tokens");
+    expect(() =>
+      validateRuntimeConfiguration(
+        {
+          ...promptManifest({ ref: "main" }),
+          policies: { context: { summarizer: { model: { ref: "missing" } } } },
+        },
+        config,
+      ),
+    ).toThrow('Unknown model profile "missing"');
+  });
+
   it("rejects provider endpoint credentials embedded in URLs", () => {
     const config = parseAgentRuntimeConfig({
       version: "1.0",

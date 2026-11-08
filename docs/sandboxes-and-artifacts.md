@@ -41,8 +41,8 @@ const sandbox = new ProviderSandboxAdapter({
 `DockerSandboxProvider` enforces no network, a read-only root filesystem, an
 isolated `/workspace` tmpfs, image allowlisting, and resource limits.
 `BubblewrapSandboxProvider` provides equivalent isolation on Linux without a
-container daemon through user, PID, IPC, UTS, cgroup, and network namespaces
-and `prlimit` resource limits.
+container daemon through user, PID, IPC, UTS, cgroup, and network namespaces,
+dropped capabilities, and `prlimit` resource limits.
 
 ## The run sandbox
 

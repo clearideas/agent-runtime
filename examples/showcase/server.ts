@@ -54,6 +54,8 @@ const contentTypes: Record<string, string> = {
   ".js": "text/javascript; charset=utf-8",
   ".css": "text/css; charset=utf-8",
   ".svg": "image/svg+xml",
+  ".ico": "image/x-icon",
+  ".png": "image/png",
   ".woff2": "font/woff2",
 };
 
@@ -152,6 +154,8 @@ export interface ShowcaseOptions {
 export interface ShowcaseApp {
   server: Server;
   environment: ShowcaseEnvironment;
+  /** Where run stores, artifacts, and demo workspaces are kept. */
+  dataDirectory: string;
   listen(): Promise<AddressInfo>;
   close(): Promise<void>;
 }
@@ -350,6 +354,7 @@ export const createShowcaseApp = async (
           tagline: demo.tagline,
           features: demo.features,
           sources: demo.sources,
+          ...(demo.unavailable ? { unavailable: demo.unavailable } : {}),
           ...((await demo.describe(context)) as object),
         });
       }
@@ -372,8 +377,11 @@ export const createShowcaseApp = async (
         await demo.reset?.(context);
         return sendJson(response, 200, { reset: true });
       }
-      if (method === "POST" && action === "runs")
+      if (method === "POST" && action === "runs") {
+        if (demo.unavailable)
+          return sendJson(response, 409, { error: demo.unavailable });
         return handleRun(demo, request, response);
+      }
       return sendJson(response, 404, { error: "Not found." });
     }
 
@@ -412,6 +420,7 @@ export const createShowcaseApp = async (
   return {
     server,
     environment,
+    dataDirectory,
     listen: () =>
       new Promise((resolve, reject) => {
         server.once("error", reject);
@@ -469,6 +478,21 @@ if (isMain) {
       "WARNING: no isolated sandbox was found. Workspace commands will run as",
       "ordinary processes on this machine (scripted model only). Start Docker",
       "(or install bubblewrap on Linux) for real isolation.",
+    );
+  }
+  // Sync clients such as OneDrive open every file as it changes, which makes
+  // Windows refuse to replace checkpoints for a moment. Agent Runtime's file
+  // store retries, but run data is better kept outside a synced folder.
+  if (
+    process.platform === "win32" &&
+    /[\\/]OneDrive[^\\/]*[\\/]/iu.test(app.dataDirectory)
+  ) {
+    lines.push(
+      "",
+      `NOTE: run data is saved in a OneDrive folder (${app.dataDirectory}).`,
+      "OneDrive syncs every checkpoint as it is written, which slows runs and can",
+      "briefly lock files. To keep run data elsewhere, set SHOWCASE_DATA, e.g.:",
+      '  $env:SHOWCASE_DATA = "$env:LOCALAPPDATA\\agent-runtime-showcase"',
     );
   }
   lines.push("", "Check this setup any time with: npm run doctor");

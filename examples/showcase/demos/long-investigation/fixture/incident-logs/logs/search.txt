@@ -1,0 +1,82 @@
+2026-07-14T13:55:00.997Z INFO  search        query 'desk' 120 results in 29ms
+2026-07-14T13:55:16.908Z INFO  search        GET /health 200 2ms
+2026-07-14T13:55:41.616Z INFO  search        query 'desk' 120 results in 29ms
+2026-07-14T13:56:00.607Z INFO  search        query 'lamp' 44 results in 31ms
+2026-07-14T13:56:20.005Z INFO  search        GET /health 200 2ms
+2026-07-14T13:56:34.928Z INFO  search        query 'lamp' 44 results in 31ms
+2026-07-14T13:56:52.879Z INFO  search        GET /health 200 2ms
+2026-07-14T13:57:13.599Z INFO  search        GET /health 200 2ms
+2026-07-14T13:57:38.939Z INFO  search        GET /health 200 2ms
+2026-07-14T13:57:57.296Z INFO  search        query 'lamp' 44 results in 31ms
+2026-07-14T13:58:21.289Z INFO  search        GET /health 200 2ms
+2026-07-14T13:58:37.691Z INFO  search        query 'lamp' 44 results in 31ms
+2026-07-14T13:58:53.095Z INFO  search        GET /health 200 2ms
+2026-07-14T13:59:07.597Z INFO  search        query 'lamp' 44 results in 31ms
+2026-07-14T13:59:21.321Z INFO  search        query 'lamp' 44 results in 31ms
+2026-07-14T13:59:45.947Z INFO  search        query 'desk' 120 results in 29ms
+2026-07-14T14:00:03.144Z INFO  search        GET /health 200 2ms
+2026-07-14T14:00:18.587Z INFO  search        query 'desk' 120 results in 29ms
+2026-07-14T14:00:44.733Z INFO  search        GET /health 200 2ms
+2026-07-14T14:01:04.349Z INFO  search        query 'desk' 120 results in 29ms
+2026-07-14T14:01:29.563Z INFO  search        GET /health 200 2ms
+2026-07-14T14:01:52.780Z INFO  search        query 'desk' 120 results in 29ms
+2026-07-14T14:02:18.556Z INFO  search        query 'lamp' 44 results in 31ms
+2026-07-14T14:02:38.466Z INFO  search        query 'desk' 120 results in 29ms
+2026-07-14T14:03:02.569Z INFO  search        query 'desk' 120 results in 29ms
+2026-07-14T14:03:22.912Z INFO  search        query 'desk' 120 results in 29ms
+2026-07-14T14:03:44.500Z INFO  search        query 'desk' 120 results in 29ms
+2026-07-14T14:04:04.867Z INFO  search        GET /health 200 2ms
+2026-07-14T14:04:21.983Z INFO  search        query 'lamp' 44 results in 31ms
+2026-07-14T14:04:43.397Z INFO  search        query 'lamp' 44 results in 31ms
+2026-07-14T14:04:59.717Z INFO  search        GET /health 200 2ms
+2026-07-14T14:05:20.147Z INFO  search        query 'lamp' 44 results in 31ms
+2026-07-14T14:05:35.354Z INFO  search        query 'lamp' 44 results in 31ms
+2026-07-14T14:05:57.797Z INFO  search        GET /health 200 2ms
+2026-07-14T14:06:18.597Z INFO  search        query 'lamp' 44 results in 31ms
+2026-07-14T14:06:39.778Z INFO  search        query 'desk' 120 results in 29ms
+2026-07-14T14:06:56.690Z INFO  search        query 'lamp' 44 results in 31ms
+2026-07-14T14:07:21.135Z INFO  search        query 'lamp' 44 results in 31ms
+2026-07-14T14:07:37.272Z INFO  search        GET /health 200 2ms
+2026-07-14T14:07:51.330Z INFO  search        query 'desk' 120 results in 29ms
+2026-07-14T14:08:11.229Z INFO  search        GET /health 200 2ms
+2026-07-14T14:08:37.380Z INFO  search        query 'desk' 120 results in 29ms
+2026-07-14T14:08:59.009Z INFO  search        query 'lamp' 44 results in 31ms
+2026-07-14T14:09:17.716Z INFO  search        query 'lamp' 44 results in 31ms
+2026-07-14T14:09:20.142Z WARN  search        nightly reindex running late; CPU 78% on search-3
+2026-07-14T14:09:35.143Z INFO  search        query 'desk' 120 results in 29ms
+2026-07-14T14:09:56.818Z INFO  search        GET /health 200 2ms
+2026-07-14T14:10:17.403Z INFO  search        query 'lamp' 44 results in 31ms
+2026-07-14T14:10:35.308Z INFO  search        GET /health 200 2ms
+2026-07-14T14:10:58.845Z INFO  search        query 'desk' 120 results in 29ms
+2026-07-14T14:11:18.153Z INFO  search        query 'desk' 120 results in 29ms
+2026-07-14T14:11:34.066Z INFO  search        query 'desk' 120 results in 29ms
+2026-07-14T14:11:55.556Z INFO  search        query 'desk' 120 results in 29ms
+2026-07-14T14:12:20.941Z INFO  search        GET /health 200 2ms
+2026-07-14T14:12:39.920Z INFO  search        GET /health 200 2ms
+2026-07-14T14:12:53.666Z INFO  search        GET /health 200 2ms
+2026-07-14T14:13:15.791Z INFO  search        GET /health 200 2ms
+2026-07-14T14:13:36.063Z INFO  search        GET /health 200 2ms
+2026-07-14T14:13:54.130Z INFO  search        query 'desk' 120 results in 29ms
+2026-07-14T14:14:20.603Z INFO  search        query 'desk' 120 results in 29ms
+2026-07-14T14:14:45.975Z INFO  search        query 'desk' 120 results in 29ms
+2026-07-14T14:15:00.812Z INFO  search        query 'lamp' 44 results in 31ms
+2026-07-14T14:15:24.156Z INFO  search        query 'lamp' 44 results in 31ms
+2026-07-14T14:15:40.816Z INFO  search        query 'desk' 120 results in 29ms
+2026-07-14T14:16:02.161Z INFO  search        query 'desk' 120 results in 29ms
+2026-07-14T14:16:24.205Z INFO  search        GET /health 200 2ms
+2026-07-14T14:16:50.412Z INFO  search        query 'desk' 120 results in 29ms
+2026-07-14T14:17:10.107Z INFO  search        query 'desk' 120 results in 29ms
+2026-07-14T14:17:35.241Z INFO  search        query 'lamp' 44 results in 31ms
+2026-07-14T14:17:52.654Z INFO  search        query 'desk' 120 results in 29ms
+2026-07-14T14:18:11.790Z INFO  search        GET /health 200 2ms
+2026-07-14T14:18:35.430Z INFO  search        query 'lamp' 44 results in 31ms
+2026-07-14T14:19:01.377Z INFO  search        query 'lamp' 44 results in 31ms
+2026-07-14T14:19:25.588Z INFO  search        query 'desk' 120 results in 29ms
+2026-07-14T14:19:49.589Z INFO  search        GET /health 200 2ms
+2026-07-14T14:20:15.127Z INFO  search        GET /health 200 2ms
+2026-07-14T14:20:35.069Z INFO  search        query 'lamp' 44 results in 31ms
+2026-07-14T14:20:50.501Z INFO  search        GET /health 200 2ms
+2026-07-14T14:21:00.678Z INFO  search        reindex complete
+2026-07-14T14:21:15.024Z INFO  search        GET /health 200 2ms
+2026-07-14T14:21:39.036Z INFO  search        GET /health 200 2ms
+2026-07-14T14:21:58.012Z INFO  search        query 'lamp' 44 results in 31ms

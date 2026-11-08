@@ -201,13 +201,14 @@ composeRuntime(
 
 `sandbox.driver: bubblewrap` runs commands under
 [bubblewrap](https://github.com/containers/bubblewrap) with separate user,
-PID, IPC, UTS, cgroup, and network namespaces, read-only binds of the host
-system directories, a private `/workspace` owned by the provider, and
-`prlimit`-enforced memory, CPU, process, and file-size limits. It needs Linux
-with unprivileged user namespaces and no container daemon, which makes it the
-reference provider for local development and continuous integration. The
-provider probes itself before a run and fails composition with a clear message
-when bubblewrap or user namespaces are unavailable.
+PID, IPC, UTS, cgroup, and network namespaces, no capabilities (even when the
+host process runs as root), read-only binds of the host system directories, a
+private `/workspace` owned by the provider, and `prlimit`-enforced memory, CPU,
+process, and file-size limits. It needs Linux with unprivileged user namespaces
+and no container daemon, which makes it the reference provider for local
+development and continuous integration. The provider probes itself before a run
+and fails composition with a clear message when bubblewrap or user namespaces
+are unavailable.
 
 ## Embedding
 

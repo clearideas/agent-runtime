@@ -110,6 +110,7 @@ const showcaseDemos = [
   "guardrails",
   "document-library",
   "orchestration",
+  "long-investigation",
 ];
 const sourceAgentExamples = showcaseDemos.map((demo) =>
   path.join("examples", "showcase", "demos", demo, "agent.yaml"),

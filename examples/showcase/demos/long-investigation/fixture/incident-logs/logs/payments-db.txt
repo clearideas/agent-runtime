@@ -1,0 +1,87 @@
+2026-07-14T13:55:00.572Z INFO  payments-db   checkpoint complete (wrote 1,844 buffers)
+2026-07-14T13:55:26.562Z INFO  payments-db   connections in use 42/200
+2026-07-14T13:55:45.244Z INFO  payments-db   connections in use 92/200
+2026-07-14T13:56:08.624Z INFO  payments-db   connections in use 22/200
+2026-07-14T13:56:27.567Z INFO  payments-db   connections in use 22/200
+2026-07-14T13:56:52.304Z INFO  payments-db   checkpoint complete (wrote 1,884 buffers)
+2026-07-14T13:57:12.531Z INFO  payments-db   checkpoint complete (wrote 1,824 buffers)
+2026-07-14T13:57:35.201Z INFO  payments-db   connections in use 82/200
+2026-07-14T13:57:57.773Z INFO  payments-db   connections in use 32/200
+2026-07-14T13:58:10.043Z INFO  payments-db   config deploy v42 started by deploy-bot (ticket CHG-1187): pool.max_connections 200 -> 20, statement_timeout unchanged
+2026-07-14T13:58:15.931Z INFO  payments-db   autovacuum: table payments.authorizations
+2026-07-14T13:58:36.894Z INFO  payments-db   autovacuum: table payments.authorizations
+2026-07-14T13:58:59.706Z INFO  payments-db   autovacuum: table payments.authorizations
+2026-07-14T13:59:13.378Z INFO  payments-db   checkpoint complete (wrote 1,824 buffers)
+2026-07-14T13:59:31.321Z INFO  payments-db   autovacuum: table payments.authorizations
+2026-07-14T13:59:51.121Z INFO  payments-db   checkpoint complete (wrote 1,884 buffers)
+2026-07-14T14:00:16.772Z INFO  payments-db   connections in use 82/200
+2026-07-14T14:00:37.617Z INFO  payments-db   checkpoint complete (wrote 1,874 buffers)
+2026-07-14T14:01:02.921Z INFO  payments-db   autovacuum: table payments.authorizations
+2026-07-14T14:01:28.421Z INFO  payments-db   connections in use 42/200
+2026-07-14T14:01:54.606Z INFO  payments-db   connections in use 72/200
+2026-07-14T14:02:04.687Z INFO  payments-db   config v42 applied; connection pool resized to max_connections=20
+2026-07-14T14:02:08.130Z INFO  payments-db   autovacuum: table payments.authorizations
+2026-07-14T14:02:31.013Z INFO  payments-db   checkpoint complete (wrote 1,884 buffers)
+2026-07-14T14:02:56.304Z INFO  payments-db   connections in use 22/200
+2026-07-14T14:03:16.323Z INFO  payments-db   checkpoint complete (wrote 1,864 buffers)
+2026-07-14T14:03:39.610Z INFO  payments-db   connections in use 32/200
+2026-07-14T14:04:00.508Z INFO  payments-db   autovacuum: table payments.authorizations
+2026-07-14T14:04:25.175Z INFO  payments-db   autovacuum: table payments.authorizations
+2026-07-14T14:04:46.090Z INFO  payments-db   connections in use 32/200
+2026-07-14T14:04:48.837Z WARN  payments-db   connection pool saturated: 20/20 in use, 37 waiting
+2026-07-14T14:05:01.053Z WARN  payments-db   connection pool saturated: 20/20 in use, 143 waiting
+2026-07-14T14:05:11.208Z INFO  payments-db   connections in use 42/200
+2026-07-14T14:05:31.667Z INFO  payments-db   autovacuum: table payments.authorizations
+2026-07-14T14:05:55.691Z INFO  payments-db   connections in use 92/200
+2026-07-14T14:06:19.980Z INFO  payments-db   checkpoint complete (wrote 1,844 buffers)
+2026-07-14T14:06:33.164Z INFO  payments-db   checkpoint complete (wrote 1,814 buffers)
+2026-07-14T14:06:57.330Z INFO  payments-db   checkpoint complete (wrote 1,824 buffers)
+2026-07-14T14:07:16.862Z INFO  payments-db   autovacuum: table payments.authorizations
+2026-07-14T14:07:32.924Z INFO  payments-db   autovacuum: table payments.authorizations
+2026-07-14T14:07:46.732Z INFO  payments-db   autovacuum: table payments.authorizations
+2026-07-14T14:08:10.435Z INFO  payments-db   autovacuum: table payments.authorizations
+2026-07-14T14:08:26.719Z INFO  payments-db   connections in use 22/200
+2026-07-14T14:08:30.342Z WARN  payments-db   connection pool saturated: 20/20 in use, 211 waiting
+2026-07-14T14:08:45.789Z INFO  payments-db   checkpoint complete (wrote 1,884 buffers)
+2026-07-14T14:08:59.758Z INFO  payments-db   connections in use 82/200
+2026-07-14T14:09:17.580Z INFO  payments-db   connections in use 12/200
+2026-07-14T14:09:39.290Z INFO  payments-db   checkpoint complete (wrote 1,864 buffers)
+2026-07-14T14:10:00.783Z INFO  payments-db   autovacuum: table payments.authorizations
+2026-07-14T14:10:24.415Z INFO  payments-db   connections in use 82/200
+2026-07-14T14:10:43.616Z INFO  payments-db   autovacuum: table payments.authorizations
+2026-07-14T14:11:04.462Z INFO  payments-db   autovacuum: table payments.authorizations
+2026-07-14T14:11:22.422Z INFO  payments-db   connections in use 72/200
+2026-07-14T14:11:43.364Z INFO  payments-db   checkpoint complete (wrote 1,854 buffers)
+2026-07-14T14:12:00.924Z INFO  payments-db   checkpoint complete (wrote 1,884 buffers)
+2026-07-14T14:12:16.155Z INFO  payments-db   checkpoint complete (wrote 1,884 buffers)
+2026-07-14T14:12:40.185Z INFO  payments-db   autovacuum: table payments.authorizations
+2026-07-14T14:13:06.459Z INFO  payments-db   connections in use 32/200
+2026-07-14T14:13:31.522Z INFO  payments-db   autovacuum: table payments.authorizations
+2026-07-14T14:13:52.102Z INFO  payments-db   autovacuum: table payments.authorizations
+2026-07-14T14:14:09.612Z INFO  payments-db   autovacuum: table payments.authorizations
+2026-07-14T14:14:24.516Z INFO  payments-db   checkpoint complete (wrote 1,854 buffers)
+2026-07-14T14:14:48.810Z INFO  payments-db   autovacuum: table payments.authorizations
+2026-07-14T14:15:13.504Z INFO  payments-db   connections in use 32/200
+2026-07-14T14:15:33.567Z INFO  payments-db   connections in use 52/200
+2026-07-14T14:15:40.318Z INFO  payments-db   rollback to config v41 started by on-call (a.rivera)
+2026-07-14T14:15:51.459Z INFO  payments-db   connections in use 52/200
+2026-07-14T14:16:08.895Z INFO  payments-db   checkpoint complete (wrote 1,894 buffers)
+2026-07-14T14:16:29.353Z INFO  payments-db   connections in use 82/200
+2026-07-14T14:16:30.810Z INFO  payments-db   config v41 applied; connection pool resized to max_connections=200
+2026-07-14T14:16:47.073Z INFO  payments-db   autovacuum: table payments.authorizations
+2026-07-14T14:17:02.419Z INFO  payments-db   connection pool healthy: 58/200 in use, 0 waiting
+2026-07-14T14:17:10.131Z INFO  payments-db   autovacuum: table payments.authorizations
+2026-07-14T14:17:35.585Z INFO  payments-db   autovacuum: table payments.authorizations
+2026-07-14T14:17:55.987Z INFO  payments-db   checkpoint complete (wrote 1,834 buffers)
+2026-07-14T14:18:18.712Z INFO  payments-db   connections in use 82/200
+2026-07-14T14:18:42.401Z INFO  payments-db   autovacuum: table payments.authorizations
+2026-07-14T14:18:57.860Z INFO  payments-db   connections in use 52/200
+2026-07-14T14:19:12.159Z INFO  payments-db   checkpoint complete (wrote 1,854 buffers)
+2026-07-14T14:19:37.327Z INFO  payments-db   checkpoint complete (wrote 1,884 buffers)
+2026-07-14T14:19:54.236Z INFO  payments-db   connections in use 82/200
+2026-07-14T14:20:18.237Z INFO  payments-db   checkpoint complete (wrote 1,844 buffers)
+2026-07-14T14:20:36.613Z INFO  payments-db   checkpoint complete (wrote 1,834 buffers)
+2026-07-14T14:20:55.055Z INFO  payments-db   connections in use 82/200
+2026-07-14T14:21:12.498Z INFO  payments-db   autovacuum: table payments.authorizations
+2026-07-14T14:21:38.469Z INFO  payments-db   connections in use 82/200
+2026-07-14T14:21:53.728Z INFO  payments-db   connections in use 32/200

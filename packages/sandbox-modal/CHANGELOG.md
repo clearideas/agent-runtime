@@ -1,5 +1,12 @@
 # @clearideas/agent-runtime-sandbox-modal
 
+## 0.7.0
+
+### Patch Changes
+
+- Updated dependencies
+  - @clearideas/agent-runtime-sandbox@0.7.0
+
 ## 0.6.3
 
 ### Patch Changes

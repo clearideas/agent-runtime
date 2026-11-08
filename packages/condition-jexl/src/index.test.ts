@@ -32,4 +32,15 @@ describe("JexlConditionEvaluator", () => {
       true,
     );
   });
+
+  it("validates syntax before a run without evaluating", () => {
+    const evaluator = new JexlConditionEvaluator();
+    expect(() => evaluator.validate("count >= 2 && enabled")).not.toThrow();
+    expect(() =>
+      evaluator.validate('{{ result.status }} == "ready"'),
+    ).not.toThrow();
+    expect(() => evaluator.validate("")).not.toThrow();
+    expect(() => evaluator.validate("status === ")).toThrow();
+    expect(() => evaluator.validate("approved &&")).toThrow();
+  });
 });

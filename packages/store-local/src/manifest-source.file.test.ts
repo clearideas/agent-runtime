@@ -75,14 +75,28 @@ describe("FileAgentManifestSource", () => {
     ).rejects.toThrow();
   });
 
-  it("rejects symlinks that resolve outside the configured root", async () => {
+  it("rejects symlinks that resolve outside the configured root", async (context) => {
     const outside = await mkdtemp(
       path.join(tmpdir(), "agent-runtime-outside-"),
     );
     try {
       const outsideManifest = path.join(outside, "agent.json");
       await writeFile(outsideManifest, JSON.stringify(jsonManifest));
-      await symlink(outsideManifest, path.join(directory, "linked.json"));
+      // Creating a symlink needs Developer Mode or elevation on Windows.
+      const linked = await symlink(
+        outsideManifest,
+        path.join(directory, "linked.json"),
+      ).then(
+        () => true,
+        (error: NodeJS.ErrnoException) => {
+          if (error.code === "EPERM" || error.code === "EACCES") return false;
+          throw error;
+        },
+      );
+      if (!linked) {
+        context.skip("this system does not permit creating symlinks");
+        return;
+      }
 
       await expect(
         new FileAgentManifestSource(directory).loadManifest("linked.json"),

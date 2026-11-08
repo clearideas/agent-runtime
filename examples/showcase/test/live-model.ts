@@ -130,8 +130,9 @@ export const liveModel = (
   log: LiveModelLog = { calls: [] },
 ): ModelAdapter => {
   let sequence = 0;
-  const model = new MockLanguageModelV4({
-    doStream: async (options: any) => {
+  /** One provider turn as stream parts; doGenerate reuses it. */
+  const answer = (options: any): Part[] => {
+    {
       const prompt = options.prompt as PromptMessage[];
       const toolParts = prompt
         .filter((message) => message.role === "tool")
@@ -206,7 +207,29 @@ export const liveModel = (
           })),
         ...("call" in turn ? { toolCall: turn.call.name } : {}),
       });
-      return { stream: convertArrayToReadableStream(parts as never[]) };
+      return parts;
+    }
+  };
+  const model = new MockLanguageModelV4({
+    doStream: async (options: any) => ({
+      stream: convertArrayToReadableStream(answer(options) as never[]),
+    }),
+    // Non-streaming calls, such as a context summarizer's, get the same turn.
+    doGenerate: async (options: any) => {
+      const parts = answer(options);
+      const finish = parts.find((part) => part.type === "finish")!;
+      return {
+        content: parts.flatMap((part) =>
+          part.type === "text-delta"
+            ? [{ type: "text", text: part.delta }]
+            : part.type === "tool-call"
+              ? [part]
+              : [],
+        ),
+        finishReason: finish.finishReason,
+        usage: finish.usage,
+        warnings: [],
+      } as never;
     },
   });
   return new AiSdkModelAdapter({ resolveModel: () => model as never });

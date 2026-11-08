@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
-import { mkdir, open, readFile, rename, unlink } from "node:fs/promises";
+import { mkdir, open, readFile, unlink } from "node:fs/promises";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 
@@ -11,6 +11,7 @@ import type {
 } from "@clearideas/agent-runtime-core";
 
 import { safePathComponent } from "./path-component.js";
+import { readTextWithRetry, renameWithRetry } from "./file-retry.js";
 
 interface StoredArtifact {
   ref: ArtifactRef;
@@ -32,7 +33,7 @@ const writeAtomically = async (
     await handle.sync();
     await handle.close();
     handle = undefined;
-    await rename(temporaryPath, filePath);
+    await renameWithRetry(temporaryPath, filePath);
   } catch (error) {
     await handle?.close().catch(() => undefined);
     await unlink(temporaryPath).catch(() => undefined);
@@ -81,7 +82,7 @@ export class FileArtifactStore implements ArtifactStore {
 
   async get(ref: ArtifactRef): Promise<ArtifactData> {
     const stored = JSON.parse(
-      await readFile(this.#metadataPath(ref.id), "utf8"),
+      await readTextWithRetry(this.#metadataPath(ref.id)),
     ) as StoredArtifact;
     if (stored.ref.id !== ref.id)
       throw new Error(`Artifact metadata id mismatch: ${ref.id}`);

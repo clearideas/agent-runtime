@@ -340,6 +340,148 @@ export const parseAgentVariableOverrides = (
   input: unknown,
 ): AgentVariableOverride[] => agentVariableOverridesSchema.parse(input);
 
+/**
+ * How a prompt step reduces model input that is, or would become, too large.
+ *
+ * - `summarize`: a summarizer model condenses oversized content; failure fails the step.
+ * - `prune`: deterministic reduction without a model call (clip, stub, drop).
+ * - `summarize-or-prune`: summarize, and prune when summarizing fails or is not enough.
+ * - `fail`: never reduce; an oversized input fails the step.
+ */
+export const CONTEXT_STRATEGIES = [
+  "summarize",
+  "prune",
+  "summarize-or-prune",
+  "fail",
+] as const;
+export type ContextStrategy = (typeof CONTEXT_STRATEGIES)[number];
+
+/** The model and instructions used when a context strategy summarizes. */
+/** What the summarizer condenses. */
+export const SUMMARY_KINDS = ["input", "transcript", "tool-result"] as const;
+export type SummaryKind = (typeof SUMMARY_KINDS)[number];
+
+export interface ContextSummarizer {
+  /** Defaults to the step model, then the manifest model. */
+  model?: ModelReference;
+  /** Replaces the built-in summarizer system prompt. Templated over step variables and `context.*`. */
+  systemPrompt?: string;
+  /** Replaces the built-in instruction for every kind. Templated over step variables and `context.*`. */
+  prompt?: string;
+  /** Replaces the built-in instruction for one kind; takes precedence over `prompt`. */
+  prompts?: {
+    input?: string;
+    transcript?: string;
+    toolResult?: string;
+  };
+  /** Output-token limit for each summarizer call. Defaults from the target size. */
+  maxOutputTokens?: number;
+  /**
+   * A transcript summary's target, as a share of the content it replaces
+   * (default 0.25), bounded by `minSummaryBytes` and `maxSummaryBytes` and by
+   * the room left under `reduceTo`.
+   */
+  summaryShare?: number;
+  /** Smallest transcript summary to ask for, in bytes (default 1024). */
+  minSummaryBytes?: number;
+  /** Largest transcript summary to ask for, in bytes (default 16384). */
+  maxSummaryBytes?: number;
+  /**
+   * Most material sent in one summarizer call, in bytes. Larger material is
+   * split into chunks. Defaults to half the summarizer model's described input
+   * window, else 48000. Chunks are reduced further so the full rendered
+   * summarizer request fits `limits.maxInputBytes`.
+   */
+  chunkBytes?: number;
+  /** Summarizer calls allowed per step execution (default 8 × maxCompactions, at least 16). */
+  maxCalls?: number;
+  /** Condensing passes over chunked material before giving up (default 4). */
+  maxPasses?: number;
+}
+
+/** When a prompt step reduces its input. Any satisfied criterion triggers. */
+export interface ContextTrigger {
+  /** Model input JSON size, measured like `limits.maxInputBytes`. */
+  inputBytes?: number;
+  /** Estimated model input tokens, calibrated from reported usage. */
+  inputTokens?: number;
+  /** Fraction of the model's input window; requires an adapter that describes the model. */
+  contextRatio?: number;
+  /** Tool rounds completed since the step started or last compacted. */
+  toolRounds?: number;
+}
+
+/** Per-variable overrides for reducing a step's interpolated opening prompt. */
+export interface ContextVariablePolicy {
+  /** Never shorten this variable. */
+  keep?: boolean;
+  strategy?: ContextStrategy;
+  /** Always cap this variable's interpolated text at this size. */
+  maxBytes?: number;
+}
+
+export interface ContextPolicy {
+  strategy?: ContextStrategy;
+  summarizer?: ContextSummarizer;
+  trigger?: ContextTrigger;
+  retain?: {
+    /** Newest tool rounds kept verbatim when older rounds are compacted. */
+    recentToolRounds?: number;
+  };
+  /**
+   * Size a reduction aims for, as a fraction of the trigger (default 0.25).
+   * Lower values reduce less often but cut deeper each time; higher values
+   * reduce more often and keep more history.
+   */
+  reduceTo?: number;
+  /**
+   * Largest share of the trigger the opening prompt may use before its
+   * interpolated variables are reduced. Defaults to 0.5 for a step with tools
+   * (leaving room for the tool loop) and 0.9 for a step without tools.
+   */
+  openingShare?: number;
+  /** Summarizing compactions per step execution; later reductions prune. */
+  maxCompactions?: number;
+  /** Reduce-and-retry attempts after a provider rejects a request as too long (default 3). */
+  overflowRetries?: number;
+  /** Cap for a single tool result as seen by the model. */
+  maxToolResultBytes?: number;
+  /**
+   * Cap for a single tool result as a fraction of the trigger (default 0.4).
+   * `maxToolResultBytes`, when set, takes precedence.
+   */
+  toolResultShare?: number;
+  /** Keyed by variable path as written in templates, or by its root variable. */
+  variables?: Record<string, ContextVariablePolicy>;
+}
+
+export interface ModelRetryPolicy {
+  /** Total attempts for one model request, including the first. */
+  maxAttempts?: number;
+  initialDelayMs?: number;
+  maxDelayMs?: number;
+}
+
+export interface OutputRepairPolicy {
+  /** Extra model turns allowed to repair invalid, empty, or truncated final output. */
+  maxAttempts?: number;
+}
+
+/**
+ * Execution policies. Hosts set defaults; a manifest's `policies` override the
+ * host; a step's `policies` override the manifest. Prompt-only fields are
+ * rejected on other step types.
+ */
+export interface ExecutionPolicies {
+  context?: ContextPolicy;
+  /** finalize: answer without tools once the tool-call limit is reached. */
+  toolCallLimit?: "finalize" | "fail";
+  modelRetry?: ModelRetryPolicy;
+  outputRepair?: OutputRepairPolicy;
+  /** continue: record the error as the step output and run the next step. */
+  onError?: "fail" | "continue";
+}
+
 export interface AgentStepBase {
   id: string;
   name?: string;
@@ -347,6 +489,7 @@ export interface AgentStepBase {
   when?: string;
   outputVariable?: string;
   includeInFinalOutput?: boolean;
+  policies?: ExecutionPolicies;
   metadata?: JsonObject;
   extensions?: JsonObject;
 }
@@ -413,7 +556,14 @@ export interface WebhookStep extends AgentStepBase {
 export interface ApprovalStep extends AgentStepBase {
   type: "approval";
   prompt: string;
+  /** Informational; forwarded in events and on ApprovalRejectedError. */
   action?: "pause" | "complete" | "cancel";
+  /**
+   * What a rejection does. fail (default) fails the run; cancel cancels it;
+   * complete ends the run successfully without running later steps; continue
+   * records `{ approved: false }` and runs the next step.
+   */
+  onReject?: "fail" | "cancel" | "complete" | "continue";
 }
 
 export interface SubRunStep extends AgentStepBase {
@@ -438,17 +588,6 @@ export interface CodeStep extends AgentStepBase {
 export type AgentStep =
   PromptStep | LoopStep | WebhookStep | ApprovalStep | SubRunStep | CodeStep;
 
-const stepBaseShape = {
-  id: z.string().min(1),
-  name: z.string().min(1).optional(),
-  description: z.string().optional(),
-  when: z.string().optional(),
-  outputVariable: agentVariableKeySchema.optional(),
-  includeInFinalOutput: z.boolean().optional(),
-  metadata: jsonObjectSchema.optional(),
-  extensions: jsonObjectSchema.optional(),
-};
-
 const explicitModelReferenceSchema = z.strictObject({
   provider: z.string().min(1),
   model: z.string().min(1),
@@ -464,6 +603,108 @@ const modelReferenceSchema: z.ZodType<ModelReference> = z.union([
   explicitModelReferenceSchema,
   profileModelReferenceSchema,
 ]);
+
+const contextStrategySchema = z.enum(CONTEXT_STRATEGIES);
+
+export const contextPolicySchema: z.ZodType<ContextPolicy> = z.strictObject({
+  strategy: contextStrategySchema.optional(),
+  summarizer: z
+    .strictObject({
+      model: modelReferenceSchema.optional(),
+      systemPrompt: z.string().min(1).optional(),
+      prompt: z.string().min(1).optional(),
+      prompts: z
+        .strictObject({
+          input: z.string().min(1).optional(),
+          transcript: z.string().min(1).optional(),
+          toolResult: z.string().min(1).optional(),
+        })
+        .optional(),
+      maxOutputTokens: z.number().int().positive().optional(),
+      summaryShare: z.number().gt(0).max(1).optional(),
+      minSummaryBytes: z.number().int().min(128).optional(),
+      maxSummaryBytes: z.number().int().min(256).optional(),
+      chunkBytes: z.number().int().min(1024).optional(),
+      maxCalls: z.number().int().positive().optional(),
+      maxPasses: z.number().int().min(1).max(10).optional(),
+    })
+    .refine(
+      (summarizer) =>
+        summarizer.minSummaryBytes == null ||
+        summarizer.maxSummaryBytes == null ||
+        summarizer.minSummaryBytes <= summarizer.maxSummaryBytes,
+      "summarizer.minSummaryBytes cannot exceed maxSummaryBytes.",
+    )
+    .optional(),
+  trigger: z
+    .strictObject({
+      inputBytes: z.number().int().positive().optional(),
+      inputTokens: z.number().int().positive().optional(),
+      contextRatio: z.number().gt(0).max(1).optional(),
+      toolRounds: z.number().int().positive().optional(),
+    })
+    .optional(),
+  retain: z
+    .strictObject({
+      recentToolRounds: z.number().int().nonnegative().optional(),
+    })
+    .optional(),
+  reduceTo: z.number().min(0.05).max(0.95).optional(),
+  openingShare: z.number().min(0.05).max(1).optional(),
+  maxCompactions: z.number().int().nonnegative().optional(),
+  overflowRetries: z.number().int().min(0).max(10).optional(),
+  maxToolResultBytes: z.number().int().positive().optional(),
+  toolResultShare: z.number().min(0.05).max(1).optional(),
+  variables: z
+    .record(
+      variablePathSchema,
+      z.strictObject({
+        keep: z.boolean().optional(),
+        strategy: contextStrategySchema.optional(),
+        maxBytes: z.number().int().positive().optional(),
+      }),
+    )
+    .optional(),
+});
+
+export const executionPoliciesSchema: z.ZodType<ExecutionPolicies> =
+  z.strictObject({
+    context: contextPolicySchema.optional(),
+    toolCallLimit: z.enum(["finalize", "fail"]).optional(),
+    modelRetry: z
+      .strictObject({
+        maxAttempts: z.number().int().min(1).max(10).optional(),
+        initialDelayMs: z.number().int().nonnegative().optional(),
+        maxDelayMs: z.number().int().nonnegative().optional(),
+      })
+      .optional(),
+    outputRepair: z
+      .strictObject({
+        maxAttempts: z.number().int().min(0).max(5).optional(),
+      })
+      .optional(),
+    onError: z.enum(["fail", "continue"]).optional(),
+  });
+
+/** Policy fields that only a prompt step can use. */
+export const PROMPT_ONLY_POLICY_FIELDS = [
+  "context",
+  "toolCallLimit",
+  "modelRetry",
+  "outputRepair",
+] as const;
+
+const stepBaseShape = {
+  id: z.string().min(1),
+  name: z.string().min(1).optional(),
+  description: z.string().optional(),
+  when: z.string().optional(),
+  outputVariable: agentVariableKeySchema.optional(),
+  includeInFinalOutput: z.boolean().optional(),
+  policies: executionPoliciesSchema.optional(),
+  metadata: jsonObjectSchema.optional(),
+  extensions: jsonObjectSchema.optional(),
+};
 
 export const promptMessageSchema: z.ZodType<PromptMessage> = z.lazy(() =>
   z
@@ -696,6 +937,7 @@ export const agentStepSchema = z.lazy(() =>
       type: z.literal("approval"),
       prompt: z.string(),
       action: z.enum(["pause", "complete", "cancel"]).optional(),
+      onReject: z.enum(["fail", "cancel", "complete", "continue"]).optional(),
     }),
     z
       .object({
@@ -735,6 +977,8 @@ export interface AgentManifest {
   /** Host-defined file collections available to workspace tools and code steps. */
   workspaces?: AgentWorkspaceBinding[];
   steps: AgentStep[];
+  /** Manifest-wide execution policy defaults; steps may override them. */
+  policies?: ExecutionPolicies;
   limits?: {
     maxSteps?: number;
     maxMessagesPerPrompt?: number;
@@ -813,6 +1057,28 @@ const validateCodeStepWorkspaces = (
   });
 };
 
+const validateStepPolicies = (
+  steps: AgentStep[],
+  context: z.RefinementCtx,
+  path: Array<string | number>,
+): void => {
+  steps.forEach((step, index) => {
+    if (step.type === "loop") {
+      validateStepPolicies(step.steps, context, [...path, index, "steps"]);
+    }
+    if (step.type === "prompt" || !step.policies) return;
+    for (const field of PROMPT_ONLY_POLICY_FIELDS) {
+      if (step.policies[field] !== undefined) {
+        context.addIssue({
+          code: "custom",
+          message: `policies.${field} applies only to prompt steps; ${step.type} step ${step.id} cannot set it.`,
+          path: [...path, index, "policies", field],
+        });
+      }
+    }
+  });
+};
+
 const MAXIMUM_AGENT_MANIFEST_STRUCTURE_DEPTH = 128;
 const MAXIMUM_AGENT_MANIFEST_STRUCTURE_NODES = 100_000;
 
@@ -875,6 +1141,7 @@ const agentManifestObjectSchema: z.ZodType<AgentManifest> = z
     connections: z.array(agentConnectionBindingSchema).optional(),
     workspaces: z.array(agentWorkspaceBindingSchema).optional(),
     steps: z.array(agentStepSchema),
+    policies: executionPoliciesSchema.optional(),
     limits: z
       .object({
         maxSteps: z.number().int().positive().optional(),
@@ -922,6 +1189,7 @@ const agentManifestObjectSchema: z.ZodType<AgentManifest> = z
       workspaceAliases.add(alias);
     });
     validateSiblingStepIds(manifest.steps, context, ["steps"]);
+    validateStepPolicies(manifest.steps, context, ["steps"]);
     validateCodeStepWorkspaces(manifest.steps, workspaceAliases, context, [
       "steps",
     ]);
@@ -1231,6 +1499,7 @@ export type RunEventType =
   | "run.failed"
   | "run.cancelled"
   | "run.suspended"
+  | "run.interrupted"
   | "run.heartbeat"
   | "step.started"
   | "step.skipped"
@@ -1263,6 +1532,8 @@ export type RunEventType =
   | "model.tool.completed"
   | "model.usage"
   | "model.completed"
+  | "model.retry"
+  | "context.reduced"
   | "artifact.created"
   | "diagnostic";
 

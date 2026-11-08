@@ -33,7 +33,7 @@ test("serves the gallery, demo pages, and vendor assets under a strict CSP", asy
   assert.equal((await fetch(`${baseURL}/assets/../server.ts`)).status, 404);
 });
 
-test("lists all five demos and describes the ready ones", async (context) => {
+test("lists all six demos and describes the ready ones", async (context) => {
   const { baseURL } = await startShowcase(context);
   const catalog = await (await fetch(`${baseURL}/api/demos`)).json();
   assert.deepEqual(
@@ -44,6 +44,7 @@ test("lists all five demos and describes the ready ones", async (context) => {
       "guardrails",
       "document-library",
       "orchestration",
+      "long-investigation",
     ],
   );
   const demo = await (await fetch(`${baseURL}/api/demos/repo-mechanic`)).json();

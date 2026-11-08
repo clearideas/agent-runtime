@@ -635,6 +635,7 @@ describe("PromptStepExecutor", () => {
         manifest: { ...manifest, limits: { maxToolCallsPerIteration: 2 } },
         step,
         stepIndex: 0,
+        policies: { toolCallLimit: "fail" },
         variables: { Item: { Name: "test" }, audience: "test" },
         model,
         tools,
@@ -702,16 +703,22 @@ describe("PromptStepExecutor", () => {
     expect(result.output).toBe("done");
   });
 
-  it("enforces provider timeout when an adapter ignores abort", async () => {
+  it("enforces provider timeout when an adapter ignores abort, after retrying", async () => {
     const noToolStep: PromptStep = {
       ...step,
       tools: undefined,
       systemPrompt: undefined,
     };
     const never = new Promise<never>(() => undefined);
+    const delays: number[] = [];
+    const retries: JsonObject[] = [];
 
     await expect(
-      new PromptStepExecutor().execute({
+      new PromptStepExecutor({
+        sleep: async (delayMs) => {
+          delays.push(delayMs);
+        },
+      }).execute({
         runId: "run-timeout",
         manifest: {
           ...manifest,
@@ -722,15 +729,24 @@ describe("PromptStepExecutor", () => {
         stepIndex: 0,
         variables: {},
         model: { generate: async () => never },
-        emit: async (type) => ({
-          id: type,
-          runId: "run-timeout",
-          sequence: 1,
-          timestamp: "2026-07-22T00:00:00.000Z",
-          type,
-        }),
+        emit: async (type, data) => {
+          if (type === "model.retry") retries.push(data!);
+          return {
+            id: type,
+            runId: "run-timeout",
+            sequence: 1,
+            timestamp: "2026-07-22T00:00:00.000Z",
+            type,
+          };
+        },
       }),
     ).rejects.toMatchObject({ name: "ModelTimeoutError", timeoutMs: 5 });
+    // Three attempts by default, with exponential backoff between them.
+    expect(delays).toEqual([1_000, 2_000]);
+    expect(retries).toMatchObject([
+      { reason: "retryable-error", attempt: 1, name: "ModelTimeoutError" },
+      { reason: "retryable-error", attempt: 2 },
+    ]);
   });
 
   describe("cancellation", () => {
@@ -758,7 +774,7 @@ describe("PromptStepExecutor", () => {
       abortOn: string,
       limits: AgentManifest["limits"] = {},
     ) =>
-      new PromptStepExecutor().execute({
+      new PromptStepExecutor({ sleep: async () => undefined }).execute({
         runId: "run-cancel",
         manifest: { ...manifest, steps: [noToolStep], limits },
         step: noToolStep,

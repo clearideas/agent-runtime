@@ -143,12 +143,16 @@ describe("InProcessExecutionEngine", () => {
   });
 
   it("reports timeouts with a stable retryable error code", async () => {
+    let reason: unknown;
     const engine = new InProcessExecutionEngine(
       async (_request, context) =>
         new Promise<RunResult>((_resolve, reject) => {
           context.signal.addEventListener(
             "abort",
-            () => reject(context.signal.reason),
+            () => {
+              reason = context.signal.reason;
+              reject(context.signal.reason);
+            },
             {
               once: true,
             },
@@ -167,5 +171,7 @@ describe("InProcessExecutionEngine", () => {
       retryable: true,
     });
     expect((await engine.status(handle)).status).toBe("failed");
+    // Agent Runtime records an interrupted (resumable) run, not a cancelled one.
+    expect(reason).toMatchObject({ interruption: "execution-timeout" });
   });
 });

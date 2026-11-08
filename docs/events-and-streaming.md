@@ -124,17 +124,40 @@ for an OpenTelemetry collector.
 
 The supported event families are:
 
-| Family      | Events                                                                                                         |
-| ----------- | -------------------------------------------------------------------------------------------------------------- |
-| Run         | `run.started`, `run.resumed`, `run.suspended`, `run.completed`, `run.failed`, `run.cancelled`, `run.heartbeat` |
-| Step        | `step.started`, `step.skipped`, `step.completed`, `step.failed`                                                |
-| Model       | `model.started`, `model.text.delta`, `model.reasoning.delta`, `model.usage`, `model.completed`                 |
-| Tool        | `model.tool.requested`, `model.tool.started`, `model.tool.completed`                                           |
-| Loop        | `loop.iteration.started`, `loop.iteration.completed`, `loop.iteration.skipped`, `loop.goal.met`                |
-| Standard    | approval, webhook, code execution, and sub-run lifecycle events                                                |
-| Storage     | `checkpoint.saved`, `artifact.created`                                                                         |
-| Workspaces  | `workspace.bound`, `sandbox.opened`, `sandbox.command.started`, `sandbox.command.completed`, `sandbox.closed`  |
-| Diagnostics | `diagnostic`                                                                                                   |
+| Family      | Events                                                                                                                            |
+| ----------- | --------------------------------------------------------------------------------------------------------------------------------- |
+| Run         | `run.started`, `run.resumed`, `run.suspended`, `run.interrupted`, `run.completed`, `run.failed`, `run.cancelled`, `run.heartbeat` |
+| Step        | `step.started`, `step.skipped`, `step.completed`, `step.failed`                                                                   |
+| Model       | `model.started`, `model.text.delta`, `model.reasoning.delta`, `model.usage`, `model.completed`, `model.retry`                     |
+| Tool        | `model.tool.requested`, `model.tool.started`, `model.tool.completed`                                                              |
+| Context     | `context.reduced`                                                                                                                 |
+| Loop        | `loop.iteration.started`, `loop.iteration.completed`, `loop.iteration.skipped`, `loop.goal.met`                                   |
+| Standard    | approval, webhook, code execution, and sub-run lifecycle events                                                                   |
+| Storage     | `checkpoint.saved`, `artifact.created`                                                                                            |
+| Workspaces  | `workspace.bound`, `sandbox.opened`, `sandbox.command.started`, `sandbox.command.completed`, `sandbox.closed`                     |
+| Diagnostics | `diagnostic`                                                                                                                      |
+
+Notes on recent additions:
+
+- `run.suspended` carries `reason` and `kind` (`awaiting-input`,
+  `awaiting-child`, `awaiting-budget`, `paused`, or `other`);
+  `run.interrupted` carries `reason`. See
+  [run states](./persistence-and-recovery.md#run-states).
+- `step.failed` with `handled: true` means an `onError: continue` policy
+  recorded the failure and the run continues.
+- `model.started`, `model.completed`, and `model.usage` carry
+  `purpose: "summarize"` for summarizer calls. Usage reported by a host
+  summarizer adapter arrives as `model.usage` with `source: "host"`.
+- `model.retry` carries `reason` (`retryable-error`, `context-overflow`,
+  `invalid-output`, `empty-output`, or `truncated-output`) and `attempt`. A
+  streaming client should discard the step's partial text when it arrives.
+- `context.reduced` carries `scope`, `strategy`, `reason`, and byte sizes. See
+  [Context management](./context-management.md#events).
+- `model.tool.completed` carries `rejected: true` for calls that were answered
+  with an error instead of being run.
+- Diagnostics codes include `TOOLS_UNAVAILABLE`, `TOOL_CALL_LIMIT_REACHED`,
+  `USAGE_ESTIMATED`, `CONTEXT_SUMMARY_FAILED`, `COMPACTION_LIMIT_REACHED`, and
+  `RUN_ENDED_BY_STEP`.
 
 Consumers must ignore unknown event types so compatible additions do not break
 clients.

@@ -397,6 +397,7 @@ export class ConfiguredMcpToolAdapter implements ToolAdapter {
   readonly #clientCredentialsProviders = new Map<string, OAuthClientProvider>();
   #resolvedTools = new Map<string, ResolvedToolBinding>();
   #excludedTools = new Set<string>();
+  #unavailableTools = new Map<string, string>();
 
   constructor(
     config: AgentRuntimeConfig,
@@ -414,6 +415,7 @@ export class ConfiguredMcpToolAdapter implements ToolAdapter {
     const tools: AgentTool[] = [];
     const resolved = new Map<string, ResolvedToolBinding>();
     const excluded = new Set<string>();
+    const unavailable = new Map<string, string>();
 
     for (const binding of this.#bindings) {
       const connection = this.#config.connections[binding.ref];
@@ -479,16 +481,45 @@ export class ConfiguredMcpToolAdapter implements ToolAdapter {
           connection.required === true
         )
           throw error;
+        // An optional connection is down. Its tools are reported as
+        // unavailable so prompt steps run without them and tell the model.
+        const reason = `Connection "${binding.alias ?? binding.ref}" is unavailable: ${
+          error instanceof Error ? error.message : String(error)
+        }`;
+        let names: Iterable<string> = connection.tools;
+        try {
+          names =
+            allowedToolNames(
+              connection,
+              binding,
+              effectiveMode(connection, binding),
+            ) ?? connection.tools;
+        } catch {
+          // Keep the configured list when the binding itself is invalid.
+        }
+        for (const tool of names) {
+          unavailable.set(
+            runtimeToolName(binding.alias ?? binding.ref, tool),
+            reason,
+          );
+        }
       }
     }
 
     this.#resolvedTools = resolved;
     this.#excludedTools = excluded;
+    this.#unavailableTools = unavailable;
     return tools;
   }
 
   isToolExcluded(name: string): boolean {
     return !this.#resolvedTools.has(name) && this.#excludedTools.has(name);
+  }
+
+  unavailableToolReason(name: string): string | undefined {
+    return this.#resolvedTools.has(name)
+      ? undefined
+      : this.#unavailableTools.get(name);
   }
 
   /**

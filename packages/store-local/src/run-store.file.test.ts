@@ -198,4 +198,43 @@ describe("FileRunStore", () => {
       checkpointResults.filter((result) => result.status === "rejected"),
     ).toHaveLength(1);
   });
+
+  it("records an interrupted run that can be resumed or cancelled", async () => {
+    const store = new FileRunStore(directory);
+    await store.createRun(runRecord("run-interrupted"));
+    const error = {
+      code: "EXECUTION_TIMEOUT",
+      message: "Execution timed out.",
+      retryable: true,
+    };
+    await store.interruptRun(
+      "run-interrupted",
+      error,
+      "2026-07-22T12:00:00.000Z",
+      1,
+    );
+    expect((await store.loadRun("run-interrupted"))?.status).toBe(
+      "interrupted",
+    );
+    await expect(
+      store.interruptRun(
+        "run-interrupted",
+        error,
+        "2026-07-22T12:00:01.000Z",
+        1,
+      ),
+    ).rejects.toThrow("Cannot interrupt interrupted run");
+    await expect(
+      store.resumeRun("run-interrupted", "2026-07-22T12:01:00.000Z"),
+    ).resolves.toBe(2);
+    expect((await store.loadRun("run-interrupted"))?.status).toBe("running");
+    await store.interruptRun(
+      "run-interrupted",
+      error,
+      "2026-07-22T12:02:00.000Z",
+      2,
+    );
+    await store.cancelRun("run-interrupted", "2026-07-22T12:03:00.000Z", 2);
+    expect((await store.loadRun("run-interrupted"))?.status).toBe("cancelled");
+  });
 });

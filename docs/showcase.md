@@ -1,22 +1,23 @@
 ---
 title: Showcase
-description: Five self-hosted, animated demos of workspaces, durable runs, guardrails, document tools, and orchestration.
+description: Six self-hosted, animated demos of workspaces, durable runs, guardrails, document tools, orchestration, and context management.
 ---
 
 # Showcase
 
-The showcase is a small web app you run on your own machine. Each of its five
+The showcase is a small web app you run on your own machine. Each of its six
 demos runs a real agent through the real runtime and animates the event
 stream as it happens. Every demo page also shows the manifest, host
 configuration, and integration code that produced it.
 
-| Demo                 | What it shows                                                                                         |
-| -------------------- | ----------------------------------------------------------------------------------------------------- |
-| **Repo Mechanic**    | A workspace, the run sandbox, an allowlisted test command, an `authorizeCommand` hook, and sync-back  |
-| **Durable Runs**     | An approval step and a token budget that pause the run; resume in a new attempt, even after a restart |
-| **Guardrails**       | An untrusted agent and a hostile model stopped by configuration, path rules, hooks, and the sandbox   |
-| **Document Library** | A read-only workspace with visibility globs, an image passed as an artifact, and an MCP tool          |
-| **Orchestration**    | Parallel waves, a condition, collection and goal loops, in this process or a remote worker process    |
+| Demo                   | What it shows                                                                                         |
+| ---------------------- | ----------------------------------------------------------------------------------------------------- |
+| **Repo Mechanic**      | A workspace, the run sandbox, an allowlisted test command, an `authorizeCommand` hook, and sync-back  |
+| **Durable Runs**       | An approval step and a token budget that pause the run; resume in a new attempt, even after a restart |
+| **Guardrails**         | An untrusted agent and a hostile model stopped by configuration, path rules, hooks, and the sandbox   |
+| **Document Library**   | A read-only workspace with visibility globs, an image passed as an artifact, and an MCP tool          |
+| **Orchestration**      | Parallel waves, a condition, collection and goal loops, in this process or a remote worker process    |
+| **Long Investigation** | A step that reads three times its input limit; the runtime prunes or summarizes its context to finish |
 
 ## Run it
 
@@ -127,6 +128,31 @@ Use **More options** to compare parallel and sequential scheduling, change the
 market condition, or choose the remote worker. Collection and goal loops are
 shown in both modes. **Remote worker** starts a separate local Node.js process;
 it does not require a cloud account.
+
+### Long Investigation
+
+An on-call agent reads sixteen service logs and a long runbook, more than
+three times its step's `limits.maxInputBytes`, to find an incident's root
+cause. Choose a **Context strategy** and watch the **Context window** chart:
+every model request is a bar, split by message kind, against the limit.
+
+- **Summarize** condenses the runbook before the first request, then folds
+  older tool rounds into a running summary (Σ) while the newest two rounds stay
+  verbatim.
+- **Prune** clips the runbook, stubs older tool outputs, and removes the oldest
+  rounds with a note (✂), with no extra model calls.
+- **Off** reduces nothing: the step fails at the limit, as before context
+  management existed. A dashed bar shows the request that was never sent.
+
+**What the model sees now** lists the messages of the latest request. The
+durable transcript keeps every tool result either way. See
+[Context management](./context-management.md).
+
+Long Investigation needs a runtime with context management. Until that
+release is published, the showcase's published 0.6.3 packages mark it **Needs a
+newer runtime**; run `npm run use-local-runtime` in `examples/showcase` (after
+`npm ci` and `npm run build` at the repository root) to use the repository's
+packages.
 
 ## Use a live model
 

@@ -121,7 +121,7 @@ npx agent-runtime examples run loops --stream
 
 ## Run the browser showcase
 
-The [Showcase](./showcase.md) is the browser example: five end-to-end demos
+The [Showcase](./showcase.md) is the browser example: six end-to-end demos
 of workspaces, approvals and budgets, guardrails, document tools and local or
 remote execution. Scripted mode needs no provider key.
 

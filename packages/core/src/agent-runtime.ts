@@ -15,6 +15,7 @@ import type {
   RunEvent,
   AgentStep,
   AgentVariableOverride,
+  ExecutionPolicies,
   RunResult,
   StatePatch,
   StepResult,
@@ -34,6 +35,7 @@ import type {
   ApprovalAdapter,
   ArtifactStore,
   Clock,
+  ContextSummarizerAdapter,
   CompletedRunRecord,
   EventSink,
   IdGenerator,
@@ -57,6 +59,7 @@ import {
   systemClock,
 } from "./ports/index.js";
 import { buildExecutionWaves } from "./execution-plan.js";
+import { resolveStepPolicies } from "./policies.js";
 import { applyStatePatch, snapshotState } from "./state.js";
 
 const countManifestSteps = (steps: readonly AgentStep[]): number => {
@@ -76,6 +79,8 @@ export interface StepExecutionResult {
   transcript?: TranscriptItem[];
   artifacts?: ArtifactRef[];
   metadata?: JsonObject;
+  /** Complete the run after committing this step; later steps do not run. */
+  endRun?: boolean;
 }
 
 export interface StepExecutionContext {
@@ -99,6 +104,10 @@ export interface StepExecutionContext {
   /** Opens (once per run) and returns the run sandbox session. */
   runSandbox?: (() => Promise<RunSandboxSession>) | undefined;
   tokenBudget?: TokenBudgetContext | undefined;
+  /** Effective policies: host defaults, then manifest, then step, then host-enforced. */
+  policies?: ExecutionPolicies | undefined;
+  /** The host's context summarizer, when it supplies one. */
+  summarizer?: ContextSummarizerAdapter | undefined;
   emit(type: string, data?: JsonObject): Promise<RunEvent>;
   /** Present when this step is resuming from a nested checkpoint. */
   resume?: {
@@ -137,11 +146,31 @@ export interface NestedCheckpointInput {
   artifacts?: ArtifactRef[];
 }
 
+/** What a step executor can check before a run starts. */
+export interface StepPreflightContext {
+  manifest: AgentManifest;
+  model?: ModelAdapter | undefined;
+  tools?: ToolAdapter | undefined;
+  artifacts?: ArtifactStore | undefined;
+  approvals?: ApprovalAdapter | undefined;
+  sandbox?: SandboxAdapter | undefined;
+  subRuns?: SubRunAdapter | undefined;
+  runSandbox?: RunSandboxProvider | undefined;
+}
+
 export interface StepExecutor<TStep extends AgentStep = AgentStep> {
   readonly type: TStep["type"];
   execute(
     context: StepExecutionContext & { step: TStep },
   ): Promise<StepExecutionResult>;
+  /**
+   * Report host configuration this step needs but does not have, before the
+   * run starts. Return one message per problem; an empty list means ready.
+   */
+  preflight?(
+    step: TStep,
+    context: StepPreflightContext,
+  ): string[] | Promise<string[]>;
 }
 
 export interface ConditionEvaluator {
@@ -149,6 +178,8 @@ export interface ConditionEvaluator {
     expression: string,
     variables: Readonly<VariableState>,
   ): boolean | Promise<boolean>;
+  /** Throw when an expression cannot be evaluated; used before a run starts. */
+  validate?(expression: string): void | Promise<void>;
 }
 
 export interface ManifestHasher {
@@ -177,6 +208,15 @@ export interface AgentRuntimeDependencies {
   runtimeVersion?: string;
   /** Host ceiling for dependency-safe top-level step concurrency. Defaults to 8. */
   maxParallelSteps?: number;
+  /** Host default execution policies; manifests and steps override them. */
+  policies?: ExecutionPolicies;
+  /**
+   * Host execution policies applied after the manifest and step: a manifest
+   * cannot override them. Use them for limits an agent must not raise.
+   */
+  enforcedPolicies?: ExecutionPolicies;
+  /** Observes, changes, or replaces context summarization. */
+  summarizer?: ContextSummarizerAdapter;
   /** Event sinks are observational by default and cannot invalidate a commit. */
   eventSinkFailurePolicy?: "continue" | "fail-run";
   onEventSinkError?: (error: unknown, event: RunEvent, sink: EventSink) => void;
@@ -206,13 +246,64 @@ export interface AgentExecutionResult extends RunResult {
   variables: VariableState;
 }
 
+interface ChildExecutionInput {
+  runId: string;
+  manifest: AgentManifest;
+  parentStepIndex: number;
+  step: AgentStep;
+  stepPath: string;
+  variables: Readonly<VariableState>;
+  workspaces: readonly ResolvedWorkspace[];
+  runSandbox: (() => Promise<RunSandboxSession>) | undefined;
+  signal?: AbortSignal | undefined;
+  latestCheckpoint: RunCheckpoint | null;
+  stepResults: Readonly<StepResult[]>;
+  checkpoint: (input: NestedCheckpointInput) => Promise<void>;
+}
+
 interface TopLevelStepOutcome {
   step: AgentStep;
   stepIndex: number;
   skipped: boolean;
   result?: StepExecutionResult;
   stepResult?: StepResult;
+  /** Set when the step failed and its onError policy continued the run. */
+  handledError?: RunError;
 }
+
+/**
+ * Errors that always end the attempt, whatever a step's onError policy says:
+ * suspension, interruption, cancellation, and an aborted run signal.
+ */
+const isControlFlowError = (
+  error: unknown,
+  signal: AbortSignal | undefined,
+): boolean =>
+  signal?.aborted === true ||
+  isRunSuspendedError(error) ||
+  isRunInterruptedError(error) ||
+  isRunCancelledError(error);
+
+/** The output and state a step records when onError: continue handles a failure. */
+const handledErrorResult = (
+  step: AgentStep,
+  error: RunError,
+): StepExecutionResult => {
+  const output: JsonObject = {
+    error: { code: error.code, message: error.message },
+  };
+  return {
+    output,
+    ...(step.outputVariable
+      ? { statePatch: { set: { [step.outputVariable]: output } } }
+      : {}),
+    metadata: {
+      failed: true,
+      handled: true,
+      error: { code: error.code, message: error.message },
+    },
+  };
+};
 
 class TopLevelStepExecutionError extends Error {
   readonly step: AgentStep;
@@ -251,6 +342,95 @@ export const isRunSuspendedError = (
   (error instanceof Error &&
     error.name === "RunSuspendedError" &&
     (error as Error & { code?: string }).code === "RUN_SUSPENDED");
+
+/** Suspension reason used when a host pauses a run through its abort signal. */
+export const RUN_PAUSED_REASON = "paused";
+
+/**
+ * A pause request. Abort a run's signal with this reason to suspend the run
+ * at its latest checkpoint instead of cancelling it.
+ */
+export const createRunPauseRequest = (
+  details?: JsonObject,
+): RunSuspendedError => new RunSuspendedError(RUN_PAUSED_REASON, details);
+
+export type RunSuspensionKind =
+  "awaiting-input" | "awaiting-child" | "awaiting-budget" | "paused" | "other";
+
+/** Classify a suspension reason for hosts and user interfaces. */
+export const suspensionKind = (reason: string): RunSuspensionKind => {
+  switch (reason) {
+    case "approval":
+      return "awaiting-input";
+    case "sub-run":
+      return "awaiting-child";
+    case "token-budget":
+      return "awaiting-budget";
+    case RUN_PAUSED_REASON:
+      return "paused";
+    default:
+      return "other";
+  }
+};
+
+/**
+ * Infrastructure stopped the attempt (an execution timeout, a shutdown, a
+ * lost lease). Abort a run's signal with this reason, or throw it, to leave
+ * the run `interrupted` and resumable rather than cancelled.
+ */
+export class RunInterruptedError extends Error {
+  readonly code = "RUN_INTERRUPTED";
+  readonly retryable = true;
+  readonly reason: string;
+  readonly details: JsonObject | undefined;
+
+  constructor(reason: string, details?: JsonObject) {
+    super(`Run interrupted: ${reason}`);
+    this.name = "RunInterruptedError";
+    this.reason = reason;
+    this.details = details;
+  }
+}
+
+/**
+ * True for RunInterruptedError and for any error that marks itself as an
+ * interruption with a string `interruption` reason (for example an execution
+ * engine's timeout), so engines need not depend on this package.
+ */
+export const isRunInterruptedError = (
+  error: unknown,
+): error is Error & { reason?: string; details?: JsonObject } =>
+  error instanceof RunInterruptedError ||
+  (error instanceof Error &&
+    ((error as Error & { code?: string }).code === "RUN_INTERRUPTED" ||
+      typeof (error as Error & { interruption?: unknown }).interruption ===
+        "string"));
+
+const interruptionReason = (error: Error): string => {
+  const marked = error as Error & { reason?: unknown; interruption?: unknown };
+  if (typeof marked.reason === "string") return marked.reason;
+  if (typeof marked.interruption === "string") return marked.interruption;
+  return "interrupted";
+};
+
+/** A step ended the run as cancelled (for example, a rejected approval with onReject: cancel). */
+export class RunCancelledError extends Error {
+  readonly code = "RUN_CANCELLED";
+  readonly details: JsonObject | undefined;
+
+  constructor(message: string, details?: JsonObject) {
+    super(message);
+    this.name = "RunCancelledError";
+    this.details = details;
+  }
+}
+
+export const isRunCancelledError = (
+  error: unknown,
+): error is RunCancelledError =>
+  error instanceof RunCancelledError ||
+  (error instanceof Error &&
+    (error as Error & { code?: string }).code === "RUN_CANCELLED");
 
 const stableStringify = (value: unknown): string => {
   if (Array.isArray(value)) {
@@ -908,6 +1088,7 @@ export class AgentRuntime {
         ...(request.signal ? { signal: request.signal } : {}),
       });
     }
+    await this.#preflight(manifest);
     if (latestCheckpoint && existingRecord) {
       assertRecoverableCheckpoint({
         checkpoint: latestCheckpoint,
@@ -1060,10 +1241,23 @@ export class AgentRuntime {
           outcome.status === "rejected" ? [outcome.reason as unknown] : [],
         );
         if (failures.length > 0) {
-          const suspended = failures.find(isRunSuspendedError);
+          const suspended = failures.find(
+            (failure) =>
+              isRunSuspendedError(failure) || isRunInterruptedError(failure),
+          );
           if (suspended) {
             uncommittedSteps = [];
             throw suspended;
+          }
+          const abortReason: unknown = request.signal?.aborted
+            ? request.signal.reason
+            : undefined;
+          if (
+            isRunSuspendedError(abortReason) ||
+            isRunInterruptedError(abortReason)
+          ) {
+            uncommittedSteps = [];
+            throw abortReason;
           }
           for (const failure of failures) {
             const wrapped =
@@ -1103,7 +1297,12 @@ export class AgentRuntime {
           stepResults.push(outcome.stepResult);
         }
 
-        const nextStepIndex = (wave.stepIndexes.at(-1) ?? -1) + 1;
+        const endingOutcome = outcomes.find(
+          (outcome) => outcome.result?.endRun === true,
+        );
+        const nextStepIndex = endingOutcome
+          ? manifest.steps.length
+          : (wave.stepIndexes.at(-1) ?? -1) + 1;
         await this.#checkpoint({
           runId,
           manifest,
@@ -1114,6 +1313,19 @@ export class AgentRuntime {
           artifacts,
         });
         for (const outcome of outcomes) {
+          if (outcome.handledError) {
+            await this.#emit(
+              runId,
+              "step.failed",
+              {
+                stepIndex: outcome.stepIndex,
+                handled: true,
+                error: outcome.handledError as unknown as JsonValue,
+              },
+              outcome.step.id,
+            );
+            continue;
+          }
           await this.#emit(
             runId,
             outcome.skipped ? "step.skipped" : "step.completed",
@@ -1122,6 +1334,18 @@ export class AgentRuntime {
           );
         }
         uncommittedSteps = [];
+        if (endingOutcome) {
+          await this.#emit(
+            runId,
+            "diagnostic",
+            {
+              code: "RUN_ENDED_BY_STEP",
+              stepIndex: endingOutcome.stepIndex,
+            },
+            endingOutcome.step.id,
+          );
+          break;
+        }
       }
 
       this.#throwIfAborted(request.signal);
@@ -1163,7 +1387,17 @@ export class AgentRuntime {
         ...(usage ? { usage } : {}),
         ...(output === undefined ? {} : { output }),
       };
-    } catch (error) {
+    } catch (caught) {
+      // A host pauses or interrupts a run by aborting its signal with a
+      // RunSuspendedError or RunInterruptedError reason. Whatever the step
+      // threw while unwinding, the abort reason decides the outcome.
+      const abortReason: unknown = request.signal?.aborted
+        ? request.signal.reason
+        : undefined;
+      const error =
+        isRunSuspendedError(abortReason) || isRunInterruptedError(abortReason)
+          ? abortReason
+          : caught;
       if (isRunSuspendedError(error)) {
         await this.#closeRunSandboxQuietly(runId, "suspended");
         const suspendedAt = this.#clock.now().toISOString();
@@ -1175,6 +1409,7 @@ export class AgentRuntime {
         try {
           await this.#emit(runId, "run.suspended", {
             reason: error.reason,
+            kind: suspensionKind(error.reason),
             ...(error.details ? { details: error.details } : {}),
           });
         } finally {
@@ -1186,7 +1421,42 @@ export class AgentRuntime {
         throw error;
       }
       const runError = toRunError(error);
-      const cancelled = isAbortError(request.signal);
+      if (isRunInterruptedError(error)) {
+        runError.retryable = true;
+        await this.#closeRunSandboxQuietly(runId, "suspended");
+        const interruptedAt = this.#clock.now().toISOString();
+        const attempt = this.#runAttempts.get(runId) ?? 1;
+        if (this.#dependencies.runStore.interruptRun) {
+          await this.#dependencies.runStore.interruptRun(
+            runId,
+            runError,
+            interruptedAt,
+            attempt,
+          );
+        } else {
+          await this.#dependencies.runStore.failRun(
+            runId,
+            runError,
+            interruptedAt,
+            attempt,
+          );
+        }
+        try {
+          await this.#emit(runId, "run.interrupted", {
+            reason: interruptionReason(error),
+            error: runError as unknown as JsonValue,
+            ...(error.details ? { details: error.details } : {}),
+          });
+        } finally {
+          this.#eventSequences.delete(runId);
+          this.#eventTails.delete(runId);
+          this.#checkpointSequences.delete(runId);
+          this.#runAttempts.delete(runId);
+        }
+        throw error;
+      }
+      const cancelled =
+        isAbortError(request.signal) || isRunCancelledError(error);
       await this.#closeRunSandboxQuietly(
         runId,
         cancelled ? "cancelled" : "failed",
@@ -1300,6 +1570,13 @@ export class AgentRuntime {
         workspaces: input.workspaces,
         runSandbox: input.runSandbox,
         tokenBudget: this.#runTokenBudgets.get(input.runId),
+        summarizer: this.#dependencies.summarizer,
+        policies: resolveStepPolicies(
+          this.#dependencies.policies,
+          input.manifest,
+          step,
+          this.#dependencies.enforcedPolicies,
+        ),
         emit: (type, data) =>
           this.#emit(input.runId, type, data, step.id, step.id),
         ...(input.latestCheckpoint?.cursor.stepIndex === input.stepIndex
@@ -1378,8 +1655,147 @@ export class AgentRuntime {
         stepResult,
       };
     } catch (error) {
-      if (isRunSuspendedError(error)) throw error;
+      if (isRunSuspendedError(error) || isRunInterruptedError(error))
+        throw error;
+      if (
+        !isControlFlowError(error, input.signal) &&
+        resolveStepPolicies(
+          this.#dependencies.policies,
+          input.manifest,
+          step,
+          this.#dependencies.enforcedPolicies,
+        ).onError === "continue"
+      ) {
+        const handledError = toRunError(error);
+        const result = handledErrorResult(step, handledError);
+        return {
+          step,
+          stepIndex: input.stepIndex,
+          skipped: false,
+          result,
+          handledError,
+          stepResult: {
+            stepId: step.id,
+            stepIndex: input.stepIndex,
+            status: "completed",
+            output: result.output!,
+            completedAt: this.#clock.now().toISOString(),
+            metadata: result.metadata!,
+          },
+        };
+      }
       throw new TopLevelStepExecutionError(step, error);
+    }
+  }
+
+  /**
+   * Find configuration gaps that would otherwise fail the run only when a
+   * step is reached, after earlier steps have spent tokens: unregistered
+   * executors, missing adapters, unparseable conditions, and unknown tools.
+   */
+  async #preflight(manifest: AgentManifest): Promise<void> {
+    const problems: string[] = [];
+    const expressions: Array<{ stepId: string; label: string; value: string }> =
+      [];
+    const toolNames = new Map<string, string[]>();
+    const visit = (steps: readonly AgentStep[]): void => {
+      for (const step of steps) {
+        if (!this.#executors.has(step.type)) {
+          problems.push(
+            `Step ${step.id} is a ${step.type} step, but no ${step.type} step executor is registered.`,
+          );
+        }
+        if (step.when?.trim())
+          expressions.push({
+            stepId: step.id,
+            label: "when",
+            value: step.when,
+          });
+        if (step.type === "prompt" && step.tools?.length)
+          toolNames.set(step.id, step.tools);
+        if (step.type === "loop") {
+          if (step.loop.condition?.trim())
+            expressions.push({
+              stepId: step.id,
+              label: "loop.condition",
+              value: step.loop.condition,
+            });
+          if (step.loop.goal?.trim())
+            expressions.push({
+              stepId: step.id,
+              label: "loop.goal",
+              value: step.loop.goal,
+            });
+          visit(step.steps);
+        }
+      }
+    };
+    visit(manifest.steps);
+
+    const preflightContext: StepPreflightContext = {
+      manifest,
+      model: this.#dependencies.model,
+      tools: this.#dependencies.tools,
+      artifacts: this.#dependencies.artifacts,
+      approvals: this.#dependencies.approvals,
+      sandbox: this.#dependencies.sandbox,
+      subRuns: this.#dependencies.subRuns,
+      runSandbox: this.#dependencies.runSandbox,
+    };
+    const checkExecutors = async (steps: readonly AgentStep[]) => {
+      for (const step of steps) {
+        const executor = this.#executors.get(step.type);
+        if (executor?.preflight)
+          problems.push(...(await executor.preflight(step, preflightContext)));
+        if (step.type === "loop") await checkExecutors(step.steps);
+      }
+    };
+    await checkExecutors(manifest.steps);
+
+    const evaluator = this.#dependencies.conditionEvaluator;
+    if (expressions.length > 0 && !evaluator) {
+      problems.push(
+        `Steps ${[...new Set(expressions.map((entry) => entry.stepId))].join(", ")} use conditions, but no ConditionEvaluator is configured.`,
+      );
+    } else if (evaluator?.validate) {
+      for (const expression of expressions) {
+        try {
+          await evaluator.validate(expression.value);
+        } catch (error) {
+          problems.push(
+            `Step ${expression.stepId} has an invalid ${expression.label} expression: ${error instanceof Error ? error.message : String(error)}`,
+          );
+        }
+      }
+    }
+
+    if (toolNames.size > 0) {
+      const tools = this.#dependencies.tools;
+      if (tools) {
+        const available = new Set(
+          (await tools.listTools()).map((tool) => tool.name),
+        );
+        for (const [stepId, names] of toolNames) {
+          const unknown = names.filter(
+            (name) =>
+              !available.has(name) &&
+              tools.isToolExcluded?.(name) !== true &&
+              tools.unavailableToolReason?.(name) === undefined,
+          );
+          if (unknown.length > 0) {
+            problems.push(
+              `Prompt step ${stepId} names unknown tools: ${unknown.join(", ")}.`,
+            );
+          }
+        }
+      }
+    }
+
+    if (problems.length > 0) {
+      throw new AgentRuntimeError(
+        `Agent manifest cannot run with this host configuration: ${problems.join(" ")}`,
+        "MANIFEST_PREFLIGHT_FAILED",
+      );
     }
   }
 
@@ -1444,20 +1860,9 @@ export class AgentRuntime {
       : new Error("Run cancelled");
   }
 
-  async #executeChild(input: {
-    runId: string;
-    manifest: AgentManifest;
-    parentStepIndex: number;
-    step: AgentStep;
-    stepPath: string;
-    variables: Readonly<VariableState>;
-    workspaces: readonly ResolvedWorkspace[];
-    runSandbox: (() => Promise<RunSandboxSession>) | undefined;
-    signal?: AbortSignal | undefined;
-    latestCheckpoint: RunCheckpoint | null;
-    stepResults: Readonly<StepResult[]>;
-    checkpoint: (input: NestedCheckpointInput) => Promise<void>;
-  }): Promise<StepExecutionResult> {
+  async #executeChild(
+    input: ChildExecutionInput,
+  ): Promise<StepExecutionResult> {
     this.#throwIfAborted(input.signal);
     if (!(await this.#shouldExecute(input.step, { ...input.variables }))) {
       await this.#emit(
@@ -1488,7 +1893,56 @@ export class AgentRuntime {
       (cursorPath === input.stepPath ||
         cursorPath?.startsWith(`${input.stepPath}/`) === true);
 
-    const result = await executor.execute({
+    let result: StepExecutionResult;
+    try {
+      result = await this.#executeChildStep(executor, input, isResumingPath);
+    } catch (error) {
+      if (
+        isControlFlowError(error, input.signal) ||
+        resolveStepPolicies(
+          this.#dependencies.policies,
+          input.manifest,
+          input.step,
+          this.#dependencies.enforcedPolicies,
+        ).onError !== "continue"
+      )
+        throw error;
+      const handledError = toRunError(error);
+      await this.#emit(
+        input.runId,
+        "step.failed",
+        {
+          stepIndex: input.parentStepIndex,
+          handled: true,
+          error: handledError as unknown as JsonValue,
+        },
+        input.step.id,
+        input.stepPath,
+      );
+      return handledErrorResult(input.step, handledError);
+    }
+
+    await this.#emit(
+      input.runId,
+      "step.completed",
+      { stepIndex: input.parentStepIndex },
+      input.step.id,
+      input.stepPath,
+    );
+    return withProjectedStepState(
+      input.manifest,
+      input.step,
+      input.parentStepIndex,
+      result,
+    );
+  }
+
+  #executeChildStep(
+    executor: StepExecutor,
+    input: ChildExecutionInput,
+    isResumingPath: boolean,
+  ): Promise<StepExecutionResult> {
+    return executor.execute({
       runId: input.runId,
       manifest: input.manifest,
       step: input.step,
@@ -1506,6 +1960,7 @@ export class AgentRuntime {
       workspaces: input.workspaces,
       runSandbox: input.runSandbox,
       tokenBudget: this.#runTokenBudgets.get(input.runId),
+      summarizer: this.#dependencies.summarizer,
       emit: (type, data) =>
         this.#emit(input.runId, type, data, input.step.id, input.stepPath),
       ...(isResumingPath && input.latestCheckpoint
@@ -1550,21 +2005,13 @@ export class AgentRuntime {
         }),
       evaluateCondition: (expression, conditionVariables) =>
         this.#evaluateCondition(expression, conditionVariables),
+      policies: resolveStepPolicies(
+        this.#dependencies.policies,
+        input.manifest,
+        input.step,
+        this.#dependencies.enforcedPolicies,
+      ),
     });
-
-    await this.#emit(
-      input.runId,
-      "step.completed",
-      { stepIndex: input.parentStepIndex },
-      input.step.id,
-      input.stepPath,
-    );
-    return withProjectedStepState(
-      input.manifest,
-      input.step,
-      input.parentStepIndex,
-      result,
-    );
   }
 
   async #checkpoint(input: {

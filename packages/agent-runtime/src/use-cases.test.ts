@@ -1002,8 +1002,9 @@ describe.skipIf(!available)(
           ),
           scripted([]),
         );
+        // Refused before the run starts, so no model call is spent.
         await expect(shellOnRead.run).rejects.toThrow(
-          /Tool public__shell is not available/u,
+          /names unknown tools: public__shell/u,
         );
 
         // Model-level attacks inside a run that legitimately holds a read-only public

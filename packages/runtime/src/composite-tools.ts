@@ -47,6 +47,15 @@ export class CompositeToolAdapter implements ToolAdapter {
     );
   }
 
+  unavailableToolReason(name: string): string | undefined {
+    if (this.#routes.has(name)) return undefined;
+    for (const adapter of this.#adapters) {
+      const reason = adapter.unavailableToolReason?.(name);
+      if (reason !== undefined) return reason;
+    }
+    return undefined;
+  }
+
   async executeTool(
     call: ToolCall,
     context: ToolExecutionContext,

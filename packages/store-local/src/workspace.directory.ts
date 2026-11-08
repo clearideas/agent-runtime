@@ -6,7 +6,6 @@ import {
   open,
   readdir,
   readFile,
-  rename,
   unlink,
 } from "node:fs/promises";
 import path from "node:path";
@@ -31,6 +30,7 @@ import {
   positiveInteger,
   throwIfAborted,
 } from "./workspace-common.js";
+import { renameWithRetry } from "./file-retry.js";
 
 export interface LocalDirectoryWorkspaceOptions {
   /** Host directory that becomes the workspace root. */
@@ -77,7 +77,7 @@ const writeAtomically = async (
     await handle.sync();
     await handle.close();
     handle = undefined;
-    await rename(temporaryPath, filePath);
+    await renameWithRetry(temporaryPath, filePath);
   } catch (error) {
     await handle?.close().catch(() => undefined);
     await unlink(temporaryPath).catch(() => undefined);

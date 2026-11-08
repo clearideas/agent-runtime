@@ -1,0 +1,82 @@
+2026-07-14T13:55:00.535Z INFO  shipping      label created for order o-84539
+2026-07-14T13:55:21.256Z INFO  shipping      GET /health 200 1ms
+2026-07-14T13:55:41.047Z INFO  shipping      GET /health 200 1ms
+2026-07-14T13:55:56.216Z INFO  shipping      GET /health 200 1ms
+2026-07-14T13:56:17.828Z INFO  shipping      quote for zone 3 in 40ms
+2026-07-14T13:56:35.720Z INFO  shipping      label created for order o-36309
+2026-07-14T13:56:55.740Z INFO  shipping      label created for order o-91699
+2026-07-14T13:57:12.402Z INFO  shipping      label created for order o-46073
+2026-07-14T13:57:35.607Z INFO  shipping      quote for zone 3 in 40ms
+2026-07-14T13:57:53.444Z INFO  shipping      GET /health 200 1ms
+2026-07-14T13:58:15.870Z INFO  shipping      label created for order o-13061
+2026-07-14T13:58:38.590Z INFO  shipping      label created for order o-30825
+2026-07-14T13:58:54.990Z INFO  shipping      GET /health 200 1ms
+2026-07-14T13:59:15.089Z INFO  shipping      GET /health 200 1ms
+2026-07-14T13:59:36.318Z INFO  shipping      quote for zone 3 in 40ms
+2026-07-14T13:59:51.506Z INFO  shipping      quote for zone 3 in 40ms
+2026-07-14T14:00:07.663Z INFO  shipping      label created for order o-77140
+2026-07-14T14:00:28.542Z INFO  shipping      quote for zone 3 in 40ms
+2026-07-14T14:00:52.248Z INFO  shipping      GET /health 200 1ms
+2026-07-14T14:01:18.500Z INFO  shipping      label created for order o-75358
+2026-07-14T14:01:35.477Z INFO  shipping      quote for zone 3 in 40ms
+2026-07-14T14:01:59.542Z INFO  shipping      quote for zone 3 in 40ms
+2026-07-14T14:02:14.501Z INFO  shipping      quote for zone 3 in 40ms
+2026-07-14T14:02:28.826Z INFO  shipping      quote for zone 3 in 40ms
+2026-07-14T14:02:49.605Z INFO  shipping      quote for zone 3 in 40ms
+2026-07-14T14:03:08.886Z INFO  shipping      label created for order o-10370
+2026-07-14T14:03:31.759Z INFO  shipping      quote for zone 3 in 40ms
+2026-07-14T14:03:57.729Z INFO  shipping      GET /health 200 1ms
+2026-07-14T14:04:13.767Z INFO  shipping      label created for order o-13917
+2026-07-14T14:04:29.938Z INFO  shipping      label created for order o-32048
+2026-07-14T14:04:47.229Z INFO  shipping      label created for order o-86453
+2026-07-14T14:05:10.350Z INFO  shipping      GET /health 200 1ms
+2026-07-14T14:05:28.299Z INFO  shipping      quote for zone 3 in 40ms
+2026-07-14T14:05:51.528Z INFO  shipping      label created for order o-31483
+2026-07-14T14:06:14.302Z INFO  shipping      GET /health 200 1ms
+2026-07-14T14:06:30.407Z INFO  shipping      GET /health 200 1ms
+2026-07-14T14:06:56.111Z INFO  shipping      GET /health 200 1ms
+2026-07-14T14:07:17.753Z INFO  shipping      label created for order o-32431
+2026-07-14T14:07:35.352Z INFO  shipping      GET /health 200 1ms
+2026-07-14T14:07:57.244Z INFO  shipping      label created for order o-66390
+2026-07-14T14:08:16.136Z INFO  shipping      quote for zone 3 in 40ms
+2026-07-14T14:08:34.907Z INFO  shipping      GET /health 200 1ms
+2026-07-14T14:08:53.046Z INFO  shipping      quote for zone 3 in 40ms
+2026-07-14T14:09:09.048Z INFO  shipping      GET /health 200 1ms
+2026-07-14T14:09:24.913Z INFO  shipping      label created for order o-10538
+2026-07-14T14:09:47.905Z INFO  shipping      quote for zone 3 in 40ms
+2026-07-14T14:10:13.397Z INFO  shipping      quote for zone 3 in 40ms
+2026-07-14T14:10:29.873Z INFO  shipping      label created for order o-92648
+2026-07-14T14:10:48.219Z INFO  shipping      label created for order o-86993
+2026-07-14T14:11:11.273Z INFO  shipping      quote for zone 3 in 40ms
+2026-07-14T14:11:30.293Z INFO  shipping      label created for order o-95069
+2026-07-14T14:11:52.257Z INFO  shipping      quote for zone 3 in 40ms
+2026-07-14T14:12:14.990Z INFO  shipping      quote for zone 3 in 40ms
+2026-07-14T14:12:32.903Z INFO  shipping      GET /health 200 1ms
+2026-07-14T14:12:51.358Z INFO  shipping      quote for zone 3 in 40ms
+2026-07-14T14:13:07.777Z INFO  shipping      GET /health 200 1ms
+2026-07-14T14:13:30.884Z INFO  shipping      GET /health 200 1ms
+2026-07-14T14:13:47.765Z INFO  shipping      label created for order o-59959
+2026-07-14T14:14:02.423Z INFO  shipping      quote for zone 3 in 40ms
+2026-07-14T14:14:18.734Z INFO  shipping      quote for zone 3 in 40ms
+2026-07-14T14:14:43.223Z INFO  shipping      GET /health 200 1ms
+2026-07-14T14:15:07.742Z INFO  shipping      quote for zone 3 in 40ms
+2026-07-14T14:15:23.113Z INFO  shipping      GET /health 200 1ms
+2026-07-14T14:15:49.181Z INFO  shipping      GET /health 200 1ms
+2026-07-14T14:16:05.738Z INFO  shipping      quote for zone 3 in 40ms
+2026-07-14T14:16:26.940Z INFO  shipping      GET /health 200 1ms
+2026-07-14T14:16:47.041Z INFO  shipping      GET /health 200 1ms
+2026-07-14T14:17:01.948Z INFO  shipping      GET /health 200 1ms
+2026-07-14T14:17:21.197Z INFO  shipping      GET /health 200 1ms
+2026-07-14T14:17:44.437Z INFO  shipping      quote for zone 3 in 40ms
+2026-07-14T14:18:09.117Z INFO  shipping      label created for order o-84726
+2026-07-14T14:18:32.076Z INFO  shipping      GET /health 200 1ms
+2026-07-14T14:18:47.069Z INFO  shipping      label created for order o-14570
+2026-07-14T14:19:13.342Z INFO  shipping      GET /health 200 1ms
+2026-07-14T14:19:37.155Z INFO  shipping      GET /health 200 1ms
+2026-07-14T14:19:55.957Z INFO  shipping      quote for zone 3 in 40ms
+2026-07-14T14:20:16.082Z INFO  shipping      quote for zone 3 in 40ms
+2026-07-14T14:20:35.510Z INFO  shipping      quote for zone 3 in 40ms
+2026-07-14T14:20:59.659Z INFO  shipping      GET /health 200 1ms
+2026-07-14T14:21:17.040Z INFO  shipping      GET /health 200 1ms
+2026-07-14T14:21:32.994Z INFO  shipping      label created for order o-96227
+2026-07-14T14:21:47.148Z INFO  shipping      quote for zone 3 in 40ms

@@ -30,6 +30,22 @@ const staticAssets: Record<string, readonly [string, string]> = {
     path.join(publicDirectory, "styles.css"),
     "text/css; charset=utf-8",
   ],
+  "/assets/icons/favicon.ico": [
+    path.join(publicDirectory, "assets/icons/favicon.ico"),
+    "image/x-icon",
+  ],
+  "/assets/icons/favicon-32x32.png": [
+    path.join(publicDirectory, "assets/icons/favicon-32x32.png"),
+    "image/png",
+  ],
+  "/assets/icons/favicon-16x16.png": [
+    path.join(publicDirectory, "assets/icons/favicon-16x16.png"),
+    "image/png",
+  ],
+  "/assets/icons/apple-touch-icon.png": [
+    path.join(publicDirectory, "assets/icons/apple-touch-icon.png"),
+    "image/png",
+  ],
   "/vendor/ace.js": [
     path.join(aceDirectory, "ace.js"),
     "text/javascript; charset=utf-8",

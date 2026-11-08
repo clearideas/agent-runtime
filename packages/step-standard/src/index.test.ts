@@ -125,6 +125,104 @@ describe("ApprovalStepExecutor", () => {
     );
   });
 
+  it.each([
+    ["continue", { endRun: undefined }],
+    ["complete", { endRun: true }],
+  ] as const)(
+    "records a rejection and keeps going with onReject: %s",
+    async (onReject, expected) => {
+      const step: ApprovalStep = {
+        id: "approval-choice",
+        type: "approval",
+        prompt: "Publish?",
+        outputVariable: "decision",
+        onReject,
+      };
+      const result = await new ApprovalStepExecutor().execute({
+        runId: "run-1",
+        manifest: manifestFor(step),
+        step,
+        stepIndex: 0,
+        variables: {},
+        approvals: {
+          requestApproval: async () => ({
+            approved: false,
+            response: { reviewer: "ana" },
+            respondedAt: "2026-07-22T00:01:00.000Z",
+          }),
+        },
+        emit: eventCollector().emit,
+      });
+      expect(result.output).toEqual({
+        approved: false,
+        respondedAt: "2026-07-22T00:01:00.000Z",
+        response: { reviewer: "ana" },
+      });
+      expect(result.statePatch?.set?.decision).toMatchObject({
+        approved: false,
+      });
+      expect(result.endRun).toBe(expected.endRun);
+    },
+  );
+
+  it("cancels the run on a rejection with onReject: cancel", async () => {
+    const step: ApprovalStep = {
+      id: "approval-cancel",
+      type: "approval",
+      prompt: "Continue?",
+      onReject: "cancel",
+    };
+    await expect(
+      new ApprovalStepExecutor().execute({
+        runId: "run-1",
+        manifest: manifestFor(step),
+        step,
+        stepIndex: 0,
+        variables: {},
+        approvals: {
+          requestApproval: async () => ({
+            approved: false,
+            respondedAt: "2026-07-22T00:01:00.000Z",
+          }),
+        },
+        emit: eventCollector().emit,
+      }),
+    ).rejects.toMatchObject({ code: "RUN_CANCELLED" });
+  });
+
+  it("reports missing adapters before a run starts", () => {
+    const approval: ApprovalStep = {
+      id: "approve",
+      type: "approval",
+      prompt: "?",
+    };
+    const code: CodeStep = {
+      id: "code",
+      type: "code",
+      language: "python",
+      code: "",
+    };
+    const runCode: CodeStep = { ...code, id: "run-code", sandbox: "run" };
+    const subRun: SubRunStep = {
+      id: "child",
+      type: "sub-run",
+      manifestRef: "x",
+    };
+    const host = { manifest: manifestFor(approval) };
+    expect(new ApprovalStepExecutor().preflight(approval, host)).toEqual([
+      "Approval step approve requires an ApprovalAdapter.",
+    ]);
+    expect(new CodeStepExecutor().preflight(code, host)).toEqual([
+      "Code step code requires a SandboxAdapter.",
+    ]);
+    expect(new CodeStepExecutor().preflight(runCode, host)).toEqual([
+      "Code step run-code requires a RunSandboxProvider.",
+    ]);
+    expect(new SubRunStepExecutor().preflight(subRun, host)).toEqual([
+      "Sub-run step child requires a SubRunAdapter.",
+    ]);
+  });
+
   it("stops the step when approval is rejected", async () => {
     const step: ApprovalStep = {
       id: "approval-rejected",

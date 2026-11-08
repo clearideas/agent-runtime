@@ -1,0 +1,82 @@
+2026-07-14T13:55:00.990Z INFO  fraud-check   GET /health 200 1ms
+2026-07-14T13:55:21.979Z INFO  fraud-check   score 0.08 for payment p-56375
+2026-07-14T13:55:44.513Z INFO  fraud-check   score 0.07 for payment p-33354
+2026-07-14T13:56:04.783Z INFO  fraud-check   score 0.03 for payment p-34260
+2026-07-14T13:56:24.184Z INFO  fraud-check   GET /health 200 1ms
+2026-07-14T13:56:46.230Z INFO  fraud-check   score 0.05 for payment p-27174
+2026-07-14T13:57:06.147Z INFO  fraud-check   model v17 loaded
+2026-07-14T13:57:28.071Z INFO  fraud-check   score 0.08 for payment p-11633
+2026-07-14T13:57:43.266Z INFO  fraud-check   model v17 loaded
+2026-07-14T13:58:02.574Z INFO  fraud-check   GET /health 200 1ms
+2026-07-14T13:58:23.674Z INFO  fraud-check   score 0.09 for payment p-42496
+2026-07-14T13:58:49.540Z INFO  fraud-check   GET /health 200 1ms
+2026-07-14T13:59:08.545Z INFO  fraud-check   score 0.07 for payment p-47392
+2026-07-14T13:59:29.711Z INFO  fraud-check   GET /health 200 1ms
+2026-07-14T13:59:45.090Z INFO  fraud-check   score 0.03 for payment p-29158
+2026-07-14T14:00:10.278Z INFO  fraud-check   GET /health 200 1ms
+2026-07-14T14:00:27.232Z INFO  fraud-check   score 0.09 for payment p-79466
+2026-07-14T14:00:51.594Z INFO  fraud-check   model v17 loaded
+2026-07-14T14:01:14.697Z INFO  fraud-check   GET /health 200 1ms
+2026-07-14T14:01:33.284Z INFO  fraud-check   GET /health 200 1ms
+2026-07-14T14:01:52.186Z INFO  fraud-check   model v17 loaded
+2026-07-14T14:02:07.062Z INFO  fraud-check   score 0.09 for payment p-97694
+2026-07-14T14:02:26.099Z INFO  fraud-check   model v17 loaded
+2026-07-14T14:02:44.507Z INFO  fraud-check   score 0.01 for payment p-20301
+2026-07-14T14:03:06.703Z INFO  fraud-check   score 0.09 for payment p-60530
+2026-07-14T14:03:21.579Z INFO  fraud-check   model v17 loaded
+2026-07-14T14:03:44.705Z INFO  fraud-check   score 0.05 for payment p-58376
+2026-07-14T14:04:09.017Z INFO  fraud-check   GET /health 200 1ms
+2026-07-14T14:04:34.196Z INFO  fraud-check   GET /health 200 1ms
+2026-07-14T14:04:48.269Z INFO  fraud-check   model v17 loaded
+2026-07-14T14:05:02.645Z INFO  fraud-check   score 0.05 for payment p-96916
+2026-07-14T14:05:18.305Z INFO  fraud-check   GET /health 200 1ms
+2026-07-14T14:05:41.204Z INFO  fraud-check   score 0.09 for payment p-13284
+2026-07-14T14:06:01.440Z INFO  fraud-check   GET /health 200 1ms
+2026-07-14T14:06:15.736Z INFO  fraud-check   scoring volume down 40% (fewer checkouts reaching fraud-check)
+2026-07-14T14:06:25.426Z INFO  fraud-check   GET /health 200 1ms
+2026-07-14T14:06:40.819Z INFO  fraud-check   model v17 loaded
+2026-07-14T14:06:58.550Z INFO  fraud-check   model v17 loaded
+2026-07-14T14:07:19.197Z INFO  fraud-check   score 0.08 for payment p-34773
+2026-07-14T14:07:37.758Z INFO  fraud-check   GET /health 200 1ms
+2026-07-14T14:07:58.376Z INFO  fraud-check   score 0.09 for payment p-26468
+2026-07-14T14:08:22.363Z INFO  fraud-check   score 0.09 for payment p-41711
+2026-07-14T14:08:45.648Z INFO  fraud-check   score 0.07 for payment p-64304
+2026-07-14T14:09:09.862Z INFO  fraud-check   GET /health 200 1ms
+2026-07-14T14:09:25.521Z INFO  fraud-check   model v17 loaded
+2026-07-14T14:09:42.012Z INFO  fraud-check   model v17 loaded
+2026-07-14T14:10:04.358Z INFO  fraud-check   model v17 loaded
+2026-07-14T14:10:25.248Z INFO  fraud-check   model v17 loaded
+2026-07-14T14:10:51.431Z INFO  fraud-check   score 0.06 for payment p-72871
+2026-07-14T14:11:09.282Z INFO  fraud-check   score 0.04 for payment p-36937
+2026-07-14T14:11:30.810Z INFO  fraud-check   GET /health 200 1ms
+2026-07-14T14:11:55.847Z INFO  fraud-check   score 0.07 for payment p-53999
+2026-07-14T14:12:16.296Z INFO  fraud-check   score 0.07 for payment p-58907
+2026-07-14T14:12:34.646Z INFO  fraud-check   score 0.04 for payment p-69870
+2026-07-14T14:12:56.440Z INFO  fraud-check   GET /health 200 1ms
+2026-07-14T14:13:11.248Z INFO  fraud-check   model v17 loaded
+2026-07-14T14:13:29.856Z INFO  fraud-check   model v17 loaded
+2026-07-14T14:13:54.102Z INFO  fraud-check   score 0.06 for payment p-57924
+2026-07-14T14:14:12.947Z INFO  fraud-check   GET /health 200 1ms
+2026-07-14T14:14:35.304Z INFO  fraud-check   GET /health 200 1ms
+2026-07-14T14:14:55.729Z INFO  fraud-check   score 0.01 for payment p-63133
+2026-07-14T14:15:18.325Z INFO  fraud-check   model v17 loaded
+2026-07-14T14:15:33.871Z INFO  fraud-check   GET /health 200 1ms
+2026-07-14T14:15:57.035Z INFO  fraud-check   model v17 loaded
+2026-07-14T14:16:20.947Z INFO  fraud-check   GET /health 200 1ms
+2026-07-14T14:16:44.177Z INFO  fraud-check   score 0.05 for payment p-27541
+2026-07-14T14:17:06.470Z INFO  fraud-check   model v17 loaded
+2026-07-14T14:17:24.147Z INFO  fraud-check   model v17 loaded
+2026-07-14T14:17:43.989Z INFO  fraud-check   score 0.05 for payment p-13992
+2026-07-14T14:18:01.694Z INFO  fraud-check   model v17 loaded
+2026-07-14T14:18:24.062Z INFO  fraud-check   model v17 loaded
+2026-07-14T14:18:43.417Z INFO  fraud-check   GET /health 200 1ms
+2026-07-14T14:19:00.019Z INFO  fraud-check   score 0.07 for payment p-95068
+2026-07-14T14:19:18.478Z INFO  fraud-check   model v17 loaded
+2026-07-14T14:19:33.397Z INFO  fraud-check   GET /health 200 1ms
+2026-07-14T14:19:53.883Z INFO  fraud-check   GET /health 200 1ms
+2026-07-14T14:20:16.459Z INFO  fraud-check   score 0.07 for payment p-96848
+2026-07-14T14:20:30.560Z INFO  fraud-check   model v17 loaded
+2026-07-14T14:20:47.179Z INFO  fraud-check   GET /health 200 1ms
+2026-07-14T14:21:12.124Z INFO  fraud-check   score 0.06 for payment p-54291
+2026-07-14T14:21:28.096Z INFO  fraud-check   model v17 loaded
+2026-07-14T14:21:48.919Z INFO  fraud-check   score 0.01 for payment p-49778

@@ -108,7 +108,7 @@ export const detectEnvironment = async (options: {
           kind: "bubblewrap",
           isolated: true,
           detail:
-            "bubblewrap: separate user, PID, IPC, and network namespaces; read-only system binds.",
+            "bubblewrap: separate user, PID, IPC, and network namespaces; no capabilities; read-only system binds.",
           notes: [],
         };
       } catch (error) {

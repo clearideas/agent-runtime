@@ -24,3 +24,13 @@ effective limit and cumulative provider-reported usage across attempts, and
 suspends before another model or pending tool call when the limit is exhausted.
 Resume may replace the limit with a higher value. Budgeted execution is
 sequential.
+
+Execution `policies` (context reduction, model retries, output repair, the
+tool-call limit, and `onError`) are resolved from host defaults
+(`AgentRuntimeDependencies.policies`), the manifest, and the step, and reach
+executors as `StepExecutionContext.policies`. A step with `onError: continue`
+records its error as its output and the run continues. Before a run is created,
+`preflight` checks registered executors, executor-declared adapter
+requirements, condition syntax, and tool names. Aborting a run's signal with
+`createRunPauseRequest()` suspends it, with `RunInterruptedError` leaves it
+`interrupted` and resumable, and with any other reason cancels it.

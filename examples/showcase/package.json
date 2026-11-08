@@ -13,6 +13,7 @@
   "scripts": {
     "start": "node server.ts",
     "doctor": "node doctor.ts",
+    "use-local-runtime": "node scripts/use-local-runtime.mjs",
     "type-check": "tsc -p tsconfig.json",
     "test": "npm run type-check && node --test \"test/*.test.ts\""
   },

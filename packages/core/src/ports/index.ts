@@ -1,6 +1,8 @@
 import type {
   AgentManifest,
   AgentWorkspaceBinding,
+  ContextSummarizer,
+  SummaryKind,
   ArtifactRef,
   JsonObject,
   JsonValue,
@@ -23,8 +25,20 @@ export interface AgentManifestSource {
   loadManifest(reference?: string): Promise<AgentManifest>;
 }
 
+/**
+ * - suspended: waiting on purpose (a person, a child run, a budget, or a pause request); resumable.
+ * - interrupted: infrastructure stopped the attempt (timeout, shutdown); resumable, not a failure.
+ * - failed: the run could not proceed; a host may still resume it after fixing the cause.
+ * - cancelled: ended by a person; terminal.
+ */
 export type RunStatus =
-  "created" | "running" | "suspended" | "completed" | "failed" | "cancelled";
+  | "created"
+  | "running"
+  | "suspended"
+  | "interrupted"
+  | "completed"
+  | "failed"
+  | "cancelled";
 
 export interface RunRecord {
   runId: string;
@@ -77,6 +91,16 @@ export interface RunStore {
     runId: string,
     error: RunError,
     failedAt: string,
+    expectedAttempt: number,
+  ): Promise<void>;
+  /**
+   * Record that infrastructure stopped the attempt. The run stays resumable.
+   * Stores without this method record a retryable RUN_INTERRUPTED failure.
+   */
+  interruptRun?(
+    runId: string,
+    error: RunError,
+    interruptedAt: string,
     expectedAttempt: number,
   ): Promise<void>;
   cancelRun(
@@ -392,6 +416,12 @@ export interface ToolAdapter {
    * discovery. Prompt steps may omit these; other missing names remain errors.
    */
   isToolExcluded?(name: string): boolean;
+  /**
+   * A reason when a name belongs to an optional source (such as a connection
+   * marked not required) that was unreachable during the last discovery.
+   * Prompt steps run without these tools and tell the model why.
+   */
+  unavailableToolReason?(name: string): string | undefined;
   executeTool(
     call: ToolCall,
     context: ToolExecutionContext,
@@ -441,6 +471,8 @@ export interface ModelRequest {
   model: string;
   messages: ModelMessage[];
   tools?: AgentTool[];
+  /** none: tools stay defined (for history replay) but the model must answer in text. */
+  toolChoice?: "auto" | "none" | "required";
   outputSchema?: JsonObject;
   maxOutputTokens?: number;
   providerOptions?: JsonObject;
@@ -461,9 +493,61 @@ export type ModelEvent =
   | { type: "tool-call"; call: ToolCall }
   | { type: "completed"; result: ModelResult };
 
+/**
+ * One request to condense material so a prompt step fits its context: an
+ * oversized opening-prompt variable (`input`), older tool rounds
+ * (`transcript`), or one large tool result (`tool-result`).
+ */
+export interface ContextSummarizeRequest {
+  runId: string;
+  stepId: string;
+  kind: SummaryKind;
+  /** What is condensed: a variable path, "5 earlier tool rounds", a tool name. */
+  label: string;
+  /** The step's prompt with `{{ placeholders }}` instead of values. */
+  task: string;
+  /** The material, as text. Tool results are untrusted data. */
+  text: string;
+  /** The size the result should have, in JSON-escaped bytes. */
+  targetBytes: number;
+  /** The step's resolved summarizer settings (model, prompts, limits). */
+  settings: ContextSummarizer;
+  signal?: AbortSignal;
+}
+
+export interface ContextSummarizeResult {
+  text: string;
+  /** Model usage the host incurred; counted in step usage and the run budget. */
+  usage?: ModelUsage;
+}
+
+/**
+ * Lets a host observe, change, or replace context summarization. `next` runs
+ * Agent Runtime's built-in summarizer (chunked model calls through the step's
+ * ModelAdapter), so a host can wrap it, call it with a changed request, or
+ * ignore it and summarize some other way. Throwing fails the summarization;
+ * with `summarize-or-prune` the step then prunes instead.
+ */
+export interface ContextSummarizerAdapter {
+  summarize(
+    request: ContextSummarizeRequest,
+    next: (request: ContextSummarizeRequest) => Promise<ContextSummarizeResult>,
+  ): Promise<ContextSummarizeResult>;
+}
+
+/** What a host knows about a model; used to size context reduction. */
+export interface ModelDescription {
+  maxInputTokens?: number;
+  maxOutputTokens?: number;
+}
+
 export interface ModelAdapter {
   generate(request: ModelRequest): Promise<ModelResult>;
   stream?(request: ModelRequest): AsyncIterable<ModelEvent>;
+  /** Optional model limits, keyed by the same model string as requests. */
+  describeModel?(
+    model: string,
+  ): ModelDescription | undefined | Promise<ModelDescription | undefined>;
 }
 
 export interface Clock {

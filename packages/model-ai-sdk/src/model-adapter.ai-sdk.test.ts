@@ -288,3 +288,43 @@ describe("AiSdkModelAdapter with the real AI SDK", () => {
     );
   });
 });
+
+describe("tool-call validity and tool choice through the real AI SDK", () => {
+  it.each(["stream", "generate"] as const)(
+    "%s: marks calls to unknown tools so the runtime does not run them",
+    async (mode) => {
+      // jsonSchema() tool definitions carry no validator, so the AI SDK flags
+      // unknown tool names; input validation stays with the tool server.
+      for (const toolCall of [
+        { name: "other_step_write", input: { path: "x" } },
+      ]) {
+        const { adapter } = provider({ toolCall });
+        const request = ask({ tools: [lookupTool] });
+        const result =
+          mode === "stream"
+            ? await streamed(adapter, request)
+            : await adapter.generate(request);
+        expect(result.toolCalls).toHaveLength(1);
+        expect(result.toolCalls![0]).toMatchObject({
+          name: toolCall.name,
+          metadata: { agentRuntime: { invalid: true } },
+        });
+      }
+    },
+  );
+
+  it("leaves valid calls unmarked", async () => {
+    const { adapter } = provider({
+      toolCall: { name: "lookup", input: { query: "status" } },
+    });
+    const result = await adapter.generate(ask({ tools: [lookupTool] }));
+    expect(result.toolCalls![0]?.metadata).toBeUndefined();
+  });
+
+  it("forwards toolChoice: none with the tool definitions", async () => {
+    const { adapter, calls } = provider({ text: "final answer" });
+    await adapter.generate(ask({ tools: [lookupTool], toolChoice: "none" }));
+    expect(calls[0].toolChoice).toEqual({ type: "none" });
+    expect(calls[0].tools).toHaveLength(1);
+  });
+});

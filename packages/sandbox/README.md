@@ -9,8 +9,8 @@ allowlists, and artifact persistence.
 read-only root filesystem, process and memory limits, and an isolated
 `/workspace` tmpfs. `BubblewrapSandboxProvider` provides equivalent isolation
 on Linux without a container daemon (user, PID, IPC, UTS, cgroup, and network
-namespaces plus `prlimit` limits) and is the reference provider for local
-development and continuous integration. Remote and application-specific
+namespaces, dropped capabilities, and `prlimit` limits) and is the reference
+provider for local development and continuous integration. Remote and application-specific
 services can implement the same `SandboxProvider` contract.
 
 `ProviderRunSandbox` implements the run sandbox: one sandbox per run attempt
