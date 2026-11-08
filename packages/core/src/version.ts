@@ -1,2 +1,2 @@
 // Generated from package.json by scripts/generate-runtime-version.mjs.
-export const RUNTIME_VERSION = "0.7.0";
+export const RUNTIME_VERSION = "0.7.1";

@@ -1,5 +1,13 @@
 # @clearideas/agent-runtime-telemetry-otel
 
+## 0.7.1
+
+### Patch Changes
+
+- Updated dependencies
+  - @clearideas/agent-runtime-core@0.7.1
+  - @clearideas/agent-runtime-contracts@0.7.1
+
 ## 0.7.0
 
 ### Minor Changes
