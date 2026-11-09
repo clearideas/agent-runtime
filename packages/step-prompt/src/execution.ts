@@ -79,6 +79,7 @@ import {
   contextMarker,
   deriveRounds,
   fingerprint,
+  historyReduction,
   type InputSlotReduction,
   inputReductions,
   markerMetadata,
@@ -547,7 +548,12 @@ export class PromptExecution {
     this.#allowedTools = new Set(this.#tools.map((tool) => tool.name));
     this.#checkpointRounds = context.checkpoint != null;
     this.#description = await this.#describe(this.#modelKey);
-    this.#opening = buildOpeningPrompt(this.#step, context.variables);
+    this.#opening = buildOpeningPrompt(
+      this.#step,
+      context.variables,
+      context.history?.insert ? context.history.messages : undefined,
+      context.history?.places?.map((place) => place?.turn) ?? [],
+    );
     this.#task = pruneText(this.#opening.outline(), TASK_OUTLINE_BYTES);
     this.#applyStoredInputReductions();
     await this.#renderInitial();
@@ -615,6 +621,19 @@ export class PromptExecution {
   }
 
   #applyStoredInputReductions(): void {
+    const history = this.#opening.history;
+    const storedHistory = history
+      ? historyReduction(this.#transcript)
+      : undefined;
+    if (
+      history &&
+      storedHistory &&
+      storedHistory.sourceHash === this.#historyFingerprint() &&
+      storedHistory.dropped <= history.messages.length
+    ) {
+      history.dropped = storedHistory.dropped;
+      history.replacement = storedHistory.text;
+    }
     const stored = inputReductions(this.#transcript);
     if (stored.size === 0) return;
     for (const template of this.#opening.templates) {
@@ -694,15 +713,124 @@ export class PromptExecution {
     await this.#reduceOpeningPrompt(budget, "opening-prompt");
   }
 
-  /** Shrink interpolated variables so the opening prompt fits `budget`. */
+  #historyFingerprint(): string {
+    return fingerprint(JSON.stringify(this.#opening.history?.messages ?? []));
+  }
+
+  /**
+   * Replace the oldest inserted conversation messages with one summary or
+   * note until the opening prompt fits `budget`. The newest message is always
+   * kept. This is the step-level safety net under the step's own context
+   * policy; it never changes the run's output history.
+   */
+  async #reduceHistory(budget: number, reason: string): Promise<boolean> {
+    const history = this.#opening.history;
+    if (!history || this.#strategy === "fail") return false;
+    const bytesBefore = jsonBytes(this.#initialMessages);
+    if (bytesBefore <= budget) return false;
+    const remaining = history.messages.length - history.dropped;
+    if (remaining <= 1) return false;
+    const sizes = history.messages.map((message) => jsonBytes(message) + 1);
+    const excess = bytesBefore - budget + MINIMUM_NOTE_BYTES;
+    let dropped = history.dropped;
+    let freed = 0;
+    while (dropped < history.messages.length - 1 && freed < excess) {
+      freed += sizes[dropped]!;
+      dropped += 1;
+    }
+    if (dropped === history.dropped) return false;
+    const count = dropped;
+    const material = [
+      ...(history.replacement ? [history.replacement] : []),
+      ...history.messages
+        .slice(history.dropped, dropped)
+        .map(
+          (message, offset) =>
+            `${message.role}${
+              history.turns[history.dropped + offset] != null
+                ? ` (turn ${history.turns[history.dropped + offset]})`
+                : ""
+            }: ${message.content
+              .map((part) =>
+                part.type === "text"
+                  ? part.text
+                  : part.type === "json"
+                    ? JSON.stringify(part.value)
+                    : `[${part.type}]`,
+              )
+              .join("\n")}`,
+        ),
+    ].join("\n\n");
+    let text = `[Agent Runtime removed ${count} earlier messages of this conversation to fit this step's context window.]`;
+    let strategy: "summarize" | "prune" = "prune";
+    if (
+      this.#strategy === "summarize" ||
+      this.#strategy === "summarize-or-prune"
+    ) {
+      const room = Math.max(
+        MINIMUM_NOTE_BYTES,
+        budget - (bytesBefore - freed) - MESSAGE_OVERHEAD_BYTES,
+      );
+      try {
+        const summary = await this.#summarize({
+          text: material,
+          targetBytes: Math.floor(room * 0.9),
+          kind: "messages",
+          label: `${count} earlier messages`,
+          task: this.#task,
+        });
+        text = `[Summary of earlier messages in this conversation, written by Agent Runtime to fit this step's context window. It replaces ${count} messages.]\n\n${
+          jsonTextBytes(summary) > room ? pruneText(summary, room) : summary
+        }`;
+        strategy = "summarize";
+      } catch (error) {
+        this.#rethrowControlFlow(error);
+        if (this.#strategy === "summarize") throw this.#summaryFailure(error);
+        await this.#context.emit("diagnostic", {
+          code: "CONTEXT_SUMMARY_FAILED",
+          scope: "messages",
+          message: describeError(error),
+        });
+      }
+    }
+    history.dropped = dropped;
+    history.replacement = text;
+    this.#pushMarker({
+      kind: "input",
+      strategy,
+      reason,
+      history: {
+        sourceHash: this.#historyFingerprint(),
+        dropped,
+        text,
+        strategy,
+      },
+    });
+    await this.#renderInitial();
+    await this.#emitReduced({
+      scope: "messages",
+      strategy,
+      reason,
+      messagesRemoved: count,
+      bytesBefore,
+      bytesAfter: jsonBytes(this.#initialMessages),
+    });
+    await this.#checkpointReady();
+    return true;
+  }
+
+  /** Shrink the inserted history, then interpolated variables, so the opening prompt fits `budget`. */
   async #reduceOpeningPrompt(budget: number, reason: string): Promise<boolean> {
+    const reducedHistory = await this.#reduceHistory(budget, reason);
+    if (reducedHistory && jsonBytes(this.#initialMessages) <= budget)
+      return true;
     const candidates = templateSlots(this.#opening.templates).filter(
       ({ slot }) =>
         this.#variablePolicy(slot.path).keep !== true &&
         this.#slotStrategy(slot.path) !== "fail" &&
         jsonTextBytes(slot.text) > 256,
     );
-    if (candidates.length === 0) return false;
+    if (candidates.length === 0) return reducedHistory;
     const sizes = candidates.map(({ slot }) => jsonTextBytes(slot.text));
     const reducible = sizes.reduce((total, size) => total + size, 0);
     const fixed = jsonBytes(this.#initialMessages) - reducible;
@@ -713,7 +841,7 @@ export class PromptExecution {
         ? [{ ...candidate, cap: Math.max(256, caps[position]!) }]
         : [],
     );
-    if (targets.length === 0) return false;
+    if (targets.length === 0) return reducedHistory;
     await this.#reduceSlots(targets, reason);
     return true;
   }
@@ -1600,6 +1728,9 @@ export class PromptExecution {
                 : {}),
               ...(settings.prompts.toolResult
                 ? { "tool-result": settings.prompts.toolResult }
+                : {}),
+              ...(settings.prompts.messages
+                ? { messages: settings.prompts.messages }
                 : {}),
             },
           }

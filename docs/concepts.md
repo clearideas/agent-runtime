@@ -54,6 +54,17 @@ its own prompts and the current variables; earlier steps' conversations are
 not replayed. [Memory and context](./memory-and-context.md) covers carrying
 context across steps, loop iterations, and runs.
 
+## Conversation messages
+
+An agent that declares `messages` accepts a conversation history from its
+runs. A chat continues one run per turn: the run receives the history so far
+and the new user message, its final output is the reply, and
+`RunResult.messages` returns the history with the reply appended. Steps read
+the history through their `history` setting, as inserted model turns, and
+through the read-only `messages` variable. The runtime can sign returned
+histories and compacts a long history once, with the existing context policy.
+See [Conversation messages](./conversations.md).
+
 ## Steps
 
 The built-in step types are:
@@ -67,8 +78,8 @@ The built-in step types are:
 | `code`     | execute code in an isolated environment         | sandbox adapter, or the run sandbox      |
 | `sub-run`  | invoke another manifest with isolated state     | sub-run adapter                          |
 
-Every step accepts `when`, `outputVariable`, `includeInFinalOutput`, `metadata`,
-and `extensions`. `includeInFinalOutput` selects output only for top-level
+Every step accepts `when`, `history`, `outputVariable`, `includeInFinalOutput`,
+`metadata`, and `extensions`. `includeInFinalOutput` selects output only for top-level
 steps.
 
 ## Checkpoints and attempts

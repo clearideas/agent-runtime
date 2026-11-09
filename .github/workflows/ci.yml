@@ -22,6 +22,7 @@ jobs:
       fail-fast: false
       matrix:
         node:
+          - "22.20.0"
           - 24
           - 26
 
@@ -67,7 +68,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
         with:
-          node-version: 24
+          node-version: "22.20.0"
       - run: npm ci
         working-directory: examples/agent-runner
       - run: npm audit --audit-level=moderate
@@ -153,12 +154,13 @@ jobs:
       - run: npm test --workspace @clearideas/agent-runtime
 
   showcase:
-    name: Showcase example (${{ matrix.sandbox }})
+    name: Showcase example (${{ matrix.sandbox }}, ${{ matrix.runtime }})
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     strategy:
       fail-fast: false
       matrix:
+        runtime: [published, workspace]
         sandbox:
           - bubblewrap
           - unisolated
@@ -166,16 +168,23 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
         with:
-          node-version: 24
+          node-version: "22.20.0"
       - name: Install the sandbox
         if: matrix.sandbox == 'bubblewrap'
         run: |
           sudo apt-get update
           sudo apt-get install --yes bubblewrap python3
           sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+      - name: Build the candidate runtime
+        if: matrix.runtime == 'workspace'
+        run: npm ci && npm run build
       - run: npm ci
         working-directory: examples/showcase
       - run: npm audit --audit-level=moderate
+        working-directory: examples/showcase
+      - name: Use the candidate runtime
+        if: matrix.runtime == 'workspace'
+        run: npm run use-local-runtime
         working-directory: examples/showcase
       - name: Require the selected sandbox
         working-directory: examples/showcase
@@ -196,7 +205,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
         with:
-          node-version: 24
+          node-version: "22.20.0"
       - run: npm ci
         working-directory: examples/showcase
       - run: npm audit --audit-level=moderate

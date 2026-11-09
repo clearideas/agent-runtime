@@ -27,6 +27,55 @@ describe("portable worker protocol", () => {
     );
   });
 
+  it("carries and normalizes conversation messages at the boundary", () => {
+    const manifest = {
+      schemaVersion: "1.0" as const,
+      messages: {},
+      steps: [],
+    };
+    const parsed = parseWorkerInvocation(
+      JSON.stringify(
+        createWorkerInvocation({
+          manifest,
+          messages: [{ role: "user", content: "Hi" }],
+          messagesSignature: {
+            version: "1",
+            algorithm: "HMAC-SHA256",
+            keyId: "k1",
+            count: 0,
+            value: "abc",
+          },
+          messagesScope: "tenant:1",
+        }),
+      ),
+    );
+    expect(parsed.request).toMatchObject({
+      messages: [{ role: "user", content: [{ type: "text", text: "Hi" }] }],
+      messagesSignature: { keyId: "k1" },
+      messagesScope: "tenant:1",
+    });
+    expect(() =>
+      parseWorkerInvocation({
+        protocolVersion: EXECUTION_PROTOCOL_VERSION,
+        action: "run",
+        request: { manifest, messages: [{ role: "system", content: "x" }] },
+      }),
+    ).toThrow();
+    expect(() =>
+      parseWorkerInvocation({
+        protocolVersion: EXECUTION_PROTOCOL_VERSION,
+        action: "resume",
+        request: {
+          manifest,
+          runId: "run-1",
+          attempt: 2,
+          messages: [{ role: "user", content: "x" }],
+          checkpointReference: "checkpoint-1",
+        },
+      }),
+    ).toThrow("cannot include conversation messages");
+  });
+
   it("rejects object-shaped invocation variables", () => {
     expect(() =>
       parseWorkerInvocation({

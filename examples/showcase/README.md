@@ -6,21 +6,23 @@ sandboxes, real workspace files, real checkpoints — and visualizes the event
 stream as it happens. Every page also shows the manifest, host configuration,
 and integration code that produced it.
 
-| Demo                   | What it shows                                                                                                                    |
-| ---------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
-| **Repo Mechanic**      | A workspace, the run sandbox, an allowlisted test command, an `authorizeCommand` hook, a code step, and sync-back                |
-| **Durable Runs**       | An approval step and a token budget pause the run; it resumes in a new attempt with a new sandbox, even after a restart          |
-| **Guardrails**         | An untrusted agent and a hostile model, stopped by configuration, tool digests, path and argument rules, a hook, and the sandbox |
-| **Document Library**   | A read-only workspace with visibility globs, an image passed to the model as an artifact, and an MCP ticket tool                 |
-| **Orchestration**      | A parallel wave, a condition, a collection loop, and a goal loop, in this process or in a separate worker process                |
-| **Long Investigation** | A step that reads more than three times its input limit; Agent Runtime prunes or summarizes its context so it finishes           |
+| Demo                   | What it shows                                                                                                                     |
+| ---------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
+| **Repo Mechanic**      | A workspace, the run sandbox, an allowlisted test command, an `authorizeCommand` hook, a code step, and sync-back                 |
+| **Durable Runs**       | An approval step and a token budget pause the run; it resumes in a new attempt with a new sandbox, even after a restart           |
+| **Guardrails**         | An untrusted agent and a hostile model, stopped by configuration, tool digests, path and argument rules, a hook, and the sandbox  |
+| **Document Library**   | A read-only workspace with visibility globs, an image passed to the model as an artifact, and an MCP ticket tool                  |
+| **Orchestration**      | A parallel wave, a condition, a collection loop, and a goal loop, in this process or in a separate worker process                 |
+| **Long Investigation** | A step that reads more than three times its input limit; Agent Runtime prunes or summarizes its context so it finishes            |
+| **Data Chat**          | A chat, one run per message: moderation, data read and charts rendered in the sandbox, and a signed history the browser keeps     |
+| **Document Chat**      | A chat about a Word document: each revision is a real .docx written in the sandbox, kept in a workspace per conversation, by turn |
 
 The example targets the published **0.7.1** runtime and uses a separate lockfile;
 its dependencies are installed independently of the repository workspaces.
 
 ## Run it
 
-Requirements: Node.js 24 or newer, plus either Docker with Linux containers
+Requirements: Node.js 22.20.0 or newer, plus either Docker with Linux containers
 or `python3` on the host. Docker supplies Python inside its image; a separate
 host Python installation is needed only for bubblewrap or the fallback.
 
@@ -49,7 +51,7 @@ npm start
 Docker gives the showcase a real, isolated sandbox on Windows, and enables
 live models. Use PowerShell for these steps.
 
-1. **Install** [Node.js 24 or newer](https://nodejs.org) and
+1. **Install** [Node.js 22.20.0 or newer](https://nodejs.org) and
    [Docker Desktop](https://docs.docker.com/desktop/setup/install/windows-install/).
    Keep Docker's default **Linux containers** (the WSL 2 backend is
    recommended).
@@ -295,6 +297,110 @@ that is never shortened. The host also supplies a summarizer adapter that
 wraps the built-in summarizer and reports each summarization (what it
 condensed, the size it was asked for, the size it produced) to the reductions
 log.
+
+## Data Chat
+
+A normal chat with a sales analyst, built on conversation messages. Every
+message you send is one run of the same manifest:
+
+1. **Moderate** reads only the newest message, as data through the
+   `messages` variable, and returns a verdict.
+2. **Analyze** runs only when the message is allowed. It sees the last six
+   messages as real conversation turns, so "that" and "it" resolve, and reads
+   the CSV files inside the run sandbox.
+3. **Chart** is a `code` step that runs only when a chart was asked for. It
+   renders a PNG in the sandbox with nothing but the Python standard library;
+   the file it writes becomes a run artifact, shown in the chat.
+4. **Reply** sees the whole conversation and writes the final output.
+
+The browser keeps the conversation. Each message sends the history the host
+returned last time, its signature, and the new text; the run returns the
+history with the reply appended, signed again. The host keeps no session.
+
+What to watch:
+
+1. **A blocked message.** The second suggestion asks for customer email
+   addresses. Moderation blocks it, every later step is skipped, and the run's
+   final output is the verdict. The page does not keep that turn, so the
+   retry continues from the same signed history.
+2. **Compaction.** The agent accepts six messages. When the chart request
+   crosses that, Agent Runtime summarizes the earlier conversation once,
+   before the first step. The summary comes back in the history, so later
+   messages start from it and never summarize the same messages again.
+3. **Tampering.** Under **Tamper with the history**, choose **Edit a past
+   reply** or **Replay in another conversation**,
+   then send anything: the host refuses the history before any run exists
+   (`MESSAGES_SIGNATURE_INVALID`), so no model is called.
+4. **Hidden data.** `customers.csv` holds contact details. The host's
+   visibility rules keep it out of the sandbox, so the agent never sees it.
+
+Data Chat needs an Agent Runtime with conversation messages, newer than the
+published 0.7.1. Until that is released, run `npm run use-local-runtime` (see
+[Notes](#notes)); on 0.7.1 the gallery marks the demo **Needs a newer
+runtime**.
+
+### Files
+
+```text
+demos/data-chat/
+  agent.yaml            declares messages; moderate, analyze, chart, reply
+  runtime.config.yaml   host config: the sales data, what is visible, the sandbox
+  host.ts               one run per message, the host's signing key, the scope
+  script.ts             scripted-mode model decisions
+  fixture/              the sales data, copied into .data/ on first start
+```
+
+## Document Chat
+
+A chat with an editor about a Word document, built on conversation messages
+and a workspace per conversation. Attach a `.docx`, or pick a suggestion to
+start with the sample proposal. Every message is one run:
+
+1. **Read** is a `code` step. Inside the run sandbox, with the Python
+   standard library only, it opens the newest `.docx` in the conversation's
+   workspace and lists its paragraphs, numbered, with their styles.
+2. **Revise** sees the whole conversation as real turns, then the listing,
+   and returns edits by paragraph number: replace, insert after, or delete.
+   It never touches the file.
+3. **Save** is a second `code` step. It applies the edits to the document's
+   XML, keeping every untouched paragraph, table, and format, and writes the
+   result as this turn's revision. Its output names the new file and is the
+   reply.
+
+The host keeps one directory per conversation and binds it as the agent's
+`conversation` workspace for each run. An upload is saved under the turn it
+arrives in (`turns/001/input/proposal.docx`), using the turn number Agent
+Runtime assigns, and the message names it; each revision lands in
+`turns/NNN/output/`. The history carries only text. The host opens a
+conversation's directory only for a history it signed for that
+conversation.
+
+What to watch:
+
+1. **The document.** Open any version in the **Document** panel, with its
+   changes from the version before, or download it and open it in Word.
+2. **The workspace.** The panel beside the chat lists every file by turn;
+   the stage's host files show the revision each run writes back.
+3. **Compaction.** The agent accepts eight messages. At the fifth message,
+   Agent Runtime summarizes turns 1–3 once; the manifest words the summary's
+   heading. The summary keeps each revision's path and turn, so **What have
+   we changed so far?** still lists all four files.
+
+Scripted mode handles the suggestions and a few similar requests on any
+document; choose **Live** to ask for anything. Document Chat needs the same
+newer runtime as Data Chat.
+
+### Files
+
+```text
+demos/document-chat/
+  agent.yaml            declares messages and the conversation workspace; read, revise, save
+  runtime.config.yaml   host config: the conversation workspace and the sandbox
+  host.ts               one run per message, one directory per conversation, uploads by turn
+  script.ts             scripted-mode model decisions
+  fixture/proposal.docx the sample document
+lib/docx.ts             reads a .docx for the page's preview
+```
 
 ## How the showcase is built
 

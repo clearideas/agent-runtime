@@ -32,7 +32,7 @@ const result = await runtime.run({
 console.log(result.output);
 ```
 
-Requires Node.js 24+ and `OPENAI_API_KEY`. Save as `agent.ts`, install
+Requires Node.js 22.20.0+ and `OPENAI_API_KEY`. Save as `agent.ts`, install
 `@clearideas/agent-runtime`, and run `node agent.ts`.
 
 `defineAgent` provides contextual TypeScript completion and validates the manifest.
@@ -137,6 +137,54 @@ const agentRuntime = new AgentRuntime({
   },
 });
 ```
+
+## Conversations
+
+For an agent that declares `messages`, each chat turn is one run. Store the
+returned history and signature, and send them back with the next user
+message. `messagesScope` binds signatures to the caller; it is host data and
+never comes from an agent run manifest:
+
+```ts
+import {
+  createAgentRuntime,
+  createHmacMessageSigner,
+} from "@clearideas/agent-runtime";
+
+const runtime = createAgentRuntime({
+  manifest,
+  messages: {
+    signer: createHmacMessageSigner({
+      activeKeyId: "k2026",
+      keys: { k2026: process.env.AGENT_MESSAGES_KEY! },
+    }),
+    requireSignature: true,
+    // References the runtime did not sign or ingest need host approval.
+    authorizeArtifact: (ref, { scope }) => artifactBelongsTo(ref, scope),
+  },
+});
+
+const result = await runtime.run({
+  messages: [...stored.messages, { role: "user", content: text }],
+  messagesSignature: stored.signature,
+  messagesScope: `tenant:${tenantId}/conversation:${conversationId}`,
+});
+await saveConversation(conversationId, {
+  messages: result.messages,
+  signature: result.messagesSignature,
+});
+```
+
+`createAgentRuntime` supplies the history compactor and merges these options
+over the configuration's `messages` section. With `new AgentRuntime(...)`,
+pass `messages.compactor: new PromptMessageHistoryCompactor()` when a history
+may be summarized. See [Conversation messages](./conversations.md).
+
+To give each conversation its own files, bind a workspace to a directory or
+`WorkspaceStore` the host keeps for that conversation, and name uploads in
+the user message. `conversationTurns(history).currentTurn` is the turn the
+run will complete, if you file uploads by turn. See
+[Files in a conversation](./conversations.md#files-in-a-conversation).
 
 ## Runtime modules
 

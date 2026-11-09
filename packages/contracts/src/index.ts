@@ -159,6 +159,142 @@ export interface PromptMessage {
   providerOptions?: JsonObject;
 }
 
+// ─── Conversation messages ──────────────────────────────────────────────────
+
+/**
+ * The special variable through which steps read a run's conversation history.
+ * It is reserved only in manifests that declare `messages`.
+ */
+export const MESSAGES_VARIABLE = "messages" as const;
+export const MESSAGES_SIGNATURE_VERSION = "1" as const;
+export const MESSAGES_SIGNATURE_ALGORITHM = "HMAC-SHA256" as const;
+
+/** Content a conversation message may carry. Provider options are never accepted. */
+export type ConversationContentPart = (
+  | { type: "text"; text: string }
+  | { type: "json"; value: JsonValue }
+  | {
+      type: "image";
+      artifact?: ArtifactRef;
+      url?: string;
+      /** Base64-encoded bytes. Stored as an artifact when the run is created. */
+      data?: string;
+      mediaType?: string;
+    }
+  | {
+      type: "file";
+      artifact?: ArtifactRef;
+      url?: string;
+      /** Base64-encoded bytes. Stored as an artifact when the run is created. */
+      data?: string;
+      name?: string;
+      mediaType?: string;
+    }
+) & {
+  /** Opaque application metadata. Persisted and signed, never sent to a model. */
+  metadata?: JsonObject;
+};
+
+/** One message of a conversation history supplied to, or returned by, a run. */
+export interface ConversationMessage {
+  role: "user" | "assistant";
+  content: ConversationContentPart[];
+  /**
+   * Opaque application metadata. `metadata.agentRuntime` is reserved for the
+   * runtime's leading summary or note marker.
+   */
+  metadata?: JsonObject;
+}
+
+/** A conversation message as supplied: `content` may be a string shorthand for one text part. */
+export interface ConversationMessageInput {
+  role: "user" | "assistant";
+  content: string | ConversationContentPart[];
+  metadata?: JsonObject;
+}
+
+/** An HMAC over an exact prefix of a history and the host's scope. */
+export interface MessagesSignature {
+  version: typeof MESSAGES_SIGNATURE_VERSION;
+  algorithm: typeof MESSAGES_SIGNATURE_ALGORITHM;
+  /** Signing key identifier, for rotation. */
+  keyId: string;
+  /** Number of leading messages covered. */
+  count: number;
+  /** base64url MAC. */
+  value: string;
+}
+
+/** What a leading runtime marker message stands for. */
+export interface MessagesMarker {
+  kind: "summary" | "note";
+  /** Earlier messages it replaces, cumulative across compactions. */
+  replaces: number;
+  /**
+   * Completed turns it covers, cumulative across compactions. A turn is one
+   * exchange: the user's messages and the reply that completes them. Turn N
+   * ends with the N-th assistant reply of the conversation.
+   */
+  turns?: number;
+  /** Compactions in the conversation so far. */
+  sequence: number;
+  strategy: "summarize" | "prune";
+}
+
+/** The agent accepts a conversation history. Absent: no history is accepted. */
+export interface AgentMessagesDeclaration {
+  /** A run must supply a history. Default false. */
+  required?: boolean;
+  description?: string;
+  /** Compaction trigger: message count, including a leading marker. */
+  maxMessages?: number;
+  /** Compaction trigger: UTF-8 bytes of the history JSON (media as references). */
+  maxBytes?: number;
+  /** Every message before the new turn must be covered by a valid signature. */
+  requireSignature?: boolean;
+  /** History-only overrides merged over the manifest's `policies.context`. */
+  context?: ContextPolicy;
+  /**
+   * Wording of the leading marker a compaction writes. Templates over
+   * `context.firstTurn`, `context.lastTurn`, `context.turns` (for example
+   * "1–10"), and `context.messages` (messages replaced).
+   */
+  markers?: {
+    /** Heading of a summary. */
+    summary?: string;
+    /** Text of a note that records removed messages. */
+    note?: string;
+  };
+  metadata?: JsonObject;
+}
+
+/** How one step sees the history. */
+export type StepHistory =
+  | "all"
+  | {
+      /** Newest N messages. Absent: every message. */
+      last?: number;
+      /** Include a leading summary or note. Default: true without `last`, false with it. */
+      summary?: boolean;
+      /** Prompt steps: insert the selection as model turns. Default true. */
+      insert?: boolean;
+      /** Media handling for this step. Default include. */
+      media?: "include" | "latest" | "omit";
+    };
+
+/** The effective history of a run, carried by every checkpoint. */
+export interface RunMessagesState {
+  history: ConversationMessage[];
+  /** `pending` until run-level compaction has finished; it never runs again after `complete`. */
+  compaction: "pending" | "complete";
+  /** Leading messages covered by a verified signature when the run was created. */
+  signedCount: number;
+  /** Host scope bound into signatures. */
+  scope?: string;
+  /** Completed summarizer calls of an unfinished compaction. */
+  journal?: JsonObject;
+}
+
 export interface TranscriptItem {
   id: string;
   type:
@@ -358,7 +494,12 @@ export type ContextStrategy = (typeof CONTEXT_STRATEGIES)[number];
 
 /** The model and instructions used when a context strategy summarizes. */
 /** What the summarizer condenses. */
-export const SUMMARY_KINDS = ["input", "transcript", "tool-result"] as const;
+export const SUMMARY_KINDS = [
+  "input",
+  "transcript",
+  "tool-result",
+  "messages",
+] as const;
 export type SummaryKind = (typeof SUMMARY_KINDS)[number];
 
 export interface ContextSummarizer {
@@ -373,6 +514,8 @@ export interface ContextSummarizer {
     input?: string;
     transcript?: string;
     toolResult?: string;
+    /** Conversation history compaction. */
+    messages?: string;
   };
   /** Output-token limit for each summarizer call. Defaults from the target size. */
   maxOutputTokens?: number;
@@ -487,6 +630,12 @@ export interface AgentStepBase {
   name?: string;
   description?: string;
   when?: string;
+  /**
+   * Which conversation messages this step sees. Requires a manifest
+   * `messages` declaration. Narrows both the `messages` variable and, for
+   * prompt steps, the turns inserted into the model input.
+   */
+  history?: StepHistory;
   outputVariable?: string;
   includeInFinalOutput?: boolean;
   policies?: ExecutionPolicies;
@@ -521,6 +670,13 @@ export type PromptStep = PromptStepDefinition &
         messages: PromptMessage[];
         prompt?: never;
         systemPrompt?: never;
+      }
+    | {
+        /** System prompt plus the conversation history, with no extra user prompt. */
+        history: StepHistory;
+        systemPrompt?: string;
+        prompt?: never;
+        messages?: never;
       }
   );
 
@@ -618,6 +774,7 @@ export const contextPolicySchema: z.ZodType<ContextPolicy> = z.strictObject({
           input: z.string().min(1).optional(),
           transcript: z.string().min(1).optional(),
           toolResult: z.string().min(1).optional(),
+          messages: z.string().min(1).optional(),
         })
         .optional(),
       maxOutputTokens: z.number().int().positive().optional(),
@@ -694,11 +851,22 @@ export const PROMPT_ONLY_POLICY_FIELDS = [
   "outputRepair",
 ] as const;
 
+export const stepHistorySchema: z.ZodType<StepHistory> = z.union([
+  z.literal("all"),
+  z.strictObject({
+    last: z.number().int().positive().optional(),
+    summary: z.boolean().optional(),
+    insert: z.boolean().optional(),
+    media: z.enum(["include", "latest", "omit"]).optional(),
+  }),
+]);
+
 const stepBaseShape = {
   id: z.string().min(1),
   name: z.string().min(1).optional(),
   description: z.string().optional(),
   when: z.string().optional(),
+  history: stepHistorySchema.optional(),
   outputVariable: agentVariableKeySchema.optional(),
   includeInFinalOutput: z.boolean().optional(),
   policies: executionPoliciesSchema.optional(),
@@ -828,10 +996,19 @@ export const agentStepSchema = z.lazy(() =>
       .superRefine((step, context) => {
         const usesLegacyPrompt = step.prompt !== undefined;
         const usesMessages = step.messages !== undefined;
-        if (usesLegacyPrompt === usesMessages) {
+        const insertsHistory =
+          step.history !== undefined &&
+          (step.history === "all" || step.history.insert !== false);
+        if (usesLegacyPrompt && usesMessages) {
           context.addIssue({
             code: "custom",
             message: "Prompt steps require exactly one of prompt or messages.",
+          });
+        } else if (!usesLegacyPrompt && !usesMessages && !insertsHistory) {
+          context.addIssue({
+            code: "custom",
+            message:
+              "Prompt steps require prompt, messages, or history that inserts conversation turns.",
           });
         }
         if (usesMessages && step.systemPrompt !== undefined) {
@@ -976,6 +1153,8 @@ export interface AgentManifest {
   connections?: AgentConnectionBinding[];
   /** Host-defined file collections available to workspace tools and code steps. */
   workspaces?: AgentWorkspaceBinding[];
+  /** The agent accepts a conversation history from its runs. */
+  messages?: AgentMessagesDeclaration;
   steps: AgentStep[];
   /** Manifest-wide execution policy defaults; steps may override them. */
   policies?: ExecutionPolicies;
@@ -1079,6 +1258,94 @@ const validateStepPolicies = (
   });
 };
 
+export const agentMessagesDeclarationSchema: z.ZodType<AgentMessagesDeclaration> =
+  z.strictObject({
+    required: z.boolean().optional(),
+    description: z.string().optional(),
+    maxMessages: z.number().int().min(2).optional(),
+    maxBytes: z.number().int().min(1024).optional(),
+    requireSignature: z.boolean().optional(),
+    context: contextPolicySchema
+      .refine(
+        (policy) => policy.trigger === undefined,
+        "messages.context cannot set trigger; maxMessages and maxBytes are the history's compaction triggers.",
+      )
+      .optional(),
+    markers: z
+      .strictObject({
+        summary: z.string().min(1).optional(),
+        note: z.string().min(1).optional(),
+      })
+      .optional(),
+    metadata: jsonObjectSchema.optional(),
+  });
+
+const isReservedMessagesName = (value: string | undefined): boolean =>
+  value != null &&
+  (value.split(".")[0] ?? "").trim().toLowerCase() === MESSAGES_VARIABLE;
+
+/**
+ * `history` requires a `messages` declaration, `history.insert` applies only
+ * to prompt steps, and a declaring manifest reserves the `messages` name.
+ */
+const validateStepHistory = (
+  steps: AgentStep[],
+  declared: boolean,
+  context: z.RefinementCtx,
+  path: Array<string | number>,
+): void => {
+  steps.forEach((step, index) => {
+    const stepPath = [...path, index];
+    if (step.history !== undefined && !declared) {
+      context.addIssue({
+        code: "custom",
+        message: `Step ${step.id} sets history, but the manifest does not declare messages.`,
+        path: [...stepPath, "history"],
+      });
+    }
+    if (
+      step.history !== undefined &&
+      step.history !== "all" &&
+      step.history.insert !== undefined &&
+      step.type !== "prompt"
+    ) {
+      context.addIssue({
+        code: "custom",
+        message: `history.insert applies only to prompt steps; ${step.type} step ${step.id} cannot set it.`,
+        path: [...stepPath, "history", "insert"],
+      });
+    }
+    if (declared && isReservedMessagesName(step.outputVariable)) {
+      context.addIssue({
+        code: "custom",
+        message: `Step ${step.id} cannot write the reserved messages variable.`,
+        path: [...stepPath, "outputVariable"],
+      });
+    }
+    if (step.type === "loop") {
+      if (declared) {
+        for (const field of [
+          "itemVariable",
+          "indexVariable",
+          "resultVariable",
+        ] as const) {
+          if (isReservedMessagesName(step.loop[field])) {
+            context.addIssue({
+              code: "custom",
+              message: `Loop step ${step.id} cannot write the reserved messages variable.`,
+              path: [...stepPath, "loop", field],
+            });
+          }
+        }
+      }
+      validateStepHistory(step.steps, declared, context, [
+        ...stepPath,
+        "steps",
+      ]);
+    }
+  });
+};
+
 const MAXIMUM_AGENT_MANIFEST_STRUCTURE_DEPTH = 128;
 const MAXIMUM_AGENT_MANIFEST_STRUCTURE_NODES = 100_000;
 
@@ -1140,6 +1407,7 @@ const agentManifestObjectSchema: z.ZodType<AgentManifest> = z
     variables: z.array(agentVariableDefinitionSchema).optional(),
     connections: z.array(agentConnectionBindingSchema).optional(),
     workspaces: z.array(agentWorkspaceBindingSchema).optional(),
+    messages: agentMessagesDeclarationSchema.optional(),
     steps: z.array(agentStepSchema),
     policies: executionPoliciesSchema.optional(),
     limits: z
@@ -1193,10 +1461,21 @@ const agentManifestObjectSchema: z.ZodType<AgentManifest> = z
     validateCodeStepWorkspaces(manifest.steps, workspaceAliases, context, [
       "steps",
     ]);
+    validateStepHistory(manifest.steps, manifest.messages != null, context, [
+      "steps",
+    ]);
 
     const variableKeys = new Set<string>();
     manifest.variables?.forEach((definition, index) => {
       const normalizedKey = definition.key.toLowerCase();
+      if (manifest.messages != null && normalizedKey === MESSAGES_VARIABLE) {
+        context.addIssue({
+          code: "custom",
+          message:
+            "The messages variable is reserved in a manifest that declares messages.",
+          path: ["variables", index, "key"],
+        });
+      }
       if (variableKeys.has(normalizedKey)) {
         context.addIssue({
           code: "custom",
@@ -1228,6 +1507,10 @@ export interface AgentRunManifest {
   variables?: AgentVariableOverride[];
   execution?: AgentRunExecution;
   budget?: AgentRunBudget;
+  /** Conversation history for an agent that declares `messages`. */
+  messages?: ConversationMessageInput[];
+  /** The runtime's signature over a leading prefix of `messages`. */
+  messagesSignature?: MessagesSignature;
 }
 
 export interface AgentRunBudget {
@@ -1272,7 +1555,9 @@ export const agentRunManifestSchema: z.ZodType<AgentRunManifest> =
     variables: agentVariableOverridesSchema.optional(),
     execution: agentRunExecutionSchema.optional(),
     budget: agentRunBudgetSchema.optional(),
-  });
+    messages: z.lazy(() => conversationMessagesInputSchema).optional(),
+    messagesSignature: z.lazy(() => messagesSignatureSchema).optional(),
+  }) as unknown as z.ZodType<AgentRunManifest>;
 
 export interface ExecutionCursor {
   stepIndex: number;
@@ -1316,6 +1601,8 @@ export interface RunCheckpoint {
   continuation?: JsonObject;
   /** Cumulative model-token usage and the effective limit for this run. */
   budget?: RunBudgetState;
+  /** The run's effective conversation history, when the manifest declares messages. */
+  messages?: RunMessagesState;
   createdAt: string;
   metadata?: JsonObject;
 }
@@ -1428,6 +1715,180 @@ const contentPartSchema = z.discriminatedUnion("type", [
   }),
 ]);
 
+const conversationContentPartSchema = z.discriminatedUnion("type", [
+  z.strictObject({
+    type: z.literal("text"),
+    text: z.string(),
+    metadata: jsonObjectSchema.optional(),
+  }),
+  z.strictObject({
+    type: z.literal("json"),
+    value: jsonValueSchema,
+    metadata: jsonObjectSchema.optional(),
+  }),
+  z.strictObject({
+    type: z.literal("image"),
+    ...mediaSourceSchema,
+    mediaType: z.string().min(1).optional(),
+    metadata: jsonObjectSchema.optional(),
+  }),
+  z.strictObject({
+    type: z.literal("file"),
+    ...mediaSourceSchema,
+    name: z.string().min(1).optional(),
+    mediaType: z.string().min(1).optional(),
+    metadata: jsonObjectSchema.optional(),
+  }),
+]);
+
+const messagesMarkerSchema = z.strictObject({
+  kind: z.enum(["summary", "note"]),
+  replaces: z.number().int().nonnegative().safe(),
+  turns: z.number().int().nonnegative().safe().optional(),
+  sequence: z.number().int().positive().safe(),
+  strategy: z.enum(["summarize", "prune"]),
+});
+
+/** Reads a leading marker from message metadata; undefined when there is none. */
+export const messagesMarkerOf = (
+  message: ConversationMessage | undefined,
+): MessagesMarker | undefined => {
+  const runtime = message?.metadata?.agentRuntime;
+  if (runtime == null || typeof runtime !== "object" || Array.isArray(runtime))
+    return undefined;
+  const parsed = messagesMarkerSchema.safeParse(runtime.messages);
+  return parsed.success ? parsed.data : undefined;
+};
+
+const conversationMessageObjectSchema = z.strictObject({
+  role: z.enum(["user", "assistant"]),
+  content: z.array(conversationContentPartSchema).min(1),
+  metadata: jsonObjectSchema.optional(),
+});
+
+const normalizeConversationMessage = (input: unknown): unknown =>
+  input != null &&
+  typeof input === "object" &&
+  !Array.isArray(input) &&
+  typeof (input as { content?: unknown }).content === "string"
+    ? {
+        ...input,
+        content: [
+          { type: "text", text: (input as { content: string }).content },
+        ],
+      }
+    : input;
+
+const validateConversationMessages = (
+  messages: ConversationMessage[],
+  context: z.RefinementCtx,
+): void => {
+  messages.forEach((message, messageIndex) => {
+    const runtime = message.metadata?.agentRuntime;
+    if (runtime !== undefined) {
+      if (messageIndex > 0) {
+        context.addIssue({
+          code: "custom",
+          path: [messageIndex, "metadata", "agentRuntime"],
+          message:
+            "metadata.agentRuntime is reserved for the runtime marker, which may only be the first message.",
+        });
+      } else if (
+        runtime == null ||
+        typeof runtime !== "object" ||
+        Array.isArray(runtime) ||
+        Object.keys(runtime).some((key) => key !== "messages") ||
+        !messagesMarkerSchema.safeParse(runtime.messages).success
+      ) {
+        context.addIssue({
+          code: "custom",
+          path: [messageIndex, "metadata", "agentRuntime"],
+          message: "metadata.agentRuntime is not a valid runtime marker.",
+        });
+      }
+    }
+    message.content.forEach((part, partIndex) => {
+      if (part.type !== "image" && part.type !== "file") return;
+      const sourceCount = [part.artifact, part.url, part.data].filter(
+        (value) => value !== undefined,
+      ).length;
+      if (sourceCount !== 1) {
+        context.addIssue({
+          code: "custom",
+          path: [messageIndex, "content", partIndex],
+          message:
+            "Message media parts require exactly one of artifact, url, or data.",
+        });
+      }
+      if (
+        part.type === "file" &&
+        part.artifact == null &&
+        part.mediaType == null
+      ) {
+        context.addIssue({
+          code: "custom",
+          path: [messageIndex, "content", partIndex, "mediaType"],
+          message:
+            "Message file parts without an artifact reference require mediaType.",
+        });
+      }
+      if (part.data !== undefined && part.mediaType == null) {
+        context.addIssue({
+          code: "custom",
+          path: [messageIndex, "content", partIndex, "mediaType"],
+          message: "Message media parts with inline data require mediaType.",
+        });
+      }
+    });
+  });
+};
+
+/** A normalized conversation history: full content-part form only. */
+export const conversationMessagesSchema: z.ZodType<ConversationMessage[]> = z
+  .array(conversationMessageObjectSchema)
+  .superRefine(validateConversationMessages) as z.ZodType<
+  ConversationMessage[]
+>;
+
+/** A supplied conversation history; string content is normalized to one text part. */
+export const conversationMessagesInputSchema: z.ZodType<ConversationMessage[]> =
+  z
+    .array(
+      z.preprocess(
+        normalizeConversationMessage,
+        conversationMessageObjectSchema,
+      ),
+    )
+    .superRefine(validateConversationMessages) as z.ZodType<
+    ConversationMessage[]
+  >;
+
+export const messagesSignatureSchema: z.ZodType<MessagesSignature> =
+  z.strictObject({
+    version: z.literal(MESSAGES_SIGNATURE_VERSION),
+    algorithm: z.literal(MESSAGES_SIGNATURE_ALGORITHM),
+    keyId: z.string().min(1).max(200),
+    count: z.number().int().nonnegative().safe(),
+    value: z
+      .string()
+      .min(1)
+      .regex(/^[A-Za-z0-9_-]+$/u, "Signature value must be base64url."),
+  });
+
+export const runMessagesStateSchema: z.ZodType<RunMessagesState> =
+  z.strictObject({
+    history: conversationMessagesSchema,
+    compaction: z.enum(["pending", "complete"]),
+    signedCount: z.number().int().nonnegative().safe(),
+    scope: z.string().optional(),
+    journal: jsonObjectSchema.optional(),
+  });
+
+/** Parse and normalize a supplied conversation history. */
+export const parseConversationMessages = (
+  input: unknown,
+): ConversationMessage[] => conversationMessagesInputSchema.parse(input);
+
 export const transcriptItemSchema = z.strictObject({
   id: z.string().min(1),
   type: z.enum([
@@ -1485,6 +1946,7 @@ export const runCheckpointSchema = z.strictObject({
   activeStepArtifacts: z.array(artifactRefSchema).optional(),
   continuation: jsonObjectSchema.optional(),
   budget: runBudgetStateSchema.optional(),
+  messages: z.lazy(() => runMessagesStateSchema).optional(),
   createdAt: z.iso.datetime({ offset: true }),
   metadata: jsonObjectSchema.optional(),
 });
@@ -1559,6 +2021,13 @@ export interface RunResult {
   transcript: TranscriptItem[];
   artifacts: ArtifactRef[];
   usage?: ModelUsage;
+  /**
+   * The effective conversation history plus one assistant message containing
+   * the final output. Present when the manifest declares messages.
+   */
+  messages?: ConversationMessage[];
+  /** Present when the host configured a signer. Covers every message. */
+  messagesSignature?: MessagesSignature;
   startedAt: string;
   completedAt: string;
   metadata?: JsonObject;

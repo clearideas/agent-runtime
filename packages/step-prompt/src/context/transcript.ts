@@ -33,6 +33,17 @@ export interface InputSlotReduction {
   strategy: "summarize" | "prune";
 }
 
+/** A step-level reduction of the conversation history inserted by `history`. */
+export interface HistoryReduction {
+  /** Fingerprint of the inserted history the reduction applies to. */
+  sourceHash: string;
+  /** Oldest inserted messages replaced. */
+  dropped: number;
+  /** The summary or note that stands for them. */
+  text: string;
+  strategy: "summarize" | "prune";
+}
+
 export interface ContextMarker {
   kind: ContextMarkerKind;
   sequence: number;
@@ -43,6 +54,8 @@ export interface ContextMarker {
   /** A visible marker is shown immediately before this item. */
   anchor?: string;
   slots?: InputSlotReduction[];
+  /** Reduction of the inserted conversation history (kind `input`). */
+  history?: HistoryReduction;
   /** Notes that remove rounds keep a running tally across compactions. */
   removedRounds?: number;
   removedTools?: Record<string, number>;
@@ -258,6 +271,18 @@ export const inputReductions = (
       reductions.set(`${slot.location}#${slot.index}`, slot);
   }
   return reductions;
+};
+
+/** Latest stored reduction of the inserted conversation history. */
+export const historyReduction = (
+  transcript: readonly TranscriptItem[],
+): HistoryReduction | undefined => {
+  let latest: HistoryReduction | undefined;
+  for (const item of transcript) {
+    const marker = contextMarker(item);
+    if (marker?.kind === "input" && marker.history) latest = marker.history;
+  }
+  return latest;
 };
 
 export const nextMarkerSequence = (

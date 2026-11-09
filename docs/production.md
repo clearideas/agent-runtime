@@ -7,7 +7,7 @@ description: Secure, observe, limit, recover, and upgrade a production Clear Ide
 
 ## Recommended baseline
 
-- Node.js 24 or newer
+- Node.js 22.20.0 or newer
 - transactional `RunStore` with attempt fencing
 - explicit manifest and runtime-config validation before submission
 - idempotency keys at the execution boundary
@@ -37,7 +37,10 @@ includes:
   network, a read-only root filesystem, dropped capabilities, and resource
   limits;
 - model policy hooks, execution attempt fencing, and worker-side rejection of
-  request-supplied runtime paths.
+  request-supplied runtime paths;
+- conversation histories that cannot carry system instructions, tool history,
+  reasoning, or provider options, are never templated, and can be required to
+  carry a valid signature bound to a host scope.
 
 Treat manifests as untrusted input unless only trusted operators can create
 them, and configure deployment-specific permissions in host policy. Treat MCP
@@ -48,8 +51,23 @@ tool description or schema. Remote
 workers reject request-supplied runtime and configuration filesystem paths
 unless host callbacks resolve opaque IDs. Inline configuration requires an
 explicit environment allowlist and cannot define MCP connections, workspaces,
-or a sandbox. Worker hosts must supply a webhook executor with destination
+a sandbox, or message signing keys. Worker hosts must supply a webhook executor with destination
 authorization when webhook steps are enabled.
+
+## Conversation histories
+
+A history the client holds can be edited. If clients keep the conversation,
+configure a message signer and set `requireSignature` in the host
+configuration, so forged or reordered messages are refused before a run is
+created. Bind `messagesScope` to the tenant, user, and conversation from the
+authenticated session, never from the request body, so a history cannot be
+replayed for someone else. If the host stores the conversation server-side,
+signing still detects tampering in transit and storage.
+
+Authorize artifact references in new messages with `authorizeArtifact`; the
+default rejects any reference the runtime did not sign or ingest. Keep the
+default history ceilings, or lower them, to bound the cost of one request.
+See [Conversation messages](./conversations.md).
 
 ## Secrets
 

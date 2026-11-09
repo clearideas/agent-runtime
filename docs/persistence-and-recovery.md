@@ -161,7 +161,9 @@ owner.
 ## Data policy
 
 Run state can contain prompts, model output, tool results, approval responses,
-and user-supplied variables. Encrypt it at rest where required, restrict access,
+user-supplied variables, and conversation histories (the run record keeps the
+supplied history, and checkpoints and completed runs keep the effective and
+output histories). Encrypt it at rest where required, restrict access,
 define retention, and avoid logging it accidentally. Artifact bytes may live in
 a separate `ArtifactStore`; checkpoints should retain references and integrity
 metadata.

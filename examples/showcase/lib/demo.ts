@@ -69,6 +69,31 @@ export type ShowcaseMessage =
       targetBytes: number;
       outputBytes: number;
     }
+  /**
+   * The conversation after one chat turn (Data Chat, Document Chat): the
+   * history with the reply appended and its signature, for the browser to
+   * keep and send back.
+   */
+  | {
+      kind: "conversation";
+      conversationId: string;
+      scope: string;
+      messages: JsonValue;
+      signature: JsonValue;
+      /** The moderation step's verdict for the newest message. */
+      moderation?: JsonValue;
+      /** Images the run produced, such as a chart, with their display URLs. */
+      artifacts?: JsonValue;
+      /** The conversation's workspace files after the turn (Document Chat). */
+      files?: JsonValue;
+    }
+  /** A history refused before any run was created (MESSAGES_* codes). */
+  | {
+      kind: "conversation-rejected";
+      code: string;
+      reason?: string;
+      message: string;
+    }
   | { kind: "result"; result: JsonValue }
   | { kind: "error"; error: { message: string; cancelled: boolean } };
 
@@ -113,12 +138,17 @@ export interface ShowcaseDemo {
    * an older published version); the gallery and page show the reason.
    */
   unavailable?: string;
+  /** Largest run request body; defaults to 256 KiB. */
+  maxRequestBytes?: number;
   /** Source files shown under "How it's built". */
   sources: SourceFile[];
   /** Agent manifest and run defaults for the browser. */
   describe(context: DemoContext): Promise<JsonValue>;
-  /** Optional live host-side state, such as a workspace listing. */
-  state?(context: DemoContext): Promise<JsonValue>;
+  /**
+   * Optional live host-side state, such as a workspace listing. The page may
+   * add query parameters, such as the conversation it shows.
+   */
+  state?(context: DemoContext, url: URL): Promise<JsonValue>;
   reset?(context: DemoContext): Promise<void>;
   /** Extra HTTP routes (e.g. worker callbacks). Return true when handled. */
   route?(

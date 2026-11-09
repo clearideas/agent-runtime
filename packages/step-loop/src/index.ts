@@ -1,4 +1,5 @@
 import type {
+  AgentManifest,
   ArtifactRef,
   JsonObject,
   JsonValue,
@@ -9,6 +10,7 @@ import type {
 import {
   applyStatePatch,
   setVariableAtPath,
+  withoutMessagesView,
   type StepExecutionContext,
   type StepExecutionResult,
   type StepExecutor,
@@ -108,8 +110,12 @@ const isLoopContinuation = (
   typeof value.childIndex === "number" &&
   Array.isArray(value.outputs);
 
-const snapshotIterationVariables = (state: VariableState): VariableState => {
-  const result = clone(state);
+/** An iteration's variables for `loop.previous`, without runtime-provided views. */
+const snapshotIterationVariables = (
+  manifest: AgentManifest,
+  state: VariableState,
+): VariableState => {
+  const result = withoutMessagesView(manifest, clone(state));
   delete result.loop;
   return result;
 };
@@ -327,7 +333,7 @@ export class LoopStepExecutor implements StepExecutor<LoopStep> {
           index: iteration,
           iteration: iteration + 1,
           output: clone(normalizedResult),
-          variables: snapshotIterationVariables(local),
+          variables: snapshotIterationVariables(context.manifest, local),
         };
         local.loop = {
           index: iteration,

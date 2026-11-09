@@ -1,6 +1,6 @@
-# Four agent patterns
+# Five agent patterns
 
-Requirements: Node.js 24+, npm 11. From the repository root:
+Requirements: Node.js 22.20.0+, npm 11. From the repository root:
 
 ```sh
 npm ci
@@ -80,5 +80,25 @@ with the verified one. Read [tool-integrity.mjs](tool-integrity.mjs): the
 digests come from `computeMcpToolDigest`, the same function
 `agent-runtime connections inspect` uses to print a `toolIntegrity` block for
 a configured connection. No model key is needed.
+
+## 5. Support chat: continue a signed, moderated conversation
+
+```sh
+node examples/patterns/conversation.mjs --demo
+```
+
+Expected output: two answered questions, then a third message that input
+moderation rejects, and `history: 6 messages, signed: true`. Read
+[conversation.mjs](conversation.mjs): it runs
+[moderated-chat.agent.yaml](../manifests/moderated-chat.agent.yaml) once per
+turn. Each run receives the stored history plus the new user message, and
+returns the history with its final output appended and signed. The host keeps
+only `result.messages` and `result.messagesSignature` between turns. The
+rejected turn's final output is the moderation verdict, selected by the
+manifest's existing output rules.
+
+To use a live model, set `OPENAI_API_KEY` and omit `--demo`. Set
+`AGENT_MESSAGES_KEY` to a `hex:` or `base64:` key of at least 32 bytes to sign
+with your own key.
 
 Run all deterministic examples with `npm run test:examples`.

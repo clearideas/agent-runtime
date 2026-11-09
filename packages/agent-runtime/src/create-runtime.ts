@@ -14,7 +14,10 @@ import {
 } from "@clearideas/agent-runtime-config";
 import { MemoryRunStore } from "@clearideas/agent-runtime-store-local";
 import { JexlConditionEvaluator } from "@clearideas/agent-runtime-condition-jexl";
-import { PromptStepExecutor } from "@clearideas/agent-runtime-step-prompt";
+import {
+  PromptMessageHistoryCompactor,
+  PromptStepExecutor,
+} from "@clearideas/agent-runtime-step-prompt";
 import { LoopStepExecutor } from "@clearideas/agent-runtime-step-loop";
 import {
   ApprovalStepExecutor,
@@ -80,5 +83,12 @@ export const createAgentRuntime = (
     conditionEvaluator: new JexlConditionEvaluator(),
     ...adapters,
     ...overrides,
+    // Host message options refine the configured ones; the compactor is
+    // always available so summarizing history policies pass preflight.
+    messages: {
+      compactor: new PromptMessageHistoryCompactor(),
+      ...adapters.messages,
+      ...overrides.messages,
+    },
   });
 };

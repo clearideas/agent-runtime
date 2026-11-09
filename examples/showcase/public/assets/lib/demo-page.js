@@ -29,6 +29,10 @@ export const createDemoPage = async ({
   onMessage = () => {},
   /** The element scrolled into view when a run starts. */
   scrollTarget = "#stage",
+  /** Run button labels, for pages where "Run agent" does not fit. */
+  runLabels,
+  /** Query string for the host-state request, such as "?conversation=…". */
+  stateQuery = () => "",
 }) => {
   const [environment, demo] = await Promise.all([
     getJson("/api/environment"),
@@ -38,7 +42,7 @@ export const createDemoPage = async ({
 
   let hostState = {};
   const refreshHost = async () => {
-    hostState = await getJson(`/api/demos/${demoId}/state`);
+    hostState = await getJson(`/api/demos/${demoId}/state${stateQuery()}`);
     stage.setHostWorkspaces(hostState.workspaces ?? []);
     return hostState;
   };
@@ -81,6 +85,7 @@ export const createDemoPage = async ({
   const runButton = createRunButton($("#run-button"), $("#run-label"), {
     onRun: () => page.start(),
     onCancel: () => controller?.abort(),
+    ...(runLabels ? { labels: runLabels } : {}),
   });
 
   const dispatch = (message) => {

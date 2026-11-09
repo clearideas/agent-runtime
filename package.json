@@ -35,7 +35,7 @@
     "test:showcase": "npm --prefix examples/showcase test"
   },
   "engines": {
-    "node": ">=24"
+    "node": ">=22.20.0"
   },
   "packageManager": "npm@11.8.0",
   "overrides": {

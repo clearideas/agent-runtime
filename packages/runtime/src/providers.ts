@@ -401,6 +401,8 @@ class ConfiguredModelAdapter implements ModelAdapter {
       description.maxInputTokens = capabilities.maxInputTokens;
     if (capabilities.maxOutputTokens != null)
       description.maxOutputTokens = capabilities.maxOutputTokens;
+    if (capabilities.imageInput != null)
+      description.imageInput = capabilities.imageInput;
     return Object.keys(description).length > 0 ? description : undefined;
   }
 

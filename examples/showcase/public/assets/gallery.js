@@ -48,6 +48,30 @@ const illustrations = {
     <rect class="accent" x="220" y="50" width="16" height="50" rx="2"/>
     <rect class="accent" x="244" y="38" width="16" height="62" rx="2"/>
     <rect class="violet" x="268" y="62" width="16" height="38" rx="2"/>`,
+  "document-chat": `
+    <rect class="box" x="44" y="22" width="130" height="20" rx="10"/>
+    <rect class="faint" x="56" y="29" width="80" height="6" rx="3"/>
+    <rect class="box" x="74" y="52" width="100" height="20" rx="10"/>
+    <rect class="faint" x="86" y="59" width="60" height="6" rx="3"/>
+    <path class="line" d="M178 62 H200"/>
+    <rect class="box" x="204" y="18" width="52" height="68" rx="4"/>
+    <rect class="box" x="218" y="30" width="52" height="68" rx="4"/>
+    <rect class="faint" x="228" y="44" width="32" height="4" rx="2"/>
+    <rect class="good" x="228" y="54" width="26" height="4" rx="2"/>
+    <rect class="faint" x="228" y="64" width="32" height="4" rx="2"/>
+    <rect class="good" x="228" y="74" width="20" height="4" rx="2"/>`,
+  "data-chat": `
+    <rect class="box" x="176" y="14" width="104" height="22" rx="11"/>
+    <rect class="faint" x="188" y="22" width="70" height="6" rx="3"/>
+    <rect class="box" x="196" y="44" width="84" height="20" rx="10"/>
+    <circle class="warn" cx="208" cy="54" r="4"/>
+    <rect class="faint" x="218" y="51" width="48" height="6" rx="3"/>
+    <rect class="box" x="40" y="46" width="132" height="62" rx="12"/>
+    <rect class="accent" x="56" y="84" width="14" height="14" rx="2"/>
+    <rect class="accent" x="76" y="78" width="14" height="20" rx="2"/>
+    <rect class="accent" x="96" y="74" width="14" height="24" rx="2"/>
+    <rect class="accent" x="116" y="72" width="14" height="26" rx="2"/>
+    <rect class="good" x="136" y="60" width="14" height="38" rx="2"/>`,
   orchestration: `
     <path class="line" d="M70 60 C110 60 110 32 150 32 M70 60 C110 60 110 88 150 88 M150 32 C190 32 190 60 230 60 M150 88 C190 88 190 60 230 60"/>
     <circle class="accent-stroke" cx="70" cy="60" r="10"/>

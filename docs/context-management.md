@@ -20,6 +20,13 @@ context window. Reduction is controlled by the `context` policy, which a host,
 a manifest, and a step can each set. See
 [Execution policies](./execution-policies.md) for how the layers combine.
 
+A conversation history supplied to a run is compacted separately: once per
+run, before the first step, with the manifest-level `context` policy and
+`messages.context`. The summary is returned in `RunResult.messages`, so the
+next turn starts from it. A step that inserts history can still shrink its own
+copy, oldest messages first, under its own policy; that never changes the
+returned history. See [Conversation messages](./conversations.md#compaction).
+
 ## Strategies
 
 | `strategy`           | What happens                                                                                  |
@@ -203,19 +210,19 @@ change, or replace it.
 Every setting lives under `policies.context.summarizer`, on the host, the
 manifest, or a step:
 
-| Setting           | Default                             | Effect                                                                |
-| ----------------- | ----------------------------------- | --------------------------------------------------------------------- |
-| `model`           | the step's model                    | the model that writes summaries; host model policy applies            |
-| `systemPrompt`    | built-in (below)                    | replaces the system prompt                                            |
-| `prompt`          | built-in per kind (below)           | replaces the instruction for every kind                               |
-| `prompts`         | —                                   | `input`, `transcript`, or `toolResult` instruction; beats `prompt`    |
-| `maxOutputTokens` | from the target size                | output-token limit for each summarizer call                           |
-| `summaryShare`    | 0.25                                | a transcript summary's target, as a share of what it replaces         |
-| `minSummaryBytes` | 1024                                | smallest transcript summary to ask for                                |
-| `maxSummaryBytes` | 16384                               | largest transcript summary to ask for                                 |
-| `chunkBytes`      | half the model's window, else 48000 | most material per call; more is split into chunks and combined        |
-| `maxCalls`        | 8 × `maxCompactions`, at least 16   | summarizer calls per step execution; then `summarize-or-prune` prunes |
-| `maxPasses`       | 4                                   | condensing passes over chunked material before giving up              |
+| Setting           | Default                             | Effect                                                                         |
+| ----------------- | ----------------------------------- | ------------------------------------------------------------------------------ |
+| `model`           | the step's model                    | the model that writes summaries; host model policy applies                     |
+| `systemPrompt`    | built-in (below)                    | replaces the system prompt                                                     |
+| `prompt`          | built-in per kind (below)           | replaces the instruction for every kind                                        |
+| `prompts`         | —                                   | `input`, `transcript`, `toolResult`, or `messages` instruction; beats `prompt` |
+| `maxOutputTokens` | from the target size                | output-token limit for each summarizer call                                    |
+| `summaryShare`    | 0.25                                | a transcript summary's target, as a share of what it replaces                  |
+| `minSummaryBytes` | 1024                                | smallest transcript summary to ask for                                         |
+| `maxSummaryBytes` | 16384                               | largest transcript summary to ask for                                          |
+| `chunkBytes`      | half the model's window, else 48000 | most material per call; more is split into chunks and combined                 |
+| `maxCalls`        | 8 × `maxCompactions`, at least 16   | summarizer calls per step execution; then `summarize-or-prune` prunes          |
+| `maxPasses`       | 4                                   | condensing passes over chunked material before giving up                       |
 
 A transcript summary's target is `summaryShare` of the rounds it replaces,
 kept between `minSummaryBytes` and `maxSummaryBytes`, and never more than the
@@ -253,15 +260,15 @@ policies:
 Instructions are templates over the step's variables and a `context`
 namespace:
 
-| Variable              | Value                                                  |
-| --------------------- | ------------------------------------------------------ |
-| `context.kind`        | `input`, `transcript`, or `tool-result`                |
-| `context.label`       | the variable path, round count, or tool name           |
-| `context.task`        | the step's prompt, with placeholders instead of values |
-| `context.targetWords` | the approximate length the summary should have         |
-| `context.targetBytes` | the same target in bytes                               |
-| `context.part`        | chunk number, when the material was split              |
-| `context.parts`       | number of chunks                                       |
+| Variable              | Value                                                                                                                     |
+| --------------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| `context.kind`        | `input`, `transcript`, `tool-result`, or `messages`                                                                       |
+| `context.label`       | the variable path, round count, or tool name; for `messages`, the turns covered, such as `turns 1–17 of the conversation` |
+| `context.task`        | the step's prompt, with placeholders instead of values                                                                    |
+| `context.targetWords` | the approximate length the summary should have                                                                            |
+| `context.targetBytes` | the same target in bytes                                                                                                  |
+| `context.part`        | chunk number, when the material was split                                                                                 |
+| `context.parts`       | number of chunks                                                                                                          |
 
 The material is always sent first, between `<material>` tags, and the
 instruction follows it. Tool results are untrusted input; a replacement
@@ -370,12 +377,12 @@ model response and tool result, plus the markers.
 
 ## Events
 
-| Event                      | Data                                                                                                                                                          |
-| -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `context.reduced`          | `scope` (`input`, `tool-result`, `transcript`), `strategy`, `reason`, byte sizes, counts; transcript summaries add `summaryTargetBytes` and `summarizerCalls` |
-| `model.started` and others | `purpose: "summarize"` for summarizer calls                                                                                                                   |
-| `model.retry`              | `reason: "context-overflow"` when a provider rejected an oversized request                                                                                    |
-| `diagnostic`               | `CONTEXT_SUMMARY_FAILED`, `COMPACTION_LIMIT_REACHED`                                                                                                          |
+| Event                      | Data                                                                                                                                                                                                                    |
+| -------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `context.reduced`          | `scope` (`input`, `tool-result`, `transcript`, `messages`), `strategy`, `reason`, byte sizes, counts; transcript summaries add `summaryTargetBytes` and `summarizerCalls`; run-level history compaction has no `stepId` |
+| `model.started` and others | `purpose: "summarize"` for summarizer calls                                                                                                                                                                             |
+| `model.retry`              | `reason: "context-overflow"` when a provider rejected an oversized request                                                                                                                                              |
+| `diagnostic`               | `CONTEXT_SUMMARY_FAILED`, `COMPACTION_LIMIT_REACHED`                                                                                                                                                                    |
 
 Events carry sizes, counts, and labels only, never content.
 

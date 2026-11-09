@@ -152,7 +152,13 @@ Notes on recent additions:
   `invalid-output`, `empty-output`, or `truncated-output`) and `attempt`. A
   streaming client should discard the step's partial text when it arrives.
 - `context.reduced` carries `scope`, `strategy`, `reason`, and byte sizes. See
-  [Context management](./context-management.md#events).
+  [Context management](./context-management.md#events). Run-level
+  conversation compaction uses `scope: "messages"` and has no `stepId`.
+- `run.started` for an agent that declares conversation messages carries
+  `messages: { count, signedCount, verified, ingestedArtifacts, compaction }`;
+  `sub-run.started` carries `forwardedMessages` when a step forwards history.
+  Neither carries message content. See
+  [Conversation messages](./conversations.md#events).
 - `model.tool.completed` carries `rejected: true` for calls that were answered
   with an error instead of being run.
 - Diagnostics codes include `TOOLS_UNAVAILABLE`, `TOOL_CALL_LIMIT_REACHED`,

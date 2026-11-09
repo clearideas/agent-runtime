@@ -5,7 +5,7 @@ description: Six self-hosted, animated demos of workspaces, durable runs, guardr
 
 # Showcase
 
-The showcase is a small web app you run on your own machine. Each of its six
+The showcase is a small web app you run on your own machine. Each of its seven
 demos runs a real agent through the real runtime and animates the event
 stream as it happens. Every demo page also shows the manifest, host
 configuration, and integration code that produced it.
@@ -18,10 +18,11 @@ configuration, and integration code that produced it.
 | **Document Library**   | A read-only workspace with visibility globs, an image passed as an artifact, and an MCP tool          |
 | **Orchestration**      | Parallel waves, a condition, collection and goal loops, in this process or a remote worker process    |
 | **Long Investigation** | A step that reads three times its input limit; the runtime prunes or summarizes its context to finish |
+| **Data Chat**          | A chat, one run per message: moderation, data and charts in the sandbox, and a signed history         |
 
 ## Run it
 
-Requirements: Node.js 24 or newer and one of these sandbox setups:
+Requirements: Node.js 22.20.0 or newer and one of these sandbox setups:
 
 - Docker Desktop or Docker Engine, using Linux containers. Python runs inside
   the image; it does not need to be installed separately on the host.
@@ -150,6 +151,38 @@ durable transcript keeps every tool result either way. See
 
 The showcase pins Agent Runtime 0.7.1, which includes the context management
 needed by Long Investigation.
+
+### Data Chat
+
+Chat with a sales analyst; each message is one run. Moderation reads only the
+newest message and gates every later step, the analyst reads the data inside
+the run sandbox, and **Chart it by quarter** renders a PNG there that appears
+in the chat as an artifact. The second suggestion is blocked: its verdict is
+the run's final output, the page keeps the conversation as it was, and the
+retry continues from the same signed history. When the conversation crosses
+six messages, the runtime summarizes it once and the summary travels with the
+history. **Tamper with the history** changes what your browser holds; the next
+message is refused before any run exists. See
+[Conversation messages](./conversations.md).
+
+### Document Chat
+
+Chat with an editor about a Word document; each message is one run. The first
+suggestion attaches a sample proposal, or attach your own `.docx`. A code step
+reads the newest version inside the run sandbox with the Python standard
+library, the model returns edits by paragraph number, and a second code step
+writes a new `.docx` with untouched paragraphs, tables, and formatting kept.
+The host keeps one directory per conversation and binds it as the agent's
+workspace: uploads go to `turns/NNN/input/`, revisions to `turns/NNN/output/`.
+The history only names the files. Open any version in the **Document** panel,
+with its changes from the version before, or download it. At the fifth
+message the runtime summarizes turns 1–3; the summary keeps each revision's
+path, so **What have we changed so far?** still lists every file. See
+[Files in a conversation](./conversations.md#files-in-a-conversation).
+
+Data Chat and Document Chat need a runtime with conversation messages, newer
+than 0.7.1; until that is released, run `npm run use-local-runtime` in
+`examples/showcase`.
 
 ## Use a live model
 

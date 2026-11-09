@@ -13,7 +13,7 @@ retaining control of providers, credentials, tools, state, and compute.
 npm install @clearideas/agent-runtime
 ```
 
-Requires Node.js 24 or newer.
+Requires Node.js 22.20.0 or newer.
 
 ## Minimal TypeScript host
 
@@ -51,6 +51,8 @@ The package exports the standard Agent Runtime composition:
   allowlists, and host authorization hooks;
 - prompt, loop, approval, webhook, code, and sub-run step contracts and
   executors;
+- conversation messages: declared chat histories, step-level history
+  selection, run-level compaction, and HMAC-signed output histories;
 - local persistence and local or remote execution interfaces.
 
 Authorization policy and sandbox contracts are native runtime capabilities.

@@ -2,6 +2,8 @@ import type {
   AgentManifest,
   AgentWorkspaceBinding,
   ContextSummarizer,
+  ConversationMessage,
+  MessagesSignature,
   SummaryKind,
   ArtifactRef,
   JsonObject,
@@ -47,16 +49,30 @@ export interface RunRecord {
   /** Atomically incremented whenever a persisted run is resumed. */
   attempt?: number;
   state: VariableState;
+  /** The conversation history as supplied (normalized, media ingested), kept for audit. */
+  messages?: RunRecordMessages;
   createdAt: string;
   updatedAt: string;
 }
 
-export interface CompletedRunRecord extends RunRecord {
+export interface RunRecordMessages {
+  supplied: ConversationMessage[];
+  /** Leading messages covered by a verified signature. */
+  signedCount: number;
+  scope?: string;
+}
+
+export interface CompletedRunRecord extends Omit<RunRecord, "messages"> {
   status: "completed";
   output?: JsonValue;
   transcript: TranscriptItem[];
   artifacts: ArtifactRef[];
   usage?: ModelUsage;
+  /** The supplied history, plus the output history and its signature. */
+  messages?: RunRecordMessages & {
+    output: ConversationMessage[];
+    signature?: MessagesSignature;
+  };
 }
 
 export interface ResumeRunOptions {
@@ -327,6 +343,12 @@ export interface SubRunRequest {
   manifest?: AgentManifest;
   manifestReference?: string;
   variables: AgentVariableOverride[];
+  /** The step's history selection, when the sub-run step sets `history`. */
+  messages?: ConversationMessage[];
+  /** Present when the parent run has a signer; covers every forwarded message. */
+  messagesSignature?: MessagesSignature;
+  /** The parent run's signature scope; pass it to the child run. */
+  messagesScope?: string;
   /** Opaque adapter-owned state restored from a suspended parent checkpoint. */
   continuation?: JsonObject;
 }
@@ -500,6 +522,11 @@ export type ModelEvent =
  */
 export interface ContextSummarizeRequest {
   runId: string;
+  /**
+   * The step whose context is reduced. Empty for run-level conversation
+   * history compaction (`kind: "messages"`), which belongs to no step; step
+   * ids are never empty.
+   */
   stepId: string;
   kind: SummaryKind;
   /** What is condensed: a variable path, "5 earlier tool rounds", a tool name. */
@@ -539,6 +566,8 @@ export interface ContextSummarizerAdapter {
 export interface ModelDescription {
   maxInputTokens?: number;
   maxOutputTokens?: number;
+  /** Declared image input support. `false` lets the runtime refuse images up front. */
+  imageInput?: boolean;
 }
 
 export interface ModelAdapter {

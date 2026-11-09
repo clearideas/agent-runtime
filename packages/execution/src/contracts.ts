@@ -2,6 +2,8 @@ import type {
   AgentManifest,
   AgentRunBudget,
   AgentRunExecution,
+  ConversationMessageInput,
+  MessagesSignature,
   JsonObject,
   RunCheckpoint,
   RunError,
@@ -42,6 +44,12 @@ export interface ExecutionRequest {
   /** Step scheduling selected by the agent run manifest. */
   execution?: AgentRunExecution;
   budget?: AgentRunBudget;
+  /** Conversation history for an agent that declares messages. */
+  messages?: ConversationMessageInput[];
+  /** The runtime's signature over a leading prefix of `messages`. */
+  messagesSignature?: MessagesSignature;
+  /** Host-only signature binding. Set by the control plane, never by the client. */
+  messagesScope?: string;
   idempotencyKey?: string;
   timeoutMs?: number;
   /** Inline declarative runtime configuration for self-contained remote invocations. */
@@ -58,7 +66,7 @@ export interface ExecutionRequest {
 
 export interface ResumeExecutionRequest extends Omit<
   ExecutionRequest,
-  "variables"
+  "variables" | "messages" | "messagesSignature" | "messagesScope"
 > {
   runId: string;
   attempt: number;

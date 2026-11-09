@@ -77,12 +77,15 @@ const sendJson = (response: ServerResponse, status: number, body: unknown) => {
 
 const readJson = async (
   request: IncomingMessage,
+  maxBytes = 262_144,
 ): Promise<Record<string, unknown>> => {
   let size = 0;
   const chunks: Buffer[] = [];
   for await (const chunk of request as AsyncIterable<Buffer>) {
     size += chunk.length;
-    if (size > 32_768) throw new Error("Request body is too large.");
+    // Data Chat posts its conversation history with every message; Document
+    // Chat may add an uploaded document and raises its own limit.
+    if (size > maxBytes) throw new Error("Request body is too large.");
     chunks.push(chunk);
   }
   if (chunks.length === 0) return {};
@@ -218,7 +221,7 @@ export const createShowcaseApp = async (
     response: ServerResponse,
     resumeRunId?: string,
   ) => {
-    const body = await readJson(request);
+    const body = await readJson(request, demo.maxRequestBytes);
     if (active.has(demo.id)) {
       sendJson(response, 409, {
         error: "A run is already in progress for this demo.",
@@ -370,7 +373,11 @@ export const createShowcaseApp = async (
         return sendJson(response, 200, { ...source, text });
       }
       if (method === "GET" && action === "state")
-        return sendJson(response, 200, (await demo.state?.(context)) ?? {});
+        return sendJson(
+          response,
+          200,
+          (await demo.state?.(context, url)) ?? {},
+        );
       if (method === "POST" && action === "reset") {
         if (active.has(demo.id))
           return sendJson(response, 409, { error: "A run is in progress." });

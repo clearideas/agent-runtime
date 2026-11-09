@@ -1,6 +1,6 @@
 {
   "name": "@clearideas/agent-runtime-sandbox-modal",
-  "version": "0.7.1",
+  "version": "0.8.0",
   "description": "Modal sandbox provider for the Agent Runtime sandbox contract.",
   "license": "Apache-2.0",
   "author": "Clear Ideas Incorporated",
@@ -36,14 +36,14 @@
     "postpack": "node ../../scripts/cleanup-package-license.mjs"
   },
   "dependencies": {
-    "@clearideas/agent-runtime-sandbox": "0.7.1"
+    "@clearideas/agent-runtime-sandbox": "0.8.0"
   },
   "devDependencies": {
     "typescript": "^7.0.2",
     "vitest": "^5.1.0"
   },
   "engines": {
-    "node": ">=24"
+    "node": ">=22.20.0"
   },
   "homepage": "https://github.com/clearideas/agent-runtime#readme",
   "bugs": {

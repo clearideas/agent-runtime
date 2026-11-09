@@ -279,6 +279,49 @@ export const sandboxDefinitionSchema = z
 
 export type SandboxDefinition = z.infer<typeof sandboxDefinitionSchema>;
 
+/**
+ * Host policy for conversation messages. Signing keys are environment
+ * references only; no manifest or run manifest can supply them.
+ */
+export const messagesConfigSchema = z
+  .strictObject({
+    signing: z
+      .strictObject({
+        /** The key that signs returned histories. */
+        activeKeyId: z.string().min(1),
+        /** Verification keys by id, as `base64:` or `hex:` encoded secrets. */
+        keys: z.record(z.string().min(1), environmentReferenceSchema),
+        /** Require every message before the new turn to be signed. */
+        require: z.boolean().optional(),
+      })
+      .optional(),
+    media: z
+      .strictObject({
+        maxInlineBytes: z.number().int().positive().optional(),
+      })
+      .optional(),
+    limits: z
+      .strictObject({
+        maxSuppliedMessages: z.number().int().positive().optional(),
+        maxSuppliedBytes: z.number().int().positive().optional(),
+      })
+      .optional(),
+  })
+  .superRefine((messages, context) => {
+    if (
+      messages.signing &&
+      !Object.hasOwn(messages.signing.keys, messages.signing.activeKeyId)
+    ) {
+      context.addIssue({
+        code: "custom",
+        message: `messages.signing.activeKeyId "${messages.signing.activeKeyId}" must name a key in messages.signing.keys.`,
+        path: ["signing", "activeKeyId"],
+      });
+    }
+  });
+
+export type MessagesConfig = z.infer<typeof messagesConfigSchema>;
+
 export const agentRuntimeConfigSchema = z
   .strictObject({
     version: z.literal(AGENT_RUNTIME_CONFIG_SCHEMA_VERSION),
@@ -289,6 +332,7 @@ export const agentRuntimeConfigSchema = z
       .default({}),
     workspaces: z.record(nameSchema, workspaceDefinitionSchema).default({}),
     sandbox: sandboxDefinitionSchema.optional(),
+    messages: messagesConfigSchema.optional(),
   })
   .superRefine((config, context) => {
     for (const [name, entry] of Object.entries(

@@ -18,6 +18,7 @@ The exported TypeScript type is `AgentManifest`; validate external input with
 | `variables`                 | variable declaration array    | typed inputs, defaults, requirements, documentation   |
 | `connections`               | array                         | host connection bindings                              |
 | `workspaces`                | array                         | host workspace bindings (code bases, document stores) |
+| `messages`                  | object                        | accept a conversation history from runs               |
 | `steps`                     | array                         | ordered execution plan                                |
 | `policies`                  | object                        | default execution policies; steps may override them   |
 | `limits`                    | object                        | step, output, tool-call, and provider bounds          |
@@ -116,6 +117,8 @@ budget:
 | `execution.mode`           | sequential or parallel  | optional; defaults to sequential                    |
 | `execution.maxConcurrency` | integer from 1 to 64    | optional requested limit; the host may impose a cap |
 | `budget.maxTotalTokens`    | positive integer        | optional cumulative model-token limit               |
+| `messages`                 | conversation messages   | optional; the agent must declare `messages`         |
+| `messagesSignature`        | signature envelope      | optional; from the previous `RunResult`             |
 
 The TypeScript shape is:
 
@@ -147,6 +150,108 @@ again. Budgeted model adapters should report `totalTokens`, or both
 records an estimate marked `metadata.estimated: true` and emits a
 `USAGE_ESTIMATED` diagnostic. Budgeted runs execute sequentially so concurrent
 calls cannot overspend one shared limit.
+
+## Conversation messages
+
+See [Conversation messages](./conversations.md) for the behavior.
+
+Agent manifest `messages` (`AgentMessagesDeclaration`):
+
+| Field              | Type                       | Notes                                               |
+| ------------------ | -------------------------- | --------------------------------------------------- |
+| `required`         | boolean                    | a run must supply at least one message              |
+| `description`      | string                     | optional documentation                              |
+| `maxMessages`      | integer, at least 2        | compaction trigger                                  |
+| `maxBytes`         | integer, at least 1024     | compaction trigger, UTF-8 bytes of the history JSON |
+| `requireSignature` | boolean                    | every message before the new turn must be signed    |
+| `context`          | context policy, no trigger | history-only overrides of `policies.context`        |
+| `markers`          | `{ summary?, note? }`      | marker wording templates; see below                 |
+| `metadata`         | JSON object                | inert application metadata                          |
+
+`markers.summary` is the heading of a summary and `markers.note` the text of
+a pruning note. Both are templates over `context.firstTurn`,
+`context.lastTurn`, `context.turns` (for example `1–17`), and
+`context.messages` (messages replaced); the runtime's wording applies when
+absent.
+
+Step `history` (`StepHistory`), on any step of a declaring manifest:
+
+```ts
+| "all"
+| {
+    last?: number; // newest N messages; absent: all
+    summary?: boolean; // include the leading summary; default: true without last
+    insert?: boolean; // prompt steps only: insert as model turns; default true
+    media?: "include" | "latest" | "omit"; // default include
+  }
+```
+
+`ConversationMessage`:
+
+```ts
+{
+  role: "user" | "assistant";
+  content: Array<
+    | { type: "text"; text: string }
+    | { type: "json"; value: JsonValue }
+    | { type: "image"; artifact?: ArtifactRef; url?: string; data?: string; mediaType?: string }
+    | { type: "file"; artifact?: ArtifactRef; url?: string; data?: string; name?: string; mediaType?: string }
+  >; // each part may carry metadata; input also accepts a string
+  metadata?: JsonObject; // metadata.agentRuntime is reserved for the leading marker
+}
+```
+
+The leading marker's `metadata.agentRuntime.messages` (`MessagesMarker`):
+
+```ts
+{
+  kind: "summary" | "note";
+  replaces: number; // earlier messages replaced, cumulative
+  turns?: number; // completed turns covered, cumulative
+  sequence: number; // compactions so far
+  strategy: "summarize" | "prune";
+}
+```
+
+`conversationTurns(history)` returns `{ currentTurn, summarized, places }`:
+the turn the next reply completes, `{ turns, messages }` the marker covers
+(or undefined), and `{ turn, position }` for each message (undefined for the
+marker). Turn N ends with the N-th assistant message.
+
+`MessagesSignature`:
+
+```ts
+{
+  version: "1";
+  algorithm: "HMAC-SHA256";
+  keyId: string;
+  count: number; // leading messages covered
+  value: string; // base64url
+}
+```
+
+The MAC is HMAC-SHA-256 over
+`"clearideas-agent-runtime/messages/v1\n" + JCS({ version: "1", scope, messages })`,
+where JCS is RFC 8785 and `scope` is the host scope or `null`.
+`messagesSigningPayload` returns this text.
+
+`RunRequest` adds `messages`, `messagesSignature`, and the host-only
+`messagesScope`. `RunResult` and `CompletedRunRecord` add `messages` (the
+history plus the final output as assistant text) and `messagesSignature`.
+`RunRecord.messages` keeps the supplied history, and `RunCheckpoint.messages`
+carries the effective history and compaction state.
+
+`AgentRuntimeDependencies.messages` (`AgentRuntimeMessagesOptions`):
+
+| Field                 | Notes                                                        |
+| --------------------- | ------------------------------------------------------------ |
+| `signer`              | `MessageHistorySigner`; `createHmacMessageSigner` builds one |
+| `requireSignature`    | host-enforced signature requirement                          |
+| `authorizeArtifact`   | authorizes artifact references the runtime did not sign      |
+| `maxInlineBytes`      | largest inline media part; default 10 MiB                    |
+| `maxSuppliedMessages` | absolute ceiling; default 500                                |
+| `maxSuppliedBytes`    | absolute ceiling, excluding inline media; default 2 MB       |
+| `compactor`           | `MessageHistoryCompactor`; `createAgentRuntime` supplies one |
 
 ## Workspace binding
 
@@ -184,6 +289,13 @@ A prompt step uses exactly one input form:
 - `prompt: string` with optional `systemPrompt: string`, retained as the
   backward-compatible shorthand.
 - `messages: PromptMessage[]`, containing the complete ordered history.
+- `history` with an optional `systemPrompt` and no `prompt`, in a manifest
+  that declares conversation messages.
+
+A step with `history` also inserts its selection of the run's conversation
+into the first two forms: after the system prompt and before `prompt`, or
+after the leading system messages of `messages`. Inserted messages are never
+templated.
 
 `PromptMessage` has a `role` of `system`, `user`, `assistant`, or `tool`, a
 `content` array, and optional inert `metadata` and replayed `providerOptions`.
@@ -212,8 +324,14 @@ limits before it would fail.
   connections: Record<string, McpConnectionDefinition>;
   workspaces: Record<string, WorkspaceDefinition>;
   sandbox?: SandboxDefinition;
+  messages?: MessagesConfig;
 }
 ```
+
+The `messages` section holds `signing` (`activeKeyId`, `keys` as environment
+references, `require`), `media.maxInlineBytes`, and `limits`
+(`maxSuppliedMessages`, `maxSuppliedBytes`). Inline worker configuration cannot
+define signing keys.
 
 Provider drivers: `openai`, `anthropic`, `google`, `xai`, `groq`, `cohere`,
 and `openai-compatible`.
@@ -276,6 +394,8 @@ See [connections and tools](./connections-and-tools.md#verifying-mcp-tool-metada
 | `ConditionEvaluator`           | evaluate `when`, loop conditions, and goals; optional `validate`         |
 | `StepExecutor`                 | execute one step type; optional `preflight` checks                       |
 | `ContextSummarizerAdapter`     | observe, change, or replace context summarization                        |
+| `MessageHistorySigner`         | sign and verify conversation histories                                   |
+| `MessageHistoryCompactor`      | summarize the oldest part of a conversation, once per run                |
 
 `RunStore` implementations may add `interruptRun` to record the `interrupted`
 status; without it, interruptions are stored as retryable failures.

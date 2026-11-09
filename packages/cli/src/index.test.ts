@@ -352,6 +352,126 @@ describe("runner CLI", () => {
     });
   });
 
+  it("continues a signed conversation across runs with --messages and --messages-out", async () => {
+    vi.stubEnv("CLI_MESSAGES_KEY", `hex:${"c1".repeat(32)}`);
+    const manifestFile = path.join(directory, "chat.agent.json");
+    const configFile = path.join(directory, "chat.config.yaml");
+    const runtime = path.join(directory, "chat-runtime.mjs");
+    const firstTurn = path.join(directory, "turn-1.yaml");
+    const firstOut = path.join(directory, "turn-1.out.json");
+    const secondTurn = path.join(directory, "turn-2.json");
+    const secondOut = path.join(directory, "turn-2.out.json");
+    await writeFile(
+      manifestFile,
+      JSON.stringify({
+        schemaVersion: "1.0",
+        model: { provider: "test", model: "local" },
+        messages: { required: true, requireSignature: true },
+        steps: [
+          {
+            id: "answer",
+            type: "prompt",
+            systemPrompt: "Answer.",
+            history: "all",
+          },
+        ],
+      }),
+    );
+    await writeFile(
+      configFile,
+      [
+        'version: "1.0"',
+        "messages:",
+        "  signing:",
+        "    activeKeyId: k1",
+        "    keys:",
+        "      k1: { env: CLI_MESSAGES_KEY }",
+      ].join("\n"),
+    );
+    await writeFile(
+      runtime,
+      `export const model = {
+        generate: async (request) => ({
+          output: "reply " + request.messages.filter((m) => m.role === "user").length,
+          transcript: [],
+        }),
+      }`,
+    );
+    await writeFile(firstTurn, "- role: user\n  content: Hello\n");
+    const run = (input: string, output: string, scope = "conversation:1") =>
+      runCli(
+        [
+          "run",
+          manifestFile,
+          "--messages",
+          input,
+          "--messages-scope",
+          scope,
+          "--messages-out",
+          output,
+          "--config",
+          configFile,
+          "--store",
+          path.join(directory, "chat-state"),
+          "--events",
+          "none",
+          "--runtime-module",
+          runtime,
+        ],
+        io,
+      );
+
+    expect(await run(firstTurn, firstOut), stderr).toBe(0);
+    expect(JSON.parse(stdout)).toMatchObject({
+      status: "completed",
+      messageCount: 2,
+      messagesSigned: true,
+    });
+    const first = JSON.parse(await readFile(firstOut, "utf8")) as {
+      messages: unknown[];
+      signature: { count: number };
+    };
+    expect(first.messages.at(-1)).toEqual({
+      role: "assistant",
+      content: [{ type: "text", text: "reply 1" }],
+    });
+    expect(first.signature.count).toBe(2);
+
+    await writeFile(
+      secondTurn,
+      JSON.stringify({
+        messages: [...first.messages, { role: "user", content: "Again" }],
+        signature: first.signature,
+      }),
+    );
+    stdout = "";
+    expect(await run(secondTurn, secondOut), stderr).toBe(0);
+    const second = JSON.parse(await readFile(secondOut, "utf8")) as {
+      messages: Array<{ content: Array<{ text: string }> }>;
+    };
+    expect(second.messages).toHaveLength(4);
+    expect(second.messages.at(-1)!.content[0]!.text).toBe("reply 2");
+
+    stderr = "";
+    expect(await run(secondTurn, secondOut, "conversation:2")).toBe(1);
+    expect(stderr).toContain("signature is invalid");
+  });
+
+  it("rejects conversation flags where the history is fixed or declared elsewhere", async () => {
+    expect(
+      await runCli(["resume", "run-1", "--messages", "history.json"], io),
+    ).toBe(1);
+    expect(stderr).toContain("not valid with resume");
+    stderr = "";
+    expect(
+      await runCli(
+        ["run-manifest", "chat.run.yaml", "--messages", "x.json"],
+        io,
+      ),
+    ).toBe(1);
+    expect(stderr).toContain("declare messages in the agent run manifest");
+  });
+
   it("rejects an invalid CLI token limit before execution", async () => {
     const file = path.join(directory, "budget.agent.json");
     await writeFile(file, JSON.stringify({ ...manifest, steps: [] }));
@@ -1233,6 +1353,67 @@ describe("runner CLI", () => {
     expect(messages.map((message) => message.type)).toEqual(
       expect.arrayContaining(["event"]),
     );
+  });
+
+  it("carries conversation messages through a worker invocation", async () => {
+    const chat: AgentManifest = {
+      schemaVersion: "1.0",
+      model: { provider: "test", model: "local" },
+      messages: {},
+      steps: [
+        {
+          id: "answer",
+          type: "prompt",
+          systemPrompt: "Answer.",
+          history: "all",
+        },
+      ],
+    };
+    const result = await executeWorkerInvocation(
+      createWorkerInvocation({
+        runId: "worker-chat",
+        manifest: chat,
+        messages: [{ role: "user", content: "Hi worker" }],
+        messagesScope: "tenant:1",
+      }),
+      {
+        storeDirectory: path.join(directory, "worker-chat-state"),
+        runtime: {
+          model: {
+            generate: async (request) => ({
+              output: `seen ${request.messages.length}`,
+              transcript: [],
+            }),
+          },
+        },
+        onMessage: () => undefined,
+      },
+    );
+    expect(result.messages).toEqual([
+      { role: "user", content: [{ type: "text", text: "Hi worker" }] },
+      { role: "assistant", content: [{ type: "text", text: "seen 2" }] },
+    ]);
+
+    await expect(
+      executeWorkerInvocation(
+        createWorkerInvocation({
+          runId: "worker-inline-keys",
+          manifest: chat,
+          configuration: {
+            version: "1.0",
+            messages: {
+              signing: { activeKeyId: "k1", keys: { k1: { env: "KEY" } } },
+            },
+          },
+        }),
+        {
+          storeDirectory: path.join(directory, "worker-inline-state"),
+          allowRequestConfiguration: true,
+          environment: { KEY: `hex:${"00".repeat(32)}` },
+          onMessage: () => undefined,
+        },
+      ),
+    ).rejects.toThrow("cannot define message signing keys");
   });
 
   it("lets a hosted runtime replace a standard step executor by type", async () => {

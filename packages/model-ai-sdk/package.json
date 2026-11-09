@@ -1,6 +1,6 @@
 {
   "name": "@clearideas/agent-runtime-model-ai-sdk",
-  "version": "0.7.1",
+  "version": "0.8.0",
   "description": "AI SDK model adapter for the vendor-neutral Clear Ideas Agent Runtime.",
   "license": "Apache-2.0",
   "author": "Clear Ideas Incorporated",
@@ -36,8 +36,8 @@
     "postpack": "node ../../scripts/cleanup-package-license.mjs"
   },
   "dependencies": {
-    "@clearideas/agent-runtime-contracts": "0.7.1",
-    "@clearideas/agent-runtime-core": "0.7.1",
+    "@clearideas/agent-runtime-contracts": "0.8.0",
+    "@clearideas/agent-runtime-core": "0.8.0",
     "ai": "^7.0.163"
   },
   "devDependencies": {
@@ -45,7 +45,7 @@
     "vitest": "^5.1.0"
   },
   "engines": {
-    "node": ">=24"
+    "node": ">=22.20.0"
   },
   "homepage": "https://github.com/clearideas/agent-runtime#readme",
   "bugs": {

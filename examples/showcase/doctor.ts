@@ -46,12 +46,13 @@ console.log("\nAgent Runtime showcase doctor\n");
 
 // ─── Node.js ─────────────────────────────────────────────────────────────────
 console.log("Node.js");
-const major = Number(process.versions.node.split(".")[0]);
-if (major >= 24) ok(`Node.js ${process.versions.node}`);
+const [major = 0, minor = 0] = process.versions.node.split(".").map(Number);
+if (major > 22 || (major === 22 && minor >= 20))
+  ok(`Node.js ${process.versions.node}`);
 else
   fail(
     `Node.js ${process.versions.node} is too old`,
-    "install Node.js 24 or newer from https://nodejs.org",
+    "install Node.js 22.20.0 or newer from https://nodejs.org",
   );
 
 // ─── Sandbox ─────────────────────────────────────────────────────────────────

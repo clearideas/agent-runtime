@@ -1,5 +1,13 @@
 # @clearideas/agent-runtime-execution-modal
 
+## 0.8.0
+
+### Patch Changes
+
+- Updated dependencies
+  - @clearideas/agent-runtime-contracts@0.8.0
+  - @clearideas/agent-runtime-execution@0.8.0
+
 ## 0.7.1
 
 ### Patch Changes

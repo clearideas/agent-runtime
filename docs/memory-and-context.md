@@ -16,6 +16,7 @@ which supplies it as variables or exposes it as tools.
 | Across steps in a run  | variables, `outputVariable`, templates            | runtime |
 | Across loop iterations | `loop.*` values and child-maintained variables    | runtime |
 | Across runs            | host-assembled variables supplied at run start    | host    |
+| Across chat turns      | a declared conversation history (`messages`)      | host    |
 | On demand during a run | memory tools over MCP or a `ToolAdapter`          | host    |
 | After a run            | `RunResult`, step results, transcript, and events | host    |
 
@@ -25,6 +26,12 @@ Each prompt step builds its own model input from its `systemPrompt` and
 `prompt` (or `messages`) compiled against the current variables. Earlier
 steps' conversations are not replayed. A later step sees an earlier result
 only when that result was written to a variable and the later step reads it.
+
+A chat is different input: a conversation history the run receives at start.
+A step opts in with `history`, which inserts the selected turns into its model
+input and narrows its `messages` variable. The history is fixed for the whole
+run, so reading it adds no dependency between steps. See
+[Conversation messages](./conversations.md).
 
 This is deliberate. Steps that depend only on variables are independent units:
 Agent Runtime can derive a dependency graph from their reads and writes,

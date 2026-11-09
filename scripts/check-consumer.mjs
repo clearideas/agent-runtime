@@ -67,10 +67,26 @@ try {
     ["install", "--ignore-scripts", "--omit=dev", "--no-audit", "--no-fund"],
     consumer,
   );
-  const source = `import { createAgentRuntime, defineAgent } from '@clearideas/agent-runtime';
+  const source = `import { createAgentRuntime, createHmacMessageSigner, conversationTurns, defineAgent, MessagesValidationError } from '@clearideas/agent-runtime';
 const manifest = defineAgent({schemaVersion:'1.0',model:{provider:'openai',model:'test'},steps:[{id:'hello',type:'prompt',prompt:'Hello',includeInFinalOutput:true}]});
 const result = await createAgentRuntime({manifest,model:{generate:async()=>({output:'hello',transcript:[]})}}).run({});
 if(result.output !== 'hello') throw new Error('Unexpected consumer result');
+const chat = createAgentRuntime({
+  manifest: defineAgent({schemaVersion:'1.0', model:{provider:'openai',model:'test'}, messages:{required:true,requireSignature:true}, steps:[{id:'reply',type:'prompt',systemPrompt:'Answer.',history:'all'}]}),
+  messages: {signer:createHmacMessageSigner({activeKeyId:'test',keys:{test:'hex:'+'ab'.repeat(32)}})},
+  model: {generate:async(request)=>({output:'reply '+request.messages.filter(message=>message.role==='user').length,transcript:[]})},
+});
+const first = await chat.run({messages:[{role:'user',content:'Hello'}],messagesScope:'consumer:chat'});
+if(!first.messages || !first.messagesSignature) throw new Error('Packed runtime did not return signed history');
+const history = [...first.messages, {role:'user' as const,content:'Again'}];
+const second = await chat.run({messages:history,messagesSignature:first.messagesSignature,messagesScope:'consumer:chat'});
+if(second.output !== 'reply 2' || !second.messages || conversationTurns(second.messages).currentTurn !== 3) throw new Error('Packed conversation did not continue');
+try {
+  await chat.run({messages:history,messagesSignature:first.messagesSignature,messagesScope:'consumer:another-chat'});
+  throw new Error('Packed conversation accepted a replay in another scope');
+} catch(error) {
+  if(!(error instanceof MessagesValidationError) || error.code !== 'MESSAGES_SIGNATURE_INVALID') throw error;
+}
 `;
   await writeFile(path.join(consumer, "smoke.ts"), source);
   await writeFile(

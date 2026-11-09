@@ -174,14 +174,18 @@ export const createSourceViewer = async (demoId, sources) => {
 };
 
 /** Run button that becomes a cancel button while a run is active. */
-export const createRunButton = (button, label, { onRun, onCancel }) => {
+export const createRunButton = (
+  button,
+  label,
+  { onRun, onCancel, labels = { idle: "Run agent", running: "Cancel run" } },
+) => {
   let running = false;
   button.addEventListener("click", () => (running ? onCancel() : onRun()));
   return {
     set(state) {
       running = state === "running";
       button.dataset.state = running ? "running" : "idle";
-      label.textContent = running ? "Cancel run" : "Run agent";
+      label.textContent = running ? labels.running : labels.idle;
     },
   };
 };

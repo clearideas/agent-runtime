@@ -149,6 +149,9 @@ export const liveModel = (
             partsOf(message).some((part) => part.type === "tool-call"),
         ).length,
         structured: options.responseFormat?.type === "json",
+        messages: prompt
+          .filter((message) => message.role !== "system")
+          .map((message) => ({ role: message.role, text: texts([message]) })),
       };
       const turn = script(request);
       sequence += 1;

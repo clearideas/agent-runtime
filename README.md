@@ -15,7 +15,7 @@ Use Agent Runtime when you want declarative agents with checkpoints, tool
 execution, and observable progress while keeping control of providers and
 infrastructure. Start locally; use the same manifests when embedding in an app.
 
-**Prerequisites:** Node.js 24 or newer and an OpenAI API key for this example.
+**Prerequisites:** Node.js 22.20.0 or newer and an OpenAI API key for this example.
 No database or container runtime is required.
 
 ```sh
@@ -88,6 +88,8 @@ The complete documentation is available at
   inside an isolated per-run sandbox, with every command policy-admitted,
   reported, and recorded
 - Native sandbox contracts for code execution and generated artifacts
+- Conversation messages: declared chat histories that any step can read,
+  continued one run per turn, compacted once, and optionally signed
 - Durable checkpoints, suspension, fresh-process resume, and cancellation
 - Cumulative model-token budgets with durable suspension and raised-limit resume
 - Local, child-process, and remote execution engines
@@ -147,7 +149,7 @@ remote execution protocol without changing their agent manifests.
 
 Requirements:
 
-- Node.js 24 or newer
+- Node.js 22.20.0 or newer
 - npm 11
 
 ```bash

@@ -1,19 +1,23 @@
-import { access, readFile } from "node:fs/promises";
+import { access, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 import { JexlConditionEvaluator } from "@clearideas/agent-runtime-condition-jexl";
 import type {
   AgentManifest,
+  ConversationMessage,
   JsonObject,
   JsonValue,
+  MessagesSignature,
   RunEvent,
   RunResult,
   ExecutionPolicies,
 } from "@clearideas/agent-runtime-contracts";
 import {
   executionPoliciesSchema,
+  messagesSignatureSchema,
   parseAgentVariableOverrides,
+  parseConversationMessages,
 } from "@clearideas/agent-runtime-contracts";
 import {
   type ArtifactStore,
@@ -28,6 +32,7 @@ import {
   type StepExecutor,
   type SubRunAdapter,
   type ContextSummarizerAdapter,
+  type AgentRuntimeMessagesOptions,
   type ToolAdapter,
   type WorkspaceProvider,
 } from "@clearideas/agent-runtime-core";
@@ -54,7 +59,10 @@ import {
   type WorkspaceCompositionOptions,
 } from "@clearideas/agent-runtime-config";
 import { LoopStepExecutor } from "@clearideas/agent-runtime-step-loop";
-import { PromptStepExecutor } from "@clearideas/agent-runtime-step-prompt";
+import {
+  PromptMessageHistoryCompactor,
+  PromptStepExecutor,
+} from "@clearideas/agent-runtime-step-prompt";
 import {
   ApprovalStepExecutor,
   CodeStepExecutor,
@@ -68,7 +76,13 @@ import {
   FileRunStore,
   JsonlEventSink,
 } from "@clearideas/agent-runtime-store-local";
-import { Document as YamlDocument, YAMLMap, isPair, isScalar } from "yaml";
+import {
+  Document as YamlDocument,
+  YAMLMap,
+  isPair,
+  isScalar,
+  parse as parseYamlDocument,
+} from "yaml";
 
 export interface CliIo {
   stdout: (text: string) => void;
@@ -86,8 +100,8 @@ Usage:
   agent-runtime validate <manifest.json|manifest.yaml> [--config <config.yaml>]
   agent-runtime config validate <config.json|config.yaml>
   agent-runtime connections inspect <config.json|config.yaml> [--connection <name>] [--runtime-module <local-js-file>] [--format <json|yaml>]
-  agent-runtime run <manifest.json|manifest.yaml> [--variables <overrides.json>] [--max-total-tokens <count>] [--config <config.yaml>] [--run-id <id>] [--store <path>] [--store-driver <file|sqlite>] [--events <file|none>] [--artifacts <directory|none>] [--runtime-module <local-js-file>] [--stream] [--format <json|pretty|ndjson>] [--show-reasoning]
-  agent-runtime run-manifest <run.json|run.yaml> [--config <config.yaml>] [--store <path>] [--store-driver <file|sqlite>] [--events <file|none>] [--artifacts <directory|none>] [--runtime-module <local-js-file>] [--stream] [--format <json|pretty|ndjson>] [--show-reasoning]
+  agent-runtime run <manifest.json|manifest.yaml> [--variables <overrides.json>] [--messages <messages.json|messages.yaml>] [--messages-scope <scope>] [--messages-out <file>] [--max-total-tokens <count>] [--config <config.yaml>] [--run-id <id>] [--store <path>] [--store-driver <file|sqlite>] [--events <file|none>] [--artifacts <directory|none>] [--runtime-module <local-js-file>] [--stream] [--format <json|pretty|ndjson>] [--show-reasoning]
+  agent-runtime run-manifest <run.json|run.yaml> [--messages-scope <scope>] [--messages-out <file>] [--config <config.yaml>] [--store <path>] [--store-driver <file|sqlite>] [--events <file|none>] [--artifacts <directory|none>] [--runtime-module <local-js-file>] [--stream] [--format <json|pretty|ndjson>] [--show-reasoning]
   agent-runtime resume <run-id> [--max-total-tokens <count>] [--config <config.yaml>] [--store <path>] [--store-driver <file|sqlite>] [--events <file|none>] [--artifacts <directory|none>] [--runtime-module <local-js-file>] [--stream] [--format <json|pretty|ndjson>] [--show-reasoning]
   agent-runtime inspect <run-id> [--store <path>] [--store-driver <file|sqlite>] [--runtime-module <local-js-file>]
   agent-runtime events <events.jsonl> [--run <run-id>] [--type <event-type>] [--tail <count>]
@@ -494,6 +508,11 @@ export interface CliRuntime {
   enforcedPolicies?: ExecutionPolicies;
   /** Observes, changes, or replaces context summarization. */
   summarizer?: ContextSummarizerAdapter;
+  /**
+   * Conversation message options, merged over the configuration's `messages`
+   * section: for example `authorizeArtifact` or a KMS-backed signer.
+   */
+  messages?: AgentRuntimeMessagesOptions;
 }
 
 export interface CliRuntimeContext {
@@ -840,6 +859,9 @@ const mergeRuntimes = (
   validateRuntime({
     ...configured,
     ...moduleRuntime,
+    ...(configured.messages || moduleRuntime.messages
+      ? { messages: { ...configured.messages, ...moduleRuntime.messages } }
+      : {}),
     ...((configured.eventSinks?.length ?? 0) > 0 ||
     (moduleRuntime.eventSinks?.length ?? 0) > 0
       ? {
@@ -1003,9 +1025,53 @@ class CliStreamingEventSink implements EventSink {
   }
 }
 
+/** The run's message options with the prompt package's history compactor. */
+const withHistoryCompactor = (
+  options: AgentRuntimeMessagesOptions | undefined,
+): AgentRuntimeMessagesOptions => ({
+  compactor: new PromptMessageHistoryCompactor(),
+  ...options,
+});
+
+/**
+ * Read `--messages`: a JSON or YAML array of messages, or `{ messages,
+ * signature }` as written by `--messages-out`.
+ */
+const readMessagesFile = async (
+  file: string,
+): Promise<{
+  messages: ConversationMessage[];
+  signature?: MessagesSignature;
+}> => {
+  const source = await readFile(file, "utf8");
+  let value: unknown;
+  try {
+    value = file.endsWith(".json")
+      ? JSON.parse(source)
+      : (parseYamlDocument(source) as unknown);
+  } catch (error) {
+    throw new Error(
+      `Could not parse conversation messages ${file}: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
+  const envelope =
+    value != null && typeof value === "object" && !Array.isArray(value)
+      ? (value as { messages?: unknown; signature?: unknown })
+      : { messages: value };
+  return {
+    messages: parseConversationMessages(envelope.messages),
+    ...(envelope.signature != null
+      ? { signature: messagesSignatureSchema.parse(envelope.signature) }
+      : {}),
+  };
+};
+
 const executionOptions = new Set([
   "config",
   "variables",
+  "messages",
+  "messages-scope",
+  "messages-out",
   "run-id",
   "store",
   "store-driver",
@@ -1040,6 +1106,21 @@ const execute = async (
   }
   if (command === "resume" && parsed.options.has("variables")) {
     throw new Error("--variables is only valid with the run command.");
+  }
+  if (
+    command === "resume" &&
+    (parsed.options.has("messages") ||
+      parsed.options.has("messages-scope") ||
+      parsed.options.has("messages-out"))
+  ) {
+    throw new Error(
+      "Conversation messages are fixed when a run is created; --messages, --messages-scope, and --messages-out are not valid with resume.",
+    );
+  }
+  if (command === "run-manifest" && parsed.options.has("messages")) {
+    throw new Error(
+      "--messages cannot be combined with an agent run manifest; declare messages in the agent run manifest.",
+    );
   }
   if (
     command === "run-manifest" &&
@@ -1102,6 +1183,11 @@ const execute = async (
             ),
           )
         : undefined;
+    const suppliedMessages =
+      command === "run" && parsed.options.has("messages")
+        ? await readMessagesFile(path.resolve(parsed.options.get("messages")!))
+        : undefined;
+    const messagesScope = parsed.options.get("messages-scope");
     let configSearchDirectory = process.cwd();
     if (command === "run") {
       const manifestFile = path.resolve(target);
@@ -1217,6 +1303,7 @@ const execute = async (
         ? { enforcedPolicies: runtime.enforcedPolicies }
         : {}),
       ...(runtime.summarizer ? { summarizer: runtime.summarizer } : {}),
+      messages: withHistoryCompactor(runtime.messages),
       ...(runtime.artifactStore
         ? { artifacts: runtime.artifactStore }
         : artifactDirectory
@@ -1229,17 +1316,49 @@ const execute = async (
         command === "run-manifest" && agentRunManifest
           ? {
               agentRunManifest,
+              ...(messagesScope != null ? { messagesScope } : {}),
               ...(signal ? { signal } : {}),
             }
           : {
               manifest,
               ...(runId ? { runId } : {}),
               ...(variableOverrides ? { variables: variableOverrides } : {}),
+              ...(suppliedMessages
+                ? { messages: suppliedMessages.messages }
+                : {}),
+              ...(suppliedMessages?.signature
+                ? { messagesSignature: suppliedMessages.signature }
+                : {}),
+              ...(messagesScope != null ? { messagesScope } : {}),
               ...(maxTotalTokens ? { budget: { maxTotalTokens } } : {}),
               ...(signal ? { signal } : {}),
               ...(command === "resume" ? { resume: true } : {}),
             },
       );
+      // The output history contains model output, so it is written only to
+      // an explicitly requested file, in the format --messages reads.
+      const messagesOut = parsed.options.get("messages-out");
+      if (messagesOut) {
+        if (!result.messages) {
+          throw new Error(
+            "--messages-out requires an agent manifest that declares messages.",
+          );
+        }
+        await writeFile(
+          path.resolve(messagesOut),
+          `${JSON.stringify(
+            {
+              messages: result.messages,
+              ...(result.messagesSignature
+                ? { signature: result.messagesSignature }
+                : {}),
+            },
+            null,
+            2,
+          )}\n`,
+          { encoding: "utf8", mode: 0o600 },
+        );
+      }
       // Deliberately exclude variables, transcript and model output. They may
       // contain secrets; inspect is an explicit command for persisted details.
       if (outputFormat === "ndjson") {
@@ -1267,6 +1386,12 @@ const execute = async (
               status: "completed",
               stepCount: result.stepResults.length,
               artifactCount: result.artifacts.length,
+              ...(result.messages
+                ? {
+                    messageCount: result.messages.length,
+                    messagesSigned: result.messagesSignature != null,
+                  }
+                : {}),
             },
             null,
             2,
@@ -1357,6 +1482,11 @@ const assertSafeInlineWorkerConfiguration = (
       "Inline worker configuration cannot define workspaces or a sandbox; use a trusted configReference.",
     );
   }
+  if (config.messages?.signing) {
+    throw new Error(
+      "Inline worker configuration cannot define message signing keys; use a trusted configReference.",
+    );
+  }
 };
 
 const MAXIMUM_WORKER_INPUT_BYTES = 16 * 1024 * 1024;
@@ -1387,6 +1517,8 @@ export const executeWorkerInvocation = async (
     invocation.action === "run"
       ? (request as ExecutionRequest).variables
       : undefined;
+  const invocationMessages =
+    invocation.action === "run" ? (request as ExecutionRequest) : undefined;
   const manifest = request.manifest;
   const storeLocation = path.resolve(options.storeDirectory);
   const storeDriver = options.storeDriver ?? "file";
@@ -1554,6 +1686,7 @@ export const executeWorkerInvocation = async (
         ? { enforcedPolicies: runtime.enforcedPolicies }
         : {}),
       ...(runtime.summarizer ? { summarizer: runtime.summarizer } : {}),
+      messages: withHistoryCompactor(runtime.messages),
       artifacts,
       ...(options.maxParallelSteps
         ? { maxParallelSteps: options.maxParallelSteps }
@@ -1566,6 +1699,15 @@ export const executeWorkerInvocation = async (
       manifest,
       ...(request.runId ? { runId: request.runId } : {}),
       ...(invocationVariables ? { variables: invocationVariables } : {}),
+      ...(invocationMessages?.messages
+        ? { messages: invocationMessages.messages }
+        : {}),
+      ...(invocationMessages?.messagesSignature
+        ? { messagesSignature: invocationMessages.messagesSignature }
+        : {}),
+      ...(invocationMessages?.messagesScope != null
+        ? { messagesScope: invocationMessages.messagesScope }
+        : {}),
       ...(request.execution ? { execution: request.execution } : {}),
       ...(request.budget ? { budget: request.budget } : {}),
       ...(options.signal ? { signal: options.signal } : {}),
