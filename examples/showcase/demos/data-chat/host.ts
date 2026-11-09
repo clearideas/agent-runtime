@@ -59,7 +59,7 @@ const fixtureDirectory = path.join(demoDirectory, "fixture");
 const WORKSPACE = "sales-data";
 
 /**
- * Conversation messages arrived after the published 0.7.1 runtime. These
+ * Conversation messages arrived in the 0.8.0 runtime. These
  * exports are read through the module namespace, so the showcase still
  * type-checks against runtimes that predate them.
  */
