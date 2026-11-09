@@ -18,6 +18,7 @@ import {
   compilePromptTemplate,
   RunCancelledError,
   RunSuspendedError,
+  withoutMessagesView,
 } from "@clearideas/agent-runtime-core";
 
 export type FetchLike = (
@@ -127,15 +128,26 @@ export class SubRunStepExecutor implements StepExecutor<SubRunStep> {
             },
           ),
         )
-      : structuredClone(context.variables as VariableState);
+      : withoutMessagesView(
+          context.manifest,
+          structuredClone(context.variables as VariableState),
+        );
     const variables: AgentVariableOverride[] = Object.entries(
       variableState,
     ).map(([key, value]) => ({ key, value }));
+    // Only a step that sets history forwards it, signed for the same scope.
+    const forwarded = context.history?.explicit
+      ? context.history.messages
+      : undefined;
+    const forwardedSignature = forwarded
+      ? await context.history!.sign(forwarded)
+      : undefined;
 
     await context.emit("sub-run.started", {
       hasInlineManifest: context.step.manifest != null,
       hasManifestReference: context.step.manifestRef != null,
       mappedVariableCount: variables.length,
+      ...(forwarded ? { forwardedMessages: forwarded.length } : {}),
     });
     const resumeContinuation =
       context.resume?.continuation?.type === "sub-run" &&
@@ -165,6 +177,13 @@ export class SubRunStepExecutor implements StepExecutor<SubRunStep> {
           ? { manifestReference: context.step.manifestRef }
           : {}),
         variables,
+        ...(forwarded ? { messages: structuredClone(forwarded) } : {}),
+        ...(forwardedSignature
+          ? { messagesSignature: forwardedSignature }
+          : {}),
+        ...(forwarded && context.history?.scope != null
+          ? { messagesScope: context.history.scope }
+          : {}),
         ...(resumeContinuation
           ? { continuation: structuredClone(resumeContinuation) }
           : {}),

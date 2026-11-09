@@ -1,4 +1,6 @@
 /** The showcase gallery, in the order the demos are best explored. */
+import { dataChat } from "../demos/data-chat/host.ts";
+import { documentChat } from "../demos/document-chat/host.ts";
 import { documentLibrary } from "../demos/document-library/host.ts";
 import { durableRuns } from "../demos/durable-runs/host.ts";
 import { guardrails } from "../demos/guardrails/host.ts";
@@ -14,6 +16,8 @@ export const demos: ShowcaseDemo[] = [
   documentLibrary,
   orchestration,
   longInvestigation,
+  dataChat,
+  documentChat,
 ];
 
 export interface CatalogEntry {

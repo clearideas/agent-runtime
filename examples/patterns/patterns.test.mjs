@@ -17,6 +17,15 @@ test("prompt chain produces a structured final result", () => {
     "Durable checkpoints",
   );
 });
+test("conversation continues a signed, moderated chat across runs", () => {
+  const output = run("conversation.mjs", ["--demo"]);
+  assert.match(output, /reply: Yes\. In the share dialog/);
+  assert.match(
+    output,
+    /reply: \{"allowed":false,"reason":"asks for credentials"\}/,
+  );
+  assert.match(output, /history: 6 messages, signed: true/);
+});
 test("tool agent recovers from a transient read failure", () => {
   assert.match(run("tool-agent.mjs", ["--demo"]), /Release found/);
 });

@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-import { builtinModules } from "node:module";
+import { builtinModules, isBuiltin } from "node:module";
 import { existsSync } from "node:fs";
 import { readdir, readFile } from "node:fs/promises";
 import path from "node:path";
@@ -14,6 +14,9 @@ const builtins = new Set([
   ...builtinModules,
   ...builtinModules.map((name) => `node:${name}`),
 ]);
+// builtinModules omits prefix-only modules such as node:sqlite and node:test.
+const isNodeBuiltin = (specifier) =>
+  builtins.has(specifier) || isBuiltin(specifier);
 
 const collectFiles = async (directory) => {
   const entries = await readdir(directory, { withFileTypes: true });
@@ -106,7 +109,7 @@ for (const packageRoot of runtimePackages) {
       }
       const dependency = dependencyName(specifier);
       if (
-        !builtins.has(specifier) &&
+        !isNodeBuiltin(specifier) &&
         !declared.has(dependency) &&
         !testOnlyImports.has(dependency) &&
         !(

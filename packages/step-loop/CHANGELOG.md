@@ -1,5 +1,73 @@
 # @clearideas/agent-runtime-step-loop
 
+## 0.8.0
+
+### Minor Changes
+
+- Add conversation messages: continue a chat one run per turn.
+
+  - **Declare.** An agent manifest's top-level `messages` block accepts a
+    conversation history from its runs, with `required`, the compaction
+    triggers `maxMessages` and `maxBytes`, `requireSignature`, and a history-only
+    `context` policy. A manifest without it cannot receive a history, and
+    behaves exactly as before.
+  - **Supply.** Agent run manifests, `RunRequest`, worker invocations, and the
+    CLI (`--messages`) carry `messages` and `messagesSignature`. Histories hold
+    `user` and `assistant` messages with text, JSON, image, and file parts;
+    system messages, tool history, reasoning, and provider options are rejected.
+    `content` may be a string.
+  - **Read.** A step's `history` setting (`all`, or `{ last, summary, insert,
+media }`) inserts its selection into a prompt step's model input as literal
+    turns, never templated, and narrows the step's read-only `messages`
+    variable (`all`, `count`, `turn`, `last`, `lastUser`, `summary`,
+    `summarized`, `text`), which works
+    in templates, conditions, loop sources, sub-run mappings, code steps, and
+    tool contexts. A prompt step may be a `systemPrompt` plus `history`. A
+    sub-run step with `history` forwards its selection, signed, to the child.
+  - **Turns.** A turn is the user's message, or messages, and the reply that
+    completes it; turn N ends with the N-th assistant message. Numbers are
+    stable when a rejected turn is retried and survive compaction. The
+    `messages` variable and `conversationTurns(history)` expose the current
+    turn and each message's turn and position; text renderings label messages
+    `user (turn N): ...`.
+  - **Reply.** Output selection is unchanged. `RunResult.messages` returns the
+    history plus the final output as assistant text; completed run records keep
+    it.
+  - **Compact.** A history over its triggers is compacted once per run, before
+    the first step, with the existing context policy and summarizer (new
+    summary kind `messages`, `summarizer.prompts.messages`). Compaction keeps
+    whole turns and never splits one. The summary is returned in
+    `RunResult.messages`, so later turns start from it; its marker records the
+    turns and messages it covers, and `messages.markers` lets the manifest word
+    the summary heading and pruning note.
+    `PromptMessageHistoryCompactor` implements the new `MessageHistoryCompactor`
+    port; `createAgentRuntime` and the CLI wire it.
+  - **Sign.** `createHmacMessageSigner` signs every returned history with
+    HMAC-SHA-256 over RFC 8785 canonical JSON and a host `messagesScope`, and
+    verifies signatures on the next turn. Configure keys in the host
+    configuration's `messages.signing` section or supply a
+    `MessageHistorySigner`.
+  - **Media.** Inline media is stored as an artifact before the run is created;
+    artifact references need `sha256` and, unless signed or ingested by the
+    runtime, host approval through `authorizeArtifact`. `ModelDescription` adds
+    `imageInput`; steps that would send images to a model declared without image
+    input fail before the run is created. Inserted turns send images and PDFs
+    to the model; other files become a text placeholder naming the file.
+
+  Compatibility: a host `ContextSummarizerAdapter` receives history compaction
+  requests with `kind: "messages"` and an empty `stepId`. Checkpoints of runs
+  that use conversation messages carry a new `messages` field; resume such runs
+  on this version or later.
+
+  Lower the supported Node.js minimum to 22.20.0 across all packages and examples.
+  Validate the exact minimum in CI, including SQLite persistence and native TypeScript example hosts.
+
+### Patch Changes
+
+- Updated dependencies
+  - @clearideas/agent-runtime-contracts@0.8.0
+  - @clearideas/agent-runtime-core@0.8.0
+
 ## 0.7.1
 
 ### Patch Changes

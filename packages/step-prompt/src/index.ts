@@ -32,6 +32,10 @@ export {
 } from "./context/errors.js";
 export { pruneJson, pruneText } from "./context/prune.js";
 export {
+  PromptMessageHistoryCompactor,
+  type PromptMessageHistoryCompactorOptions,
+} from "./history-compactor.js";
+export {
   ChunkedSummarizer,
   DEFAULT_SUMMARIZER_INSTRUCTIONS,
   DEFAULT_SUMMARIZER_MAX_PASSES,

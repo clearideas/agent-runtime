@@ -11,7 +11,7 @@ interface as remote execution engines.
 
 ## Requirements
 
-- Node.js 24 or newer
+- Node.js 22.20.0 or newer
 - a model-provider API key
 
 Create a project, install Agent Runtime and its CLI, and set the provider key
@@ -100,6 +100,17 @@ npx agent-runtime run \
   ./hello.agent.yaml \
   --stream \
   --format pretty
+```
+
+For an agent that declares conversation messages, `--messages` supplies the
+history, `--messages-scope` binds signatures, and `--messages-out` writes the
+returned history and signature in the form the next turn's `--messages`
+reads:
+
+```sh
+npx agent-runtime run ./chat.agent.yaml \
+  --messages turn-2.json --messages-scope conversation:42 \
+  --messages-out turn-2.out.json
 ```
 
 Use the TypeScript API for execution handles, event consumption, cancellation,

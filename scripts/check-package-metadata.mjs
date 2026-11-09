@@ -133,7 +133,8 @@ for (const entry of entries.filter((value) => value.isDirectory())) {
   if (manifest.publishConfig?.registry !== expectedRegistry) {
     fail(`publishConfig.registry must be ${expectedRegistry}`);
   }
-  if (manifest.engines?.node !== ">=24") fail("engines.node must be >=24");
+  if (manifest.engines?.node !== ">=22.20.0")
+    fail("engines.node must be >=22.20.0");
   if (!Array.isArray(manifest.files) || !manifest.files.includes("dist")) {
     fail("files must explicitly include dist");
   }

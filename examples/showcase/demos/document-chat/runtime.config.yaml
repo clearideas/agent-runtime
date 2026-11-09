@@ -1,0 +1,31 @@
+version: "1.0"
+
+# Used in Live mode. Scripted mode supplies its own model adapter, and
+# SHOWCASE_PROVIDER / SHOWCASE_MODEL override this profile at startup.
+models:
+  default:
+    provider: openai
+    model: gpt-6-luna
+
+workspaces:
+  # One directory per conversation. The host sets SHOWCASE_CONVERSATION_ROOT
+  # for each run, after checking that the request may use that conversation.
+  conversation:
+    driver: local
+    root:
+      env: SHOWCASE_CONVERSATION_ROOT
+    mode: read_write
+    include: ["turns/**"]
+    maxFileBytes: 5242880
+
+# One isolated sandbox per run, so per chat turn. Both code steps run in it,
+# next to the conversation's files; the showcase swaps in Docker or the
+# labelled fallback when bubblewrap is unavailable.
+sandbox:
+  driver: bubblewrap
+  limits:
+    commandTimeoutMs: 30000
+    maxCommandsPerRun: 6
+    maxTotalSandboxSeconds: 90
+  shell:
+    enabled: false

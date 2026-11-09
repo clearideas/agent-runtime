@@ -1018,4 +1018,90 @@ describe("SubRunStepExecutor", () => {
       childWorkflowJobId: "child-job-1",
     });
   });
+  it("forwards a signed history selection only when the step sets history", async () => {
+    const user = {
+      role: "user" as const,
+      content: [{ type: "text" as const, text: "Hi" }],
+    };
+    const requests: Parameters<SubRunAdapter["execute"]>[0][] = [];
+    const subRuns: SubRunAdapter = {
+      execute: async (request) => {
+        requests.push(structuredClone(request));
+        return { runId: "child-1", output: "ok" };
+      },
+    };
+    const declaring = (step: SubRunStep): AgentManifest => ({
+      schemaVersion: "1.0",
+      messages: {},
+      steps: [step],
+    });
+    const signature = {
+      version: "1" as const,
+      algorithm: "HMAC-SHA256" as const,
+      keyId: "k1",
+      count: 1,
+      value: "mac",
+    };
+    const forwarding: SubRunStep = {
+      id: "delegate",
+      type: "sub-run",
+      manifestRef: "agent://child",
+      history: { last: 1 },
+    };
+    const collector = eventCollector();
+    await new SubRunStepExecutor().execute({
+      runId: "parent",
+      manifest: declaring(forwarding),
+      step: forwarding,
+      stepIndex: 0,
+      variables: { topic: "refunds", messages: { count: 1 } },
+      history: {
+        messages: [user],
+        places: [{ turn: 1, position: 1 }],
+        turn: 1,
+        explicit: true,
+        insert: true,
+        media: "include",
+        scope: "tenant:1",
+        sign: async () => signature,
+      },
+      subRuns,
+      emit: collector.emit,
+    });
+    expect(requests[0]).toMatchObject({
+      variables: [{ key: "topic", value: "refunds" }],
+      messages: [user],
+      messagesSignature: signature,
+      messagesScope: "tenant:1",
+    });
+    expect(collector.events[0]!.data).toMatchObject({ forwardedMessages: 1 });
+
+    const silent: SubRunStep = {
+      id: "silent",
+      type: "sub-run",
+      manifestRef: "agent://child",
+    };
+    await new SubRunStepExecutor().execute({
+      runId: "parent",
+      manifest: declaring(silent),
+      step: silent,
+      stepIndex: 0,
+      variables: { topic: "refunds", messages: { count: 1 } },
+      history: {
+        messages: [user],
+        places: [{ turn: 1, position: 1 }],
+        turn: 1,
+        explicit: false,
+        insert: false,
+        media: "include",
+        sign: async () => signature,
+      },
+      subRuns,
+      emit: eventCollector().emit,
+    });
+    expect(requests[1]!.messages).toBeUndefined();
+    expect(requests[1]!.variables).toEqual([
+      { key: "topic", value: "refunds" },
+    ]);
+  });
 });

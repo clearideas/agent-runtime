@@ -10,7 +10,7 @@ five interactive demos with setup instructions and expected outcomes.
 
 Requirements:
 
-- Node.js 24 or newer
+- Node.js 22.20.0 or newer
 - one model-provider API key
 
 The CLI uses the local file store and requires no database or container
@@ -63,7 +63,7 @@ If the run fails:
 - Missing key: set `OPENAI_API_KEY` in the same terminal used to run the CLI.
 - Model access error: use an OpenAI model available to your account in `model.model`.
 - Permission error: use `--store ./writable-directory` and check its permissions.
-- Node syntax or engine error: check `node --version`; Node.js 24 or newer is required.
+- Node syntax or engine error: check `node --version`; Node.js 22.20.0 or newer is required.
 
 The default local files are:
 

@@ -12,12 +12,18 @@ Thank you for helping improve Clear Ideas Agent Runtime.
 
 ## Development
 
-Use Node.js 24 or newer and npm 11:
+Use Node.js 22.20.0 or newer and npm 11:
 
 ```bash
 npm ci
 npm run validate
 ```
+
+The minimum supported version is Node.js 22.20.0. It provides the built-in
+[SQLite API](https://nodejs.org/download/release/v22.20.0/docs/api/sqlite.html)
+and [TypeScript type stripping](https://nodejs.org/download/release/v22.20.0/docs/api/typescript.html)
+used by the stores and standalone example hosts. CI validates this exact minimum
+alongside Node.js 24 and 26; keep the SQLite tests enabled on every supported version.
 
 Tests live beside source files. Add focused tests for behavior changes,
 especially manifest compatibility, lifecycle fencing, checkpoint recovery,

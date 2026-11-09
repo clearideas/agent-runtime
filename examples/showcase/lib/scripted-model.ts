@@ -35,6 +35,11 @@ export interface ScriptRequest {
   turn: number;
   /** True when the step requested structured output. */
   structured: boolean;
+  /**
+   * Every non-system message in order, as text: inserted conversation turns,
+   * the step's own prompt, and earlier model turns of this step.
+   */
+  messages: Array<{ role: string; text: string }>;
 }
 
 /** One model turn: narrate, then either call a tool or finish the step. */
@@ -80,6 +85,22 @@ const textOf = (request: ModelRequest, role: string) =>
     .flatMap((message) => message.content)
     .flatMap((part) => (part.type === "text" ? [part.text] : []))
     .join("\n");
+
+const messagesOf = (request: ModelRequest) =>
+  request.messages
+    .filter((message) => message.role !== "system")
+    .map((message) => ({
+      role: message.role,
+      text: message.content
+        .flatMap((part) =>
+          part.type === "text"
+            ? [part.text]
+            : part.type === "json"
+              ? [JSON.stringify(part.value)]
+              : [],
+        )
+        .join("\n"),
+    }));
 
 const toolResultsOf = (request: ModelRequest): ToolResult[] =>
   request.messages
@@ -143,6 +164,7 @@ export class ScriptedModelAdapter implements ModelAdapter {
           message.content.some((part) => part.type === "tool-call"),
       ).length,
       structured: request.outputSchema != null,
+      messages: messagesOf(request),
     });
 
     // A short "thinking" pause before the first token makes each model call

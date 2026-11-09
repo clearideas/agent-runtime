@@ -15,7 +15,11 @@ import type {
   RunEvent,
   AgentStep,
   AgentVariableOverride,
+  ConversationMessage,
+  ConversationMessageInput,
   ExecutionPolicies,
+  MessagesSignature,
+  RunMessagesState,
   RunResult,
   StatePatch,
   StepResult,
@@ -59,7 +63,24 @@ import {
   systemClock,
 } from "./ports/index.js";
 import { buildExecutionWaves } from "./execution-plan.js";
-import { resolveStepPolicies } from "./policies.js";
+import {
+  compactionLabel,
+  declaresMessages,
+  historyBytes,
+  outputHistory,
+  planHistoryCompaction,
+  prepareSuppliedHistory,
+  pruneMarkerMessage,
+  renderHistoryText,
+  selectHistory,
+  summaryMarkerMessage,
+  withMessagesView,
+  withoutMessagesPatch,
+  withoutMessagesView,
+  type AgentRuntimeMessagesOptions,
+  type HistorySelection,
+} from "./messages.js";
+import { mergeExecutionPolicies, resolveStepPolicies } from "./policies.js";
 import { applyStatePatch, snapshotState } from "./state.js";
 
 const countManifestSteps = (steps: readonly AgentStep[]): number => {
@@ -108,6 +129,11 @@ export interface StepExecutionContext {
   policies?: ExecutionPolicies | undefined;
   /** The host's context summarizer, when it supplies one. */
   summarizer?: ContextSummarizerAdapter | undefined;
+  /**
+   * What this step sees of the conversation history. Present when the
+   * manifest declares messages.
+   */
+  history?: StepHistoryContext | undefined;
   emit(type: string, data?: JsonObject): Promise<RunEvent>;
   /** Present when this step is resuming from a nested checkpoint. */
   resume?: {
@@ -128,6 +154,27 @@ export interface StepExecutionContext {
     expression: string,
     variables: Readonly<VariableState>,
   ): Promise<boolean>;
+}
+
+/** One step's view of the run's conversation history. */
+export interface StepHistoryContext {
+  /** The step's selection, marker first when included, media mode applied. */
+  messages: ConversationMessage[];
+  /** Turn and position of each message in `messages`; undefined for the marker. */
+  places: Array<{ turn: number; position: number } | undefined>;
+  /** The current run's turn. */
+  turn: number;
+  /** The step set `history`; only then are turns inserted or histories forwarded. */
+  explicit: boolean;
+  /** Prompt steps insert `messages` as model turns. */
+  insert: boolean;
+  media: "include" | "latest" | "omit";
+  /** The run's signature scope. */
+  scope?: string | undefined;
+  /** Sign messages the step forwards (a sub-run); undefined without a signer. */
+  sign(
+    messages: readonly ConversationMessage[],
+  ): Promise<MessagesSignature | undefined>;
 }
 
 export interface TokenBudgetContext {
@@ -217,6 +264,8 @@ export interface AgentRuntimeDependencies {
   enforcedPolicies?: ExecutionPolicies;
   /** Observes, changes, or replaces context summarization. */
   summarizer?: ContextSummarizerAdapter;
+  /** Conversation messages: signing, media authorization, limits, and compaction. */
+  messages?: AgentRuntimeMessagesOptions;
   /** Event sinks are observational by default and cannot invalidate a commit. */
   eventSinkFailurePolicy?: "continue" | "fail-run";
   onEventSinkError?: (error: unknown, event: RunEvent, sink: EventSink) => void;
@@ -234,6 +283,15 @@ export interface RunRequest {
   execution?: AgentRunExecution;
   /** Replaces the persisted cumulative token limit for this run or resume attempt. */
   budget?: AgentRunBudget;
+  /** Conversation history for an agent that declares messages. */
+  messages?: ConversationMessageInput[];
+  /** The runtime's signature over a leading prefix of `messages`. */
+  messagesSignature?: MessagesSignature;
+  /**
+   * Host-only signature binding, for example `tenant:42/user:7/conversation:abc`.
+   * Allowed alongside agentRunManifest because it is host data, like `signal`.
+   */
+  messagesScope?: string;
   signal?: AbortSignal;
   /** Resume from the latest committed checkpoint for runId. */
   resume?: boolean;
@@ -940,6 +998,8 @@ export class AgentRuntime {
   readonly #activeRunIds = new Set<string>();
   readonly #runSandboxOpenings = new Map<string, Promise<RunSandboxSession>>();
   readonly #runSandboxSessions = new Map<string, RunSandboxSession>();
+  /** Each active run's effective conversation history. */
+  readonly #runMessages = new Map<string, RunMessagesState>();
 
   constructor(dependencies: AgentRuntimeDependencies) {
     this.#dependencies = dependencies;
@@ -968,10 +1028,12 @@ export class AgentRuntime {
         request.variables ||
         request.runId ||
         request.execution ||
-        request.budget
+        request.budget ||
+        request.messages ||
+        request.messagesSignature
       ) {
         throw new Error(
-          "agentRunManifest cannot be combined with resume, manifest, manifestReference, variables, runId, execution, or budget",
+          "agentRunManifest cannot be combined with resume, manifest, manifestReference, variables, runId, execution, budget, messages, or messagesSignature",
         );
       }
       const agentRunManifest = parseAgentRunManifest(request.agentRunManifest);
@@ -987,6 +1049,12 @@ export class AgentRuntime {
           ? { execution: agentRunManifest.execution }
           : {}),
         ...(agentRunManifest.budget ? { budget: agentRunManifest.budget } : {}),
+        ...(agentRunManifest.messages
+          ? { messages: agentRunManifest.messages }
+          : {}),
+        ...(agentRunManifest.messagesSignature
+          ? { messagesSignature: agentRunManifest.messagesSignature }
+          : {}),
       };
     }
     if (normalizedRequest.resume && !normalizedRequest.runId) {
@@ -995,6 +1063,16 @@ export class AgentRuntime {
     if (normalizedRequest.resume && normalizedRequest.variables != null) {
       throw new Error(
         "Run variable overrides cannot be supplied when resuming a run",
+      );
+    }
+    if (
+      normalizedRequest.resume &&
+      (normalizedRequest.messages != null ||
+        normalizedRequest.messagesSignature != null ||
+        normalizedRequest.messagesScope != null)
+    ) {
+      throw new Error(
+        "Conversation messages cannot be supplied when resuming a run",
       );
     }
     const runId = normalizedRequest.runId ?? this.#ids.generateId("run");
@@ -1015,6 +1093,7 @@ export class AgentRuntime {
       this.#runTokenBudgets.delete(runId);
       this.#runSandboxOpenings.delete(runId);
       this.#runSandboxSessions.delete(runId);
+      this.#runMessages.delete(runId);
     }
   }
 
@@ -1119,6 +1198,48 @@ export class AgentRuntime {
       );
     }
 
+    // The conversation history is validated, verified, and its media
+    // ingested before any run state exists; resume restores it instead.
+    const prepared = request.resume
+      ? undefined
+      : await prepareSuppliedHistory({
+          runId,
+          manifest,
+          messages: request.messages,
+          signature: request.messagesSignature,
+          scope: request.messagesScope,
+          options: this.#dependencies.messages ?? {},
+          artifacts: this.#dependencies.artifacts,
+          strategy:
+            this.#historyPolicies(manifest).context?.strategy ?? "prune",
+          describeModel: this.#dependencies.model?.describeModel
+            ? async (model) =>
+                (await this.#dependencies.model!.describeModel!(model)) ??
+                undefined
+            : undefined,
+        });
+    if (prepared) {
+      this.#runMessages.set(runId, {
+        history: structuredClone(prepared.history),
+        compaction: prepared.compaction,
+        signedCount: prepared.signedCount,
+        ...(request.messagesScope != null
+          ? { scope: request.messagesScope }
+          : {}),
+      });
+    } else if (declaresMessages(manifest)) {
+      this.#runMessages.set(
+        runId,
+        structuredClone(
+          latestCheckpoint?.messages ?? {
+            history: [],
+            compaction: "complete",
+            signedCount: 0,
+          },
+        ),
+      );
+    }
+
     const startedAt =
       existingRecord?.createdAt ?? this.#clock.now().toISOString();
     const startStepIndex = latestCheckpoint?.cursor.stepIndex ?? 0;
@@ -1147,6 +1268,19 @@ export class AgentRuntime {
       status: "running",
       attempt: 1,
       state: structuredClone(variables),
+      ...(prepared
+        ? {
+            messages: {
+              supplied: structuredClone(prepared.history),
+              signedCount: prepared.signedCount,
+              ...(request.messagesScope != null
+                ? { scope: request.messagesScope }
+                : {}),
+            },
+          }
+        : existingRecord?.messages
+          ? { messages: structuredClone(existingRecord.messages) }
+          : {}),
       createdAt: startedAt,
       updatedAt: startedAt,
     };
@@ -1171,6 +1305,18 @@ export class AgentRuntime {
       await this.#emit(runId, request.resume ? "run.resumed" : "run.started", {
         manifestId: manifest.id ?? null,
         startStepIndex,
+        ...(prepared
+          ? {
+              messages: {
+                count: prepared.history.length,
+                signedCount: prepared.signedCount,
+                verified: prepared.verified,
+                ingestedArtifacts: prepared.ingestedArtifacts,
+                compaction:
+                  prepared.compaction === "pending" ? "pending" : "none",
+              },
+            }
+          : {}),
       });
       for (const workspace of workspaces) {
         await this.#emit(runId, "workspace.bound", {
@@ -1201,6 +1347,17 @@ export class AgentRuntime {
           stepResults,
           transcript,
           artifacts,
+        });
+      }
+      if (this.#runMessages.get(runId)?.compaction === "pending") {
+        await this.#compactHistory({
+          runId,
+          manifest,
+          variables,
+          stepResults,
+          transcript,
+          artifacts,
+          signal: request.signal,
         });
       }
 
@@ -1354,9 +1511,21 @@ export class AgentRuntime {
       const output = selectRunOutput(manifest, stepResults);
       this.#assertOutputWithinLimit(manifest, output, "final run output");
       const usage = aggregateModelUsage(transcript);
+      const messagesState = this.#runMessages.get(runId);
+      const messages = messagesState
+        ? outputHistory(messagesState.history, output)
+        : undefined;
+      const messagesSignature =
+        messages && this.#dependencies.messages?.signer
+          ? await this.#dependencies.messages.signer.sign({
+              messages,
+              scope: messagesState?.scope,
+            })
+          : undefined;
       const completedAt = this.#clock.now().toISOString();
+      const { messages: suppliedMessages, ...recordWithoutMessages } = record;
       const completedRecord: CompletedRunRecord = {
-        ...record,
+        ...recordWithoutMessages,
         status: "completed",
         state: structuredClone(variables),
         updatedAt: completedAt,
@@ -1364,6 +1533,19 @@ export class AgentRuntime {
         transcript: structuredClone(transcript),
         artifacts: structuredClone(artifacts),
         ...(usage ? { usage } : {}),
+        ...(messages
+          ? {
+              messages: {
+                supplied: structuredClone(suppliedMessages?.supplied ?? []),
+                signedCount: suppliedMessages?.signedCount ?? 0,
+                ...(messagesState?.scope != null
+                  ? { scope: messagesState.scope }
+                  : {}),
+                output: structuredClone(messages),
+                ...(messagesSignature ? { signature: messagesSignature } : {}),
+              },
+            }
+          : {}),
       };
       await this.#dependencies.runStore.completeRun(completedRecord);
       try {
@@ -1387,6 +1569,8 @@ export class AgentRuntime {
         completedAt,
         ...(usage ? { usage } : {}),
         ...(output === undefined ? {} : { output }),
+        ...(messages ? { messages } : {}),
+        ...(messagesSignature ? { messagesSignature } : {}),
       };
     } catch (caught) {
       // A host pauses or interrupts a run by aborting its signal with a
@@ -1520,7 +1704,13 @@ export class AgentRuntime {
     }
 
     try {
-      if (!(await this.#shouldExecute(step, { ...input.variables }))) {
+      const selection = this.#historySelection(input.runId, step);
+      const stepVariables = withMessagesView(
+        input.manifest,
+        input.variables,
+        selection,
+      );
+      if (!(await this.#shouldExecute(step, { ...stepVariables }))) {
         return { step, stepIndex: input.stepIndex, skipped: true };
       }
 
@@ -1547,7 +1737,7 @@ export class AgentRuntime {
                 stepPath: step.id,
                 ...(nested.cursor ?? {}),
               },
-              variables: nested.state,
+              variables: withoutMessagesView(input.manifest, nested.state),
               stepResults: [...input.stepResults],
               transcript: [...input.transcript, ...(nested.transcript ?? [])],
               artifacts: [...input.artifacts, ...(nested.artifacts ?? [])],
@@ -1559,13 +1749,14 @@ export class AgentRuntime {
             })
           : Promise.resolve();
 
-      const result = await executor.execute({
+      const executed = await executor.execute({
         runId: input.runId,
         manifest: input.manifest,
         step,
         stepIndex: input.stepIndex,
         stepPath: step.id,
-        variables: snapshotState({ ...input.variables }),
+        variables: snapshotState(stepVariables),
+        history: this.#historyContext(input.runId, selection),
         stepResults: structuredClone(input.stepResults),
         signal: input.signal,
         model: this.#dependencies.model,
@@ -1629,6 +1820,7 @@ export class AgentRuntime {
         evaluateCondition: (expression, conditionVariables) =>
           this.#evaluateCondition(expression, conditionVariables),
       });
+      const result = this.#withoutMessagesResult(input.manifest, executed);
 
       this.#throwIfAborted(input.signal);
       this.#assertOutputWithinLimit(
@@ -1798,6 +1990,20 @@ export class AgentRuntime {
       }
     }
 
+    const declaration = manifest.messages;
+    if (
+      declaration &&
+      (declaration.maxMessages != null || declaration.maxBytes != null) &&
+      !this.#dependencies.messages?.compactor
+    ) {
+      const strategy = this.#historyPolicies(manifest).context?.strategy;
+      if (strategy === "summarize" || strategy === "summarize-or-prune") {
+        problems.push(
+          `The conversation history may be summarized (context strategy ${strategy}), but no MessageHistoryCompactor is configured.`,
+        );
+      }
+    }
+
     if (problems.length > 0) {
       throw new AgentRuntimeError(
         `Agent manifest cannot run with this host configuration: ${problems.join(" ")}`,
@@ -1868,9 +2074,18 @@ export class AgentRuntime {
   }
 
   async #executeChild(
-    input: ChildExecutionInput,
+    parentInput: ChildExecutionInput,
   ): Promise<StepExecutionResult> {
-    this.#throwIfAborted(input.signal);
+    this.#throwIfAborted(parentInput.signal);
+    // A child sees its own history selection, never its parent's view.
+    const input: ChildExecutionInput = {
+      ...parentInput,
+      variables: withMessagesView(
+        parentInput.manifest,
+        parentInput.variables,
+        this.#historySelection(parentInput.runId, parentInput.step),
+      ),
+    };
     if (!(await this.#shouldExecute(input.step, { ...input.variables }))) {
       await this.#emit(
         input.runId,
@@ -1902,7 +2117,10 @@ export class AgentRuntime {
 
     let result: StepExecutionResult;
     try {
-      result = await this.#executeChildStep(executor, input, isResumingPath);
+      result = this.#withoutMessagesResult(
+        input.manifest,
+        await this.#executeChildStep(executor, input, isResumingPath),
+      );
     } catch (error) {
       if (
         isControlFlowError(error, input.signal) ||
@@ -1968,6 +2186,10 @@ export class AgentRuntime {
       runSandbox: input.runSandbox,
       tokenBudget: this.#runTokenBudgets.get(input.runId),
       summarizer: this.#dependencies.summarizer,
+      history: this.#historyContext(
+        input.runId,
+        this.#historySelection(input.runId, input.step),
+      ),
       emit: (type, data) =>
         this.#emit(input.runId, type, data, input.step.id, input.stepPath),
       ...(isResumingPath && input.latestCheckpoint
@@ -2021,6 +2243,176 @@ export class AgentRuntime {
     });
   }
 
+  /**
+   * History compaction policies: host defaults, the manifest's policies,
+   * `messages.context`, then host-enforced policies. Manifest-level only: a
+   * step's own policies never affect the run's history.
+   */
+  #historyPolicies(manifest: AgentManifest): ExecutionPolicies {
+    return mergeExecutionPolicies(
+      this.#dependencies.policies,
+      manifest.policies,
+      manifest.messages?.context
+        ? { context: manifest.messages.context }
+        : undefined,
+      this.#dependencies.enforcedPolicies,
+    );
+  }
+
+  #historySelection(
+    runId: string,
+    step: AgentStep,
+  ): HistorySelection | undefined {
+    const state = this.#runMessages.get(runId);
+    return state ? selectHistory(state.history, step.history) : undefined;
+  }
+
+  #historyContext(
+    runId: string,
+    selection: HistorySelection | undefined,
+  ): StepHistoryContext | undefined {
+    if (!selection) return undefined;
+    const scope = this.#runMessages.get(runId)?.scope;
+    const signer = this.#dependencies.messages?.signer;
+    return {
+      messages: structuredClone(selection.messages),
+      places: structuredClone(selection.places),
+      turn: selection.currentTurn,
+      explicit: selection.explicit,
+      insert: selection.insert,
+      media: selection.media,
+      ...(scope != null ? { scope } : {}),
+      sign: async (messages) =>
+        signer ? signer.sign({ messages, scope }) : undefined,
+    };
+  }
+
+  /** The `messages` view is never written back into run state. */
+  #withoutMessagesResult(
+    manifest: AgentManifest,
+    result: StepExecutionResult,
+  ): StepExecutionResult {
+    if (!declaresMessages(manifest) || !result.statePatch) return result;
+    const statePatch = withoutMessagesPatch(manifest, result.statePatch);
+    const { statePatch: _statePatch, ...rest } = result;
+    return statePatch ? { ...rest, statePatch } : rest;
+  }
+
+  /**
+   * Compact the run's history once, before the first step. The summary, or
+   * the pruning note, becomes the leading marker of the effective history
+   * and of the output history.
+   */
+  async #compactHistory(input: {
+    runId: string;
+    manifest: AgentManifest;
+    variables: VariableState;
+    stepResults: StepResult[];
+    transcript: TranscriptItem[];
+    artifacts: ArtifactRef[];
+    signal?: AbortSignal | undefined;
+  }): Promise<void> {
+    const { runId, manifest } = input;
+    const state = this.#runMessages.get(runId)!;
+    const save = (extra: TranscriptItem[] = []) =>
+      this.#checkpoint({
+        runId,
+        manifest,
+        nextStepIndex: 0,
+        variables: input.variables,
+        stepResults: input.stepResults,
+        transcript: [...input.transcript, ...extra],
+        artifacts: input.artifacts,
+      });
+    const policies = this.#historyPolicies(manifest);
+    const strategy = policies.context?.strategy ?? "prune";
+    const plan = planHistoryCompaction(
+      state.history,
+      manifest,
+      policies.context?.reduceTo ?? 0.25,
+    );
+    if (!plan) {
+      state.compaction = "complete";
+      delete state.journal;
+      await save();
+      return;
+    }
+    const messagesBefore = state.history.length;
+    const bytesBefore = historyBytes(state.history);
+    let marker: ConversationMessage | undefined;
+    let used: "summarize" | "prune" = "prune";
+    let summarizerCalls = 0;
+    if (strategy === "summarize" || strategy === "summarize-or-prune") {
+      const compactor = this.#dependencies.messages?.compactor;
+      let recorded: TranscriptItem[] = [];
+      try {
+        if (!compactor)
+          throw new Error("No MessageHistoryCompactor is configured.");
+        const segmentText = renderHistoryText(plan.segment);
+        const result = await compactor.summarize({
+          runId,
+          manifest,
+          text: segmentText,
+          label: compactionLabel(plan),
+          task:
+            manifest.description?.trim() ||
+            manifest.name?.trim() ||
+            "an ongoing conversation",
+          segmentBytes: historyBytes(plan.segment),
+          maxTargetBytes: plan.markerBytes,
+          policies,
+          model: this.#dependencies.model,
+          summarizer: this.#dependencies.summarizer,
+          tokenBudget: this.#runTokenBudgets.get(runId),
+          journal: state.journal,
+          checkpoint: async ({ journal, transcript }) => {
+            state.journal = structuredClone(journal);
+            recorded = structuredClone(transcript);
+            await save(recorded);
+          },
+          emit: (type, data) => this.#emit(runId, type, data),
+          signal: input.signal,
+        });
+        input.transcript.push(...result.transcript);
+        marker = summaryMarkerMessage(
+          plan,
+          result.text,
+          manifest.messages?.markers,
+        );
+        used = "summarize";
+        summarizerCalls = result.summarizerCalls;
+      } catch (error) {
+        if (isControlFlowError(error, input.signal) || strategy === "summarize")
+          throw error;
+        input.transcript.push(...recorded);
+        await this.#emit(runId, "diagnostic", {
+          code: "CONTEXT_SUMMARY_FAILED",
+          scope: "messages",
+          message: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
+    marker ??= pruneMarkerMessage(
+      plan,
+      plan.segment[0],
+      manifest.messages?.markers,
+    );
+    state.history = [marker, ...plan.retained];
+    state.compaction = "complete";
+    delete state.journal;
+    await this.#emit(runId, "context.reduced", {
+      scope: "messages",
+      strategy: used,
+      reason: plan.reason,
+      messagesBefore,
+      messagesAfter: state.history.length,
+      bytesBefore,
+      bytesAfter: historyBytes(state.history),
+      summarizerCalls,
+    });
+    await save();
+  }
+
   async #checkpoint(input: {
     runId: string;
     manifest: AgentManifest;
@@ -2060,6 +2452,9 @@ export class AgentRuntime {
         : {}),
       ...(this.#runTokenBudgets.get(input.runId)
         ? { budget: this.#runTokenBudgets.get(input.runId)!.snapshot() }
+        : {}),
+      ...(this.#runMessages.has(input.runId)
+        ? { messages: structuredClone(this.#runMessages.get(input.runId)!) }
         : {}),
       ...(this.#runSandboxSessions.has(input.runId)
         ? {

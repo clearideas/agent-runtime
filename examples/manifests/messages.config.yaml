@@ -1,0 +1,13 @@
+version: "1.0"
+messages:
+  signing:
+    activeKeyId: k2026
+    keys:
+      k2026: { env: AGENT_MESSAGES_KEY_2026 }
+      k2025: { env: AGENT_MESSAGES_KEY_2025 }
+    require: true
+  media:
+    maxInlineBytes: 10485760
+  limits:
+    maxSuppliedMessages: 500
+    maxSuppliedBytes: 2000000

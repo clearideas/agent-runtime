@@ -106,6 +106,7 @@ export default defineConfig({
           { text: "Connections and tools", link: "/connections-and-tools" },
           { text: "Workspaces and the run sandbox", link: "/workspaces" },
           { text: "Memory and context", link: "/memory-and-context" },
+          { text: "Conversation messages", link: "/conversations" },
           { text: "Context management", link: "/context-management" },
           { text: "Execution policies", link: "/execution-policies" },
           { text: "Embed Agent Runtime", link: "/embedding" },

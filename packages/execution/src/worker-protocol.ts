@@ -1,7 +1,9 @@
 import {
   agentRunBudgetSchema,
   agentRunExecutionSchema,
+  messagesSignatureSchema,
   parseAgentManifest,
+  parseConversationMessages,
   parseRunCheckpoint,
   parseAgentVariableOverrides,
   type JsonObject,
@@ -170,6 +172,14 @@ export const parseWorkerInvocation = (
     agentRunExecutionSchema.parse(request.execution);
   }
   if (request.budget != null) agentRunBudgetSchema.parse(request.budget);
+  if (request.messages != null) parseConversationMessages(request.messages);
+  if (request.messagesSignature != null)
+    messagesSignatureSchema.parse(request.messagesSignature);
+  if (
+    request.messagesScope != null &&
+    typeof request.messagesScope !== "string"
+  )
+    throw new Error("Worker request messagesScope must be a string.");
   if (request.configuration != null && !isObject(request.configuration)) {
     throw new Error("Worker request configuration must be an object.");
   }
@@ -184,6 +194,13 @@ export const parseWorkerInvocation = (
   if (value.action === "resume") {
     if (request.variables != null) {
       throw new Error("Resume request cannot include run variable overrides.");
+    }
+    if (
+      request.messages != null ||
+      request.messagesSignature != null ||
+      request.messagesScope != null
+    ) {
+      throw new Error("Resume request cannot include conversation messages.");
     }
     requireNonEmptyString(request.runId, "Resume request runId");
     if (!Number.isSafeInteger(request.attempt) || Number(request.attempt) < 2) {
@@ -209,6 +226,11 @@ export const parseWorkerInvocation = (
   if (value.action === "run" && request.variables != null) {
     (cloned.request as ExecutionRequest).variables =
       parseAgentVariableOverrides(request.variables);
+  }
+  if (value.action === "run" && request.messages != null) {
+    (cloned.request as ExecutionRequest).messages = parseConversationMessages(
+      request.messages,
+    );
   }
   if (value.action === "resume" && request.checkpoint != null) {
     (cloned.request as ResumeExecutionRequest).checkpoint = parseRunCheckpoint(

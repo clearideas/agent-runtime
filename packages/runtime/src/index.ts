@@ -1,4 +1,5 @@
 import type { AgentManifest } from "@clearideas/agent-runtime-contracts";
+import type { AgentRuntimeMessagesOptions } from "@clearideas/agent-runtime-core";
 import type {
   ConnectionCredentialProvider,
   ModelAdapter,
@@ -23,6 +24,8 @@ export {
   type McpConnectionAuth,
   type McpToolIntegrity,
   mcpToolIntegritySchema,
+  type MessagesConfig,
+  messagesConfigSchema,
   type ModelCapabilities,
   parseAgentRuntimeConfig,
   type ProviderDefinition,
@@ -40,6 +43,7 @@ export {
   workspaceDefinitionSchema,
 } from "./config.js";
 export { CompositeToolAdapter } from "./composite-tools.js";
+export { createConfiguredMessagesOptions } from "./messages.js";
 export {
   type ConfiguredRunSandboxOptions,
   createConfiguredRunSandbox,
@@ -104,6 +108,7 @@ import {
 } from "./providers.js";
 import type { ValueResolutionContext } from "./values.js";
 import { CompositeToolAdapter } from "./composite-tools.js";
+import { createConfiguredMessagesOptions } from "./messages.js";
 import {
   type ConfiguredRunSandboxOptions,
   createConfiguredRunSandbox,
@@ -125,6 +130,8 @@ export interface ComposedRuntime {
   workspaces?: WorkspaceProvider;
   /** Opens the per-run sandbox; pass to AgentRuntime as `runSandbox`. */
   runSandbox?: RunSandboxProvider;
+  /** Conversation message signing and limits; pass to AgentRuntime as `messages`. */
+  messages?: AgentRuntimeMessagesOptions;
 }
 
 export interface WorkspaceCompositionOptions
@@ -143,6 +150,8 @@ export interface ComposeRuntimeOptions {
   tools?: boolean;
   /** Compose configured workspaces, the run sandbox, and workspace tools. Defaults to true. */
   workspaces?: boolean;
+  /** Compose the configuration's `messages` section. Defaults to true. */
+  messages?: boolean;
   modelPolicy?: ModelAuthorizationPolicy;
   toolOptions?: ConfiguredMcpToolAdapterOptions;
   workspaceOptions?: WorkspaceCompositionOptions;
@@ -300,10 +309,15 @@ export const composeRuntime = (
   );
   const tools =
     adapters.length > 1 ? new CompositeToolAdapter(adapters) : adapters[0];
+  const messages =
+    (options.messages ?? true)
+      ? createConfiguredMessagesOptions(config, context)
+      : undefined;
   return {
     ...(model ? { model } : {}),
     ...(tools ? { tools } : {}),
     ...(workspaces ? { workspaces } : {}),
     ...(runSandbox ? { runSandbox } : {}),
+    ...(messages ? { messages } : {}),
   };
 };

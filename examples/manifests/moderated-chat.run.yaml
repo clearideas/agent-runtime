@@ -1,0 +1,10 @@
+schemaVersion: "1.0"
+agent:
+  ref: moderated-chat.agent.yaml
+messages:
+  - role: user
+    content: How do I share a folder with an external reviewer?
+  - role: assistant
+    content: Open the folder, choose Share, then enter the reviewer's email address.
+  - role: user
+    content: Can I make the link expire?

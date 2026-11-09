@@ -111,6 +111,7 @@ const showcaseDemos = [
   "document-library",
   "orchestration",
   "long-investigation",
+  "data-chat",
 ];
 const sourceAgentExamples = showcaseDemos.map((demo) =>
   path.join("examples", "showcase", "demos", demo, "agent.yaml"),
@@ -255,6 +256,8 @@ for (const file of yamlExamples) {
     const knownRoots = new Set(
       (value.variables ?? []).map((definition) => definition.key),
     );
+    // A manifest that declares messages gives every step the messages variable.
+    if (value.messages) knownRoots.add("messages");
     validateSteps({ file, steps: value.steps, knownRoots });
   }
   if (agentRunManifest && value) {
@@ -275,6 +278,7 @@ for (const relativeFile of sourceAgentExamples) {
     const knownRoots = new Set(
       (value.variables ?? []).map((definition) => definition.key),
     );
+    if (value.messages) knownRoots.add("messages");
     validateSteps({ file: relativeFile, steps: value.steps, knownRoots });
   }
 }

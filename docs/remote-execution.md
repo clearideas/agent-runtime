@@ -20,8 +20,14 @@ the same `ExecutionEngine` interface used for local execution.
 ## Worker protocol
 
 A worker accepts a versioned `WorkerInvocation` containing the resolved agent
-manifest, run ID, variables, optional configuration references, and resume
-data. It reports `event`, `result`, or `error` messages.
+manifest, run ID, variables, conversation messages, optional configuration
+references, and resume data. It reports `event`, `result`, or `error`
+messages.
+
+A run invocation may carry `messages`, `messagesSignature`, and the
+control plane's `messagesScope`; a resume invocation carries none of them,
+because the checkpoint holds the history. The worker verifies and signs with
+keys from its own trusted configuration.
 
 The CLI worker uses NDJSON over standard input and output:
 

@@ -4,4 +4,4 @@ A durable single-file `RunStore` using Node's built-in SQLite API. Checkpoints a
 terminal states are immutable, resume attempts are reserved under `BEGIN IMMEDIATE`, and stale
 attempt mutations are rejected.
 
-Requires Node.js 24 or newer.
+Requires Node.js 22.20.0 or newer.

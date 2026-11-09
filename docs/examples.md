@@ -1,9 +1,9 @@
 ---
-title: Three agent patterns
-description: Runnable prompt chains, tools with recovery, and approval across processes.
+title: Agent patterns
+description: Runnable prompt chains, tools with recovery, approval across processes, and conversations.
 ---
 
-# Three agent patterns
+# Agent patterns
 
 For interactive, end-to-end walkthroughs of workspaces, durable runs,
 guardrails, documents and remote workers, see the [Showcase](./showcase.md).
@@ -17,6 +17,7 @@ Each includes exact commands, expected output, and troubleshooting.
 | Prompt chain | Required inputs, intermediate variables, structured final output     | Optional in demo mode |
 | Tool agent   | Tool lifecycle events, classified read failure, model-directed retry | Optional in demo mode |
 | Approval     | Durable suspension and resume in a fresh process                     | None                  |
+| Conversation | A signed, moderated chat continued one run per turn                  | Optional in demo mode |
 
 From a source checkout:
 
@@ -27,10 +28,11 @@ node examples/patterns/prompt-chain.mjs --demo
 node examples/patterns/tool-agent.mjs --demo
 node examples/patterns/approval.mjs
 node examples/patterns/approval.mjs --approve
+node examples/patterns/conversation.mjs --demo
 ```
 
 The demos substitute model responses while using the real runtime, tools, and
-stores. To run the prompt chain or tool agent against OpenAI, set
+stores. To run the prompt chain, tool agent, or conversation against OpenAI, set
 `OPENAI_API_KEY` and omit `--demo`.
 
 Next, use [embedding](./embedding.md) to customize the host or

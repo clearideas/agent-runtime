@@ -113,6 +113,43 @@ deep-merged.
 Supported types are `string`, `number`, `boolean`, `object`, `array`, and
 `json`. The `json` type accepts an object or array.
 
+## Conversation messages
+
+An agent declares that it accepts a conversation history with a top-level
+`messages` block; an agent run manifest supplies the history and, on later
+turns, the signature from the previous run:
+
+```yaml
+# Agent manifest
+messages:
+  required: true
+  maxMessages: 40
+
+steps:
+  - id: answer
+    type: prompt
+    systemPrompt: You are a support assistant.
+    history: all
+    includeInFinalOutput: true
+```
+
+```yaml
+# Agent run manifest
+schemaVersion: "1.0"
+agent:
+  ref: support.agent.yaml
+messages:
+  - role: user
+    content: Can I make the link expire?
+```
+
+A step's `history` (`all`, or `{ last: N }` with optional `summary`, `insert`,
+and `media`) selects the turns a prompt step inserts and narrows the step's
+`messages` variable. A declaring manifest reserves the `messages` variable
+name. See [Conversation messages](./conversations.md).
+
+<<< ../examples/manifests/moderated-chat.run.yaml
+
 ## Step output variables
 
 `outputVariable` writes a step result to top-level execution state. Step output
@@ -136,7 +173,8 @@ an empty string. Objects and arrays render as JSON. Template lookup is
 case-insensitive, while stored paths retain their declared spelling. Template
 interpolation applies only to legacy prompt and system-prompt text and to text
 parts in complete message histories. Tool payloads, metadata, provider options,
-and media sources are never interpolated. Direct JEXL variable access is
+media sources, and conversation history inserted by `history` are never
+interpolated. Direct JEXL variable access is
 case-sensitive. Template-wrapped <code v-pre>{{ path }}</code> operands in
 conditions are resolved case-insensitively. Webhook, approval, code, and sub-run
 fields are passed to their adapters as declared.

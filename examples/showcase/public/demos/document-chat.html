@@ -1,0 +1,279 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      name="description"
+      content="Edit a Word document by chatting: one run per message, a real .docx written in the run sandbox, and every file kept in a workspace per conversation."
+    />
+    <title>Document Chat · Agent Runtime Showcase</title>
+    <link rel="icon" type="image/x-icon" href="/assets/icons/favicon.ico" />
+    <link
+      rel="apple-touch-icon"
+      sizes="180x180"
+      href="/assets/icons/apple-touch-icon.png"
+    />
+    <link
+      rel="icon"
+      type="image/png"
+      sizes="32x32"
+      href="/assets/icons/favicon-32x32.png"
+    />
+    <link
+      rel="icon"
+      type="image/png"
+      sizes="16x16"
+      href="/assets/icons/favicon-16x16.png"
+    />
+    <link rel="stylesheet" href="/assets/showcase.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="topbar-inner">
+        <a class="brand" href="/">
+          <img src="/assets/clearideas-logo.svg" alt="Clear Ideas" />
+          <span>Showcase</span>
+        </a>
+        <span class="spacer"></span>
+        <span id="sandbox-chip" class="chip"><i></i>Sandbox…</span>
+      </div>
+    </header>
+
+    <main class="shell">
+      <p id="isolation-banner" class="notice" role="note" hidden></p>
+      <p id="unavailable-banner" class="notice" role="note" hidden></p>
+
+      <section class="demo-intro">
+        <h1>Document Chat</h1>
+        <p>
+          Chat with an editor about a Word document. Attach a .docx, or use the
+          sample proposal, and ask for changes. Every message is one run: the
+          newest version is read inside the run sandbox, the model decides the
+          edits, and a new .docx is written next to it. The files stay in a
+          workspace the host keeps for this conversation, filed by turn; the
+          conversation only names them.
+        </p>
+      </section>
+
+      <div class="run-options">
+        <details class="more-options">
+          <summary>More options</summary>
+          <div class="more-options-body">
+            <div class="field">
+              <span>Model</span>
+              <div class="segmented" role="radiogroup" aria-label="Model">
+                <label
+                  ><input type="radio" name="mode" value="scripted" checked />
+                  Scripted</label
+                >
+                <label id="live-label"
+                  ><input type="radio" name="mode" value="live" /> Live</label
+                >
+              </div>
+              <small id="mode-help"></small>
+            </div>
+            <div class="field">
+              <span>Speed</span>
+              <div class="segmented" role="radiogroup" aria-label="Speed">
+                <label
+                  ><input type="radio" name="pace" value="2" checked />
+                  Normal</label
+                >
+                <label><input type="radio" name="pace" value="1" /> Fast</label>
+                <label
+                  ><input type="radio" name="pace" value="0.35" />
+                  Fastest</label
+                >
+              </div>
+            </div>
+          </div>
+        </details>
+      </div>
+
+      <section class="chat-layout">
+        <section
+          id="chat"
+          class="card chat-card"
+          aria-labelledby="chat-heading"
+        >
+          <header>
+            <h2 id="chat-heading">Conversation</h2>
+            <span
+              id="turn-status"
+              class="turn-status"
+              aria-live="polite"
+            ></span>
+            <span class="spacer"></span>
+            <button id="new-conversation" class="button small" type="button">
+              New conversation
+            </button>
+          </header>
+          <ol id="transcript" class="transcript" aria-live="polite"></ol>
+          <div class="composer-area">
+            <div
+              id="suggestions"
+              class="suggestions"
+              aria-label="Suggested messages"
+            ></div>
+            <div id="attach-bar" class="attach-bar">
+              <label class="button small attach-button">
+                <input id="attach-input" type="file" accept=".docx" hidden />
+                Attach .docx
+              </label>
+              <button id="attach-sample" class="button small" type="button">
+                Use the sample proposal
+              </button>
+              <span id="attachment" class="attachment" hidden></span>
+              <small id="attach-note" class="attach-note"></small>
+            </div>
+            <form id="composer" class="composer">
+              <textarea
+                id="message"
+                rows="2"
+                maxlength="2000"
+                placeholder="Ask for a change to the document…"
+                aria-label="Message"
+              ></textarea>
+              <button
+                id="run-button"
+                class="button primary"
+                type="submit"
+                data-state="idle"
+              >
+                <span class="spinner" aria-hidden="true"></span>
+                <span id="run-label">Send</span>
+              </button>
+            </form>
+          </div>
+        </section>
+
+        <aside class="card held-card" aria-labelledby="workspace-heading">
+          <header>
+            <h2 id="workspace-heading">This conversation's workspace</h2>
+          </header>
+          <div class="card-body">
+            <p class="caption">
+              One directory per conversation, on the host. Each run binds it as
+              the agent's <code>conversation</code> workspace; uploads and
+              revisions are filed by turn.
+            </p>
+            <div id="workspace-tree" class="workspace-tree"></div>
+            <dl id="held" class="held"></dl>
+            <details class="held-json">
+              <summary>What your browser holds</summary>
+              <p class="caption">
+                The history and the host's signature. It names files; it never
+                carries them.
+              </p>
+              <pre id="held-json" class="source"><code></code></pre>
+            </details>
+          </div>
+        </aside>
+      </section>
+
+      <section
+        class="card doc-card"
+        id="document"
+        aria-labelledby="document-heading"
+      >
+        <header>
+          <h2 id="document-heading">Document</h2>
+          <select id="doc-version" aria-label="Version"></select>
+          <label class="doc-changes">
+            <input id="doc-changes" type="checkbox" checked />
+            Show changes
+          </label>
+          <span class="spacer"></span>
+          <a id="doc-download" class="button small" hidden>Download .docx</a>
+        </header>
+        <p id="doc-caption" class="caption doc-caption"></p>
+        <article id="doc-page" class="doc-page"></article>
+      </section>
+
+      <section class="turn-stage">
+        <h2 class="section-title">This message's run</h2>
+        <section id="stage" aria-label="Live execution"></section>
+      </section>
+
+      <details class="card under-the-hood">
+        <summary>
+          <span>Under the hood</span>
+          <small>Code, audit trail, and raw events</small>
+        </summary>
+        <div class="card-body">
+          <div class="tabs hood-tabs" role="tablist" aria-label="Details">
+            <button
+              type="button"
+              role="tab"
+              aria-selected="true"
+              data-hood="code"
+            >
+              Code
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected="false"
+              data-hood="audit"
+            >
+              Audit trail
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected="false"
+              data-hood="events"
+            >
+              Events
+            </button>
+          </div>
+
+          <div data-hood-panel="code">
+            <div
+              id="source-tabs"
+              class="file-tabs"
+              role="tablist"
+              aria-label="Files"
+            ></div>
+            <p id="source-caption" class="caption"></p>
+            <pre id="source" class="source"><code>Loading…</code></pre>
+          </div>
+
+          <div data-hood-panel="audit" hidden>
+            <p class="caption">
+              One record per sandbox command, as stored in the run's durable
+              transcript.
+            </p>
+            <div class="table-scroll">
+              <table class="audit">
+                <thead>
+                  <tr>
+                    <th>Command</th>
+                    <th>Step</th>
+                    <th>Tool</th>
+                    <th>argv</th>
+                    <th>Exit</th>
+                    <th>Time</th>
+                    <th>Changed</th>
+                  </tr>
+                </thead>
+                <tbody id="audit-rows"></tbody>
+              </table>
+            </div>
+          </div>
+
+          <div data-hood-panel="events" hidden>
+            <p class="caption">Every event the runtime emitted, in order.</p>
+            <ol id="events" class="events"></ol>
+          </div>
+        </div>
+      </details>
+    </main>
+
+    <script src="/vendor/marked.js"></script>
+    <script src="/vendor/purify.js"></script>
+    <script src="/vendor/highlight.js"></script>
+    <script src="/assets/document-chat.js" type="module"></script>
+  </body>
+</html>

@@ -55,6 +55,64 @@ const createRunner = (
     idGenerator: new SequenceIdGenerator(),
   });
 
+describe("LoopStepExecutor with conversation messages", () => {
+  it("iterates over the history and never stores the messages view", async () => {
+    const store = new MemoryRunStore();
+    const seen: Array<{ item: JsonValue; count: JsonValue }> = [];
+    const child: StepExecutor = {
+      type: "prompt",
+      execute: async ({ variables }) => {
+        const view = variables.messages as { count: JsonValue };
+        seen.push({ item: variables.turn ?? null, count: view.count });
+        return { output: "ok", statePatch: { set: { last: "ok" } } };
+      },
+    };
+    const chat: AgentManifest = {
+      schemaVersion: "1.0",
+      messages: {},
+      steps: [
+        {
+          id: "turns",
+          type: "loop",
+          history: { last: 2 },
+          loop: {
+            source: "messages.all",
+            itemVariable: "turn",
+            condition: 'turn.role == "user" && messages.count == 2',
+          },
+          steps: [
+            { id: "inspect", type: "prompt", prompt: "x", history: "all" },
+          ],
+        },
+      ],
+    };
+    const result = await createRunner(store, child).run({
+      manifest: chat,
+      runId: "loop-messages",
+      messages: [
+        { role: "user", content: "one" },
+        { role: "assistant", content: "two" },
+        { role: "user", content: "three" },
+      ],
+    });
+    expect(seen).toEqual([
+      {
+        item: {
+          role: "user",
+          content: [{ type: "text", text: "three" }],
+          turn: 2,
+          position: 3,
+        },
+        count: 3,
+      },
+    ]);
+    expect(JSON.stringify(result.state)).not.toContain('"count"');
+    for (const checkpoint of store.checkpoints.get("loop-messages")!) {
+      expect(JSON.stringify(checkpoint.state)).not.toContain('"lastUser"');
+    }
+  });
+});
+
 describe("LoopStepExecutor", () => {
   it("filters collection items while retaining source indices", async () => {
     const visited: Array<{ name: string; index: string }> = [];

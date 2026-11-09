@@ -10,7 +10,7 @@ import type { ModelMessage } from "@clearideas/agent-runtime-core/ports";
 
 import { headWithinBytes, jsonBytes, jsonTextBytes } from "./measure.js";
 
-export type SummaryKind = "input" | "transcript" | "tool-result";
+export type SummaryKind = "input" | "transcript" | "tool-result" | "messages";
 
 export interface SummarizeInput {
   text: string;
@@ -81,6 +81,8 @@ export const DEFAULT_SUMMARIZER_INSTRUCTIONS: Readonly<
     "The material above is the earlier part of a working session on this task:\n{{ context.task }}\n\nWrite working notes that let the session continue without it: what was done, what was found (with the specific facts, figures, names, identifiers, and sources), what failed, and what remains. Do not invent results. Write at most about {{ context.targetWords }} words.",
   "tool-result":
     "The material above is the output of the tool {{ context.label }}, called while working on this task:\n{{ context.task }}\n\nCondense it, keeping everything relevant to the task: facts, figures, names, identifiers, and references. Write at most about {{ context.targetWords }} words.",
+  messages:
+    "The material above is {{ context.label }}, between a user and an assistant about: {{ context.task }}. Each message is labeled with its turn number; a turn is a user request and the reply to it.\n\nWrite a summary that lets the conversation continue without it. Start by naming the turns it covers. Keep the user's goals, preferences, and constraints; facts, figures, names, and identifiers that were established; every file that was provided, produced, or changed, with its name or path and the turn it belongs to; decisions and commitments made; and what remains to be done next. If the material begins with an earlier summary, fold it in and keep its turn numbers. Do not invent anything. Write at most about {{ context.targetWords }} words.",
 };
 
 /** Default condensing passes over chunked material. */

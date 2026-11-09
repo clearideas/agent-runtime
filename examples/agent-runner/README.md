@@ -21,7 +21,7 @@ npm start
 
 Open [http://127.0.0.1:4180](http://127.0.0.1:4180).
 
-The Node host, storage layer, and tests are TypeScript. Node.js 24 runs these
+The Node host, storage layer, and tests are TypeScript. Node.js 22.20.0 or newer runs these
 erasable-type `.ts` files directly, so the example does not need a compile-to-
 JavaScript step. The browser client remains plain JavaScript and has no frontend
 build pipeline. Ace adds YAML and JSON highlighting to the manifest editor from

@@ -1,0 +1,30 @@
+version: "1.0"
+
+# Used in Live mode. Scripted mode supplies its own model adapter, and
+# SHOWCASE_PROVIDER / SHOWCASE_MODEL override this profile at startup.
+models:
+  default:
+    provider: openai
+    model: gpt-6-luna
+
+workspaces:
+  sales-data:
+    driver: local
+    root:
+      env: SHOWCASE_SALES_ROOT
+    mode: read
+    # Contact details never leave the host: customers.csv is not staged.
+    include: ["README.md", "*.csv"]
+    exclude: ["customers.csv"]
+
+# One isolated sandbox per run, so per chat turn. The chart step runs in it
+# next to the data; the showcase swaps in Docker or the labelled fallback
+# when bubblewrap is unavailable.
+sandbox:
+  driver: bubblewrap
+  limits:
+    commandTimeoutMs: 30000
+    maxCommandsPerRun: 12
+    maxTotalSandboxSeconds: 90
+  shell:
+    enabled: false

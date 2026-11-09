@@ -131,7 +131,7 @@ events and must define their retention and redaction policy.
 The default file store is intended for one process. Select
 `--store-driver sqlite --store ./runs.sqlite` for a transactional local store
 that can safely fence resume attempts across processes. The SQLite driver uses
-Node's built-in SQLite API and therefore requires Node 24 or newer.
+Node's built-in SQLite API and therefore requires Node.js 22.20.0 or newer.
 
 For a reusable invocation, define an agent run manifest that references an
 agent:
@@ -154,6 +154,20 @@ npx agent-runtime run-manifest ./release.run.yaml
 For an ad hoc run, `--variables ./overrides.json` accepts the override array
 directly. Agent Runtime rejects undeclared keys, duplicate keys, dotted override
 keys, and values that do not match the declared type.
+
+For an agent that declares conversation messages, `--messages ./turn.json`
+supplies the history (an array, or `{ messages, signature }`),
+`--messages-scope` binds signatures to a conversation, and
+`--messages-out ./next.json` writes the returned history and signature in the
+form the next turn reads. The completion summary reports only the message
+count and whether the history is signed. Signing keys come from the
+configuration's `messages.signing` section:
+
+```sh
+npx agent-runtime run ./chat.agent.yaml --config ./agent-runtime.config.yaml \
+  --messages ./turn-3.json --messages-scope conversation:42 \
+  --messages-out ./turn-3.out.json
+```
 
 ## Runtime modules
 

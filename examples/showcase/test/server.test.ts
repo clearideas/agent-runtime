@@ -33,7 +33,7 @@ test("serves the gallery, demo pages, and vendor assets under a strict CSP", asy
   assert.equal((await fetch(`${baseURL}/assets/../server.ts`)).status, 404);
 });
 
-test("lists all six demos and describes the ready ones", async (context) => {
+test("lists all eight demos and describes the ready ones", async (context) => {
   const { baseURL } = await startShowcase(context);
   const catalog = await (await fetch(`${baseURL}/api/demos`)).json();
   assert.deepEqual(
@@ -45,12 +45,38 @@ test("lists all six demos and describes the ready ones", async (context) => {
       "document-library",
       "orchestration",
       "long-investigation",
+      "data-chat",
+      "document-chat",
     ],
   );
   const demo = await (await fetch(`${baseURL}/api/demos/repo-mechanic`)).json();
   assert.equal(demo.manifest.id, "repo-mechanic");
   assert.equal(demo.workspace.name, "invoice-service");
   assert.deepEqual(demo.sandbox.commands, ["run_tests"]);
+  // Data Chat describes itself even when the installed runtime cannot run it.
+  const chat = await (await fetch(`${baseURL}/api/demos/data-chat`)).json();
+  assert.equal(chat.suggestions.length, 5);
+  assert.deepEqual(
+    chat.manifest.steps.map((step: { id: string }) => step.id),
+    ["moderate", "analyze", "chart", "reply"],
+  );
+  assert.equal(chat.limits.maxMessages, 6);
+  const documents = await (
+    await fetch(`${baseURL}/api/demos/document-chat`)
+  ).json();
+  assert.deepEqual(
+    documents.manifest.steps.map((step: { id: string }) => step.id),
+    ["read", "revise", "save"],
+  );
+  assert.equal(documents.sample.url, "/api/demos/document-chat/sample");
+  const sample = await fetch(`${baseURL}${documents.sample.url}`);
+  assert.equal(sample.status, 200);
+  assert.equal(
+    Buffer.from(await sample.arrayBuffer())
+      .subarray(0, 2)
+      .toString(),
+    "PK",
+  );
 });
 
 test("serves only declared source files", async (context) => {
