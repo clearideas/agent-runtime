@@ -4,7 +4,7 @@
  *
  * Runs the showcase against this repository's own Agent Runtime packages
  * instead of the published versions in package.json. Use it to try demos that
- * need runtime changes that are not released yet, such as Long Investigation.
+ * need runtime changes that are not released yet.
  *
  * It removes the published @clearideas packages from this example's
  * node_modules, so Node resolves them from the repository root's workspace

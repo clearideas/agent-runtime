@@ -1,6 +1,6 @@
 # Agent Runtime Showcase
 
-Self-hosted, animated demos of Clear Ideas Agent Runtime 0.7.1. Each demo runs a
+Self-hosted, animated demos of Clear Ideas Agent Runtime 0.8.0. Each demo runs a
 real agent manifest through the real runtime on your machine — real run
 sandboxes, real workspace files, real checkpoints — and visualizes the event
 stream as it happens. Every page also shows the manifest, host configuration,
@@ -17,7 +17,7 @@ and integration code that produced it.
 | **Data Chat**          | A chat, one run per message: moderation, data read and charts rendered in the sandbox, and a signed history the browser keeps     |
 | **Document Chat**      | A chat about a Word document: each revision is a real .docx written in the sandbox, kept in a workspace per conversation, by turn |
 
-The example targets the published **0.7.1** runtime and uses a separate lockfile;
+The example targets the published **0.8.0** runtime and uses a separate lockfile;
 its dependencies are installed independently of the repository workspaces.
 
 ## Run it
@@ -334,10 +334,8 @@ What to watch:
 4. **Hidden data.** `customers.csv` holds contact details. The host's
    visibility rules keep it out of the sandbox, so the agent never sees it.
 
-Data Chat needs an Agent Runtime with conversation messages, newer than the
-published 0.7.1. Until that is released, run `npm run use-local-runtime` (see
-[Notes](#notes)); on 0.7.1 the gallery marks the demo **Needs a newer
-runtime**.
+Data Chat uses the conversation history support included in the pinned
+Agent Runtime 0.8.0 packages.
 
 ### Files
 
@@ -463,8 +461,9 @@ model and whichever sandbox the machine provides. Force a sandbox with
 ## Notes
 
 - **Developing against unreleased runtime changes.** `package.json` pins the
-  published `@clearideas/agent-runtime` 0.7.1 packages, including the context
-  management used by Long Investigation. To use the repository's own packages
+  published `@clearideas/agent-runtime` 0.8.0 packages, including the context
+  management used by Long Investigation and the conversation history used by
+  Data Chat and Document Chat. To use the repository's own packages
   instead:
 
   ```sh

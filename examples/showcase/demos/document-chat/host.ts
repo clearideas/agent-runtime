@@ -69,7 +69,7 @@ const SAMPLE = path.join(demoDirectory, "fixture", "proposal.docx");
 const MAX_UPLOAD_BYTES = 5 * 1024 * 1024;
 
 /**
- * Conversation messages arrived after the published 0.7.1 runtime. These
+ * Conversation messages arrived in the 0.8.0 runtime. These
  * exports are read through the module namespace, so the showcase still
  * type-checks against runtimes that predate them.
  */
