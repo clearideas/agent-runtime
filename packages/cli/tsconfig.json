@@ -19,17 +19,7 @@
       "@clearideas/agent-runtime-core": ["../core/dist/index.d.ts"],
       "@clearideas/agent-runtime-execution": ["../execution/dist/index.d.ts"],
       "@clearideas/agent-runtime-config": ["../runtime/dist/index.d.ts"],
-      "@clearideas/agent-runtime-condition-jexl": [
-        "../condition-jexl/dist/index.d.ts"
-      ],
-      "@clearideas/agent-runtime-step-loop": ["../step-loop/dist/index.d.ts"],
-      "@clearideas/agent-runtime-step-prompt": [
-        "../step-prompt/dist/index.d.ts"
-      ],
-      "@clearideas/agent-runtime-step-standard": [
-        "../step-standard/dist/index.d.ts"
-      ],
-      "@clearideas/agent-runtime-sandbox": ["../sandbox/dist/index.d.ts"],
+      "@clearideas/agent-runtime-server": ["../server/dist/index.d.ts"],
       "@clearideas/agent-runtime-store-local": [
         "../store-local/dist/index.d.ts"
       ],
@@ -41,15 +31,11 @@
   "include": ["src/**/*.ts"],
   "exclude": ["src/**/*.test.ts"],
   "references": [
-    { "path": "../condition-jexl" },
     { "path": "../runtime" },
     { "path": "../contracts" },
     { "path": "../core" },
     { "path": "../execution" },
-    { "path": "../step-loop" },
-    { "path": "../step-prompt" },
-    { "path": "../step-standard" },
-    { "path": "../sandbox" },
+    { "path": "../server" },
     { "path": "../store-local" },
     { "path": "../store-sqlite" }
   ]

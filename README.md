@@ -66,6 +66,14 @@ From a source checkout, `npm ci && npm run build`, then try the
 
 All three have a deterministic path that needs no credentials.
 
+## Serve agents to chat apps
+
+`agent-runtime serve` exposes manifests as models on an OpenAI-compatible
+API, so chat front ends such as Open WebUI and LibreChat, and the OpenAI SDKs,
+can run whole agents. From a source checkout, `npm ci && npm run build`, then
+follow the [serving walkthrough](examples/serving/README.md): it starts
+without a model account, and shows how to connect a chat front end.
+
 ## Documentation
 
 The complete documentation is available at
@@ -93,6 +101,8 @@ The complete documentation is available at
 - Durable checkpoints, suspension, fresh-process resume, and cancellation
 - Cumulative model-token budgets with durable suspension and raised-limit resume
 - Local, child-process, and remote execution engines
+- An OpenAI-compatible server (`agent-runtime serve`) that exposes manifests
+  as models to chat front ends and OpenAI SDKs
 - Host-resolved Modal Sandbox networking with blocked, direct-domain, and
   proxy-only modes
 - Memory, file, and SQLite run stores; JSONL and console event sinks
@@ -136,6 +146,7 @@ remote execution protocol without changing their agent manifests.
 | `packages/core`           | Deterministic execution engine and host ports                |
 | `packages/runtime`        | Provider, model, connection, and secret configuration        |
 | `packages/cli`            | `agent-runtime` command-line interface                       |
+| `packages/server`         | OpenAI-compatible server and shared host composition         |
 | `packages/step-*`         | Prompt, loop, approval, webhook, code, and sub-run executors |
 | `packages/store-*`        | Local and SQLite persistence adapters                        |
 | `packages/execution*`     | Execution contracts, engines, and compute adapters           |

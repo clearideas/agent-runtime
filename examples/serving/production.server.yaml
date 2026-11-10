@@ -1,0 +1,48 @@
+# A production-style configuration for the same agents:
+#   agent-runtime serve --server-config production.server.yaml
+version: "1.0"
+
+server:
+  host: 0.0.0.0 # behind a TLS-terminating proxy
+  port: 8000
+  maxConcurrentRuns: 32
+  maxQueuedRequests: 64
+  requestTimeoutMs: 10m
+  shutdownGraceMs: 30s
+
+runtimeConfig: ./agent-runtime.config.yaml
+
+# Runs, the conversation ledger, and stored media default to SQLite and a
+# directory under .agent-runtime/serve beside this file.
+store:
+  retention:
+    completed: 7d
+    failed: 30d
+
+conversations:
+  ledger:
+    ttl: 30d
+  onUnrecognized: reject
+
+auth:
+  apiKeys:
+    - id: web-chat
+      key: { env: WEB_CHAT_API_KEY }
+      models: [support-chat]
+      maxConcurrentRuns: 8
+    # A key stored as a digest: printf %s "$KEY" | shasum -a 256
+    - id: reports
+      key: { sha256: "00624ba9a8de9455061a805f91f7ff3abea0895ae21ac3010e6ce4db27191611" }
+      models: [topic-brief]
+      maxTotalTokensPerRequest: 50000
+
+models:
+  - name: support-chat
+    manifest: ./support-chat.agent.yaml
+    stream:
+      progress: status
+
+  - name: topic-brief
+    manifest: ./brief.agent.yaml
+    budget:
+      maxTotalTokens: 50000

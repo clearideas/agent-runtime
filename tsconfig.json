@@ -18,6 +18,7 @@
     { "path": "./packages/store-sqlite" },
     { "path": "./packages/telemetry-otel" },
     { "path": "./packages/agent-runtime" },
+    { "path": "./packages/server" },
     { "path": "./packages/cli" }
   ]
 }

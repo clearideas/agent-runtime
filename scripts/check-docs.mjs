@@ -9,6 +9,7 @@ import {
   agentRunManifestSchema,
 } from "../packages/contracts/dist/index.js";
 import { agentRuntimeConfigSchema } from "../packages/runtime/dist/index.js";
+import { serverConfigSchema } from "../packages/server/dist/index.js";
 
 const repository = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
@@ -33,6 +34,7 @@ const requiredPages = [
   "persistence-and-recovery.md",
   "local-execution.md",
   "remote-execution.md",
+  "serving.md",
   "sandboxes-and-artifacts.md",
   "production.md",
   "reference.md",
@@ -97,13 +99,25 @@ const validateYaml = async (relativeFile, schema, label) => {
   return parsed.success ? parsed.data : undefined;
 };
 
-const exampleDirectory = path.join(repository, "examples", "manifests");
-const yamlExamples = (await readdir(exampleDirectory)).filter(
-  (file) =>
-    file.endsWith(".agent.yaml") ||
-    file.endsWith(".run.yaml") ||
-    file.endsWith(".config.yaml"),
-);
+// Example directories whose manifests, run manifests, runtime and server
+// configurations are schema- and reference-validated.
+const exampleDirectories = ["manifests", "serving"];
+const examplesIn = async (suffixes) =>
+  (
+    await Promise.all(
+      exampleDirectories.map(async (directory) =>
+        (await readdir(path.join(repository, "examples", directory)))
+          .filter((file) => suffixes.some((suffix) => file.endsWith(suffix)))
+          .map((file) => path.join(directory, file)),
+      ),
+    )
+  ).flat();
+const yamlExamples = await examplesIn([
+  ".agent.yaml",
+  ".run.yaml",
+  ".config.yaml",
+]);
+const serverExamples = await examplesIn([".server.yaml"]);
 const showcaseDemos = [
   "repo-mechanic",
   "durable-runs",
@@ -244,7 +258,7 @@ for (const file of yamlExamples) {
   const agentManifest = file.endsWith(".agent.yaml");
   const agentRunManifest = file.endsWith(".run.yaml");
   const value = await validateYaml(
-    path.join("examples", "manifests", file),
+    path.join("examples", file),
     agentManifest
       ? agentManifestSchema
       : agentRunManifest
@@ -262,8 +276,30 @@ for (const file of yamlExamples) {
   }
   if (agentRunManifest && value) {
     await assertReadable(
-      path.resolve(exampleDirectory, value.agent.ref),
+      path.resolve(repository, "examples", path.dirname(file), value.agent.ref),
       `Agent referenced by agent run manifest ${file}`,
+    );
+  }
+}
+
+for (const file of serverExamples) {
+  const value = await validateYaml(
+    path.join("examples", file),
+    serverConfigSchema,
+    `Server configuration ${file}`,
+  );
+  const directory = path.join(repository, "examples", path.dirname(file));
+  for (const model of value?.models ?? []) {
+    await assertReadable(
+      path.resolve(directory, model.manifest),
+      `Manifest served by ${file}`,
+    );
+  }
+  if (value?.runtimeConfig) {
+    await validateYaml(
+      path.relative(repository, path.resolve(directory, value.runtimeConfig)),
+      agentRuntimeConfigSchema,
+      `Runtime configuration of ${file}`,
     );
   }
 }
@@ -296,6 +332,6 @@ if (failures.length > 0) {
   process.exitCode = 1;
 } else {
   process.stdout.write(
-    `Agent Runtime docs OK: ${pages.length} pages, ${requiredPages.length} required pages, ${yamlExamples.length + sourceAgentExamples.length + sourceConfigExamples.length} schema- and reference-validated YAML examples.\n`,
+    `Agent Runtime docs OK: ${pages.length} pages, ${requiredPages.length} required pages, ${yamlExamples.length + serverExamples.length + sourceAgentExamples.length + sourceConfigExamples.length} schema- and reference-validated YAML examples.\n`,
   );
 }

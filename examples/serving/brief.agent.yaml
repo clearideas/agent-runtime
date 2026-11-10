@@ -1,0 +1,31 @@
+schemaVersion: "1.0"
+id: topic-brief
+name: Topic brief
+description: Writes a short brief about the topic in the newest message.
+
+model:
+  ref: default
+
+# No `messages` block: the server fills the single required string
+# variable with the newest user message.
+variables:
+  - key: topic
+    type: string
+    requiresOverride: true
+  - key: audience
+    type: string
+    value: a busy product team
+
+steps:
+  - id: outline
+    type: prompt
+    prompt: List the three most important points about {{ topic }}.
+    outputVariable: outline
+
+  - id: brief
+    type: prompt
+    systemPrompt: You write briefs for {{ audience }}.
+    prompt: |-
+      Write a brief of at most 120 words about {{ topic }}, using these points:
+      {{ outline }}
+    includeInFinalOutput: true

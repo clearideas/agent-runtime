@@ -135,6 +135,23 @@ Operational dashboards should cover:
 Call `shutdown()` on the telemetry sink during process teardown and configure
 exporter flushing in the OpenTelemetry SDK.
 
+## Serving over HTTP
+
+[`agent-runtime serve`](./serving.md) applies the worker's trust rules to
+every request. For production:
+
+- configure API keys by environment reference or digest, with model scopes
+  and per-key limits, or an `authenticate` hook for your identity provider;
+- configure message signing, and run from a configuration file, whose runs,
+  ledger, and stored media default to durable storage beside it; several
+  replicas need shared stores;
+- terminate TLS at a proxy whose read timeout exceeds your longest run for
+  non-streamed requests; streamed responses send heartbeats;
+- turn off chat front ends' title, tag, and follow-up generation, or point
+  it at an ordinary model, so each message runs the agent once;
+- keep `conversations.media.urls: reject` unless you allowlist origins;
+- set `store.retention` and `conversations.ledger.ttl` to your data policy.
+
 ## Failure and recovery
 
 Choose [execution policies](./execution-policies.md) as host defaults so every

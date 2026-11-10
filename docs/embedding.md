@@ -119,7 +119,9 @@ Register the executors and adapters available to agents. Before a run is
 created, Agent Runtime checks that every step has a registered executor and
 the adapters it needs, that every condition parses, and that every tool a
 prompt step names exists. All problems are reported together in one
-`MANIFEST_PREFLIGHT_FAILED` error, before any model call.
+`MANIFEST_PREFLIGHT_FAILED` error, before any model call. Call
+`agentRuntime.preflight(manifest)` to run the same checks without creating a
+run, for example when a host starts.
 
 Set host default [execution policies](./execution-policies.md) with
 `policies`; manifests and steps override them. `enforcedPolicies` apply last

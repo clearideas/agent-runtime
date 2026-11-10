@@ -74,9 +74,9 @@ const discoverSuites = () => {
   const examples = root.scripts?.["test:examples"];
   if (examples) {
     suites.push({
-      name: "examples/patterns",
+      name: "examples",
       directory: repository,
-      label: "examples/patterns",
+      label: "examples",
       script: examples,
     });
   }

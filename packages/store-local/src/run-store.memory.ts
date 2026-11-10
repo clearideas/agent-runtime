@@ -223,6 +223,17 @@ export class MemoryRunStore implements RunStore {
     });
   }
 
+  async deleteRun(runId: string): Promise<boolean> {
+    const existing = this.#runs.get(runId);
+    if (!existing) return false;
+    if (existing.status === "running") {
+      throw new Error(`Cannot delete running run ${runId}`);
+    }
+    this.#runs.delete(runId);
+    this.#checkpoints.delete(runId);
+    return true;
+  }
+
   #requireRun(runId: string): RunRecord {
     const record = this.#runs.get(runId);
     if (!record) throw new Error(`Run not found: ${runId}`);

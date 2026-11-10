@@ -87,6 +87,28 @@ describe("SqliteRunStore", () => {
     }
   });
 
+  it("deletes finished runs with their checkpoints, never a running run", async () => {
+    const store = new SqliteRunStore(filename);
+    await store.createRun(runRecord("run-1"));
+    await store.saveCheckpoint(checkpoint("run-1", 1));
+    await expect(store.deleteRun("run-1")).rejects.toThrow(
+      "Cannot delete running run run-1",
+    );
+    await store.failRun(
+      "run-1",
+      { code: "FAILED", message: "failed" },
+      "2026-07-22T00:01:00.000Z",
+      1,
+    );
+    await expect(store.deleteRun("run-1")).resolves.toBe(true);
+    await expect(store.loadRun("run-1")).resolves.toBeNull();
+    await expect(store.loadLatestCheckpoint("run-1")).resolves.toBeNull();
+    await expect(store.deleteRun("run-1")).resolves.toBe(false);
+    await store.createRun(runRecord("run-1"));
+    await store.saveCheckpoint(checkpoint("run-1", 1));
+    store.close();
+  });
+
   it("supports core failure recovery without replaying a committed step", async () => {
     const store = new SqliteRunStore(filename);
     const twoSteps: AgentManifest = {

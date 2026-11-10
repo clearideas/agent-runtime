@@ -1,0 +1,35 @@
+# Found automatically by `agent-runtime serve` run in this directory.
+version: "1.0"
+
+server:
+  host: 127.0.0.1
+  port: 8000
+
+# Switch to ./ollama.config.yaml for a local model.
+runtimeConfig: ./agent-runtime.config.yaml
+
+# Local state, kept in ./.data so it survives restarts.
+store:
+  driver: sqlite
+  path: ./.data/runs.sqlite
+artifacts:
+  path: ./.data/artifacts
+stores:
+  default:
+    driver: sqlite
+    path: ./.data/state.sqlite
+
+auth:
+  apiKeys:
+    - id: local
+      key: { env: AGENT_RUNTIME_API_KEY }
+      models: "*"
+
+models:
+  - name: support-chat
+    manifest: ./support-chat.agent.yaml
+    stream:
+      progress: status
+
+  - name: topic-brief
+    manifest: ./brief.agent.yaml

@@ -117,6 +117,7 @@ export default defineConfig({
         items: [
           { text: "Local execution", link: "/local-execution" },
           { text: "Remote execution", link: "/remote-execution" },
+          { text: "OpenAI-compatible server", link: "/serving" },
         ],
       },
       {
