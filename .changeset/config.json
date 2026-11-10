@@ -16,6 +16,7 @@
       "@clearideas/agent-runtime-model-ai-sdk",
       "@clearideas/agent-runtime-sandbox",
       "@clearideas/agent-runtime-sandbox-modal",
+      "@clearideas/agent-runtime-server",
       "@clearideas/agent-runtime-step-loop",
       "@clearideas/agent-runtime-step-prompt",
       "@clearideas/agent-runtime-step-standard",

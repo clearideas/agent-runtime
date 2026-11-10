@@ -1097,6 +1097,38 @@ export class AgentRuntime {
     }
   }
 
+  /**
+   * Check, without creating a run, that a manifest can run with this host:
+   * the manifest is valid, every step has a registered executor and the
+   * adapters it needs, every condition parses, and every tool a prompt step
+   * names is available. Throws the error `run()` would throw before its
+   * first model call, so a host can refuse a manifest at startup.
+   */
+  async preflight(manifest: AgentManifest): Promise<void> {
+    await this.#preflight(this.#parseManifest(manifest));
+  }
+
+  #parseManifest(rawManifest: unknown): AgentManifest {
+    const parsedManifest = agentManifestSchema.safeParse(rawManifest);
+    if (!parsedManifest.success) {
+      const reasons = parsedManifest.error.issues
+        .map((issue) => issue.message)
+        .join("; ");
+      throw new Error(`Agent manifest is invalid: ${reasons}`);
+    }
+    const manifest = parsedManifest.data;
+    const manifestStepCount = countManifestSteps(manifest.steps);
+    if (
+      manifest.limits?.maxSteps != null &&
+      manifestStepCount > manifest.limits.maxSteps
+    ) {
+      throw new Error(
+        `Manifest declares ${manifestStepCount} steps, exceeding its ${manifest.limits.maxSteps}-step limit`,
+      );
+    }
+    return manifest;
+  }
+
   async #run(
     request: RunRequest & { runId: string },
   ): Promise<AgentExecutionResult> {
@@ -1119,23 +1151,7 @@ export class AgentRuntime {
       : request.manifestReference
         ? await this.#resolveManifest(request)
         : (existingRecord?.manifest ?? (await this.#resolveManifest(request)));
-    const parsedManifest = agentManifestSchema.safeParse(rawManifest);
-    if (!parsedManifest.success) {
-      const reasons = parsedManifest.error.issues
-        .map((issue) => issue.message)
-        .join("; ");
-      throw new Error(`Agent manifest is invalid: ${reasons}`);
-    }
-    const manifest = parsedManifest.data;
-    const manifestStepCount = countManifestSteps(manifest.steps);
-    if (
-      manifest.limits?.maxSteps != null &&
-      manifestStepCount > manifest.limits.maxSteps
-    ) {
-      throw new Error(
-        `Manifest declares ${manifestStepCount} steps, exceeding its ${manifest.limits.maxSteps}-step limit`,
-      );
-    }
+    const manifest = this.#parseManifest(rawManifest);
     const requestedBudget = request.budget
       ? agentRunBudgetSchema.parse(request.budget)
       : undefined;

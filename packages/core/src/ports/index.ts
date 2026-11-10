@@ -124,6 +124,12 @@ export interface RunStore {
     cancelledAt: string,
     expectedAttempt: number,
   ): Promise<void>;
+  /**
+   * Permanently remove a run record and its checkpoints, for retention.
+   * Refuses a run that is still `running`. Returns false when the run does
+   * not exist. Optional: hosts that apply retention check for it.
+   */
+  deleteRun?(runId: string): Promise<boolean>;
 }
 
 export interface ArtifactInput {

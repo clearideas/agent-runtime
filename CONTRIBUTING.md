@@ -90,3 +90,13 @@ creates GitHub release notes. Write changesets around user-visible behavior,
 including migration and checkpoint compatibility notes when relevant. Do not
 run `version-packages` or publish while unrelated unreleased work is present.
 The version command regenerates core runtime version metadata automatically.
+
+Before publishing a newly added package, verify its npm package access and
+trusted-publisher configuration separately from local validation. For
+`@clearideas/agent-runtime-server`, the publisher must match GitHub owner
+`clearideas`, repository `agent-runtime`, workflow `release.yml`, and environment
+`npm-production`. Enable direct `npm publish` for this workflow; a connection
+that permits only staged publishing cannot run the existing Changesets publish
+command. See [npm trusted publishing](https://docs.npmjs.com/trusted-publishers/).
+The protected release workflow still requires its manual dispatch, repository
+release flag, and environment approval.

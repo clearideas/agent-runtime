@@ -171,3 +171,5 @@ No provider API key is required for an unauthenticated local endpoint.
 - Add MCP or application tools in [Connections and tools](./connections-and-tools.md).
 - Consume machine-readable output in [Events and streaming](./events-and-streaming.md).
 - Supply invocation variables in [Embed Agent Runtime](./embedding.md).
+- Serve agents to chat apps and OpenAI SDKs with the
+  [OpenAI-compatible server](./serving.md).

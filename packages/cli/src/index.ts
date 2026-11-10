@@ -1,8 +1,7 @@
-import { access, readFile, writeFile } from "node:fs/promises";
+import { readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { fileURLToPath, pathToFileURL } from "node:url";
+import { fileURLToPath } from "node:url";
 
-import { JexlConditionEvaluator } from "@clearideas/agent-runtime-condition-jexl";
 import type {
   AgentManifest,
   ConversationMessage,
@@ -11,32 +10,17 @@ import type {
   MessagesSignature,
   RunEvent,
   RunResult,
-  ExecutionPolicies,
 } from "@clearideas/agent-runtime-contracts";
 import {
-  executionPoliciesSchema,
   messagesSignatureSchema,
   parseAgentVariableOverrides,
   parseConversationMessages,
 } from "@clearideas/agent-runtime-contracts";
 import {
-  type ArtifactStore,
-  type ApprovalAdapter,
-  type ConnectionCredentialProvider,
-  type EventSink,
-  type ModelAdapter,
   AgentRuntime,
-  type RunSandboxProvider,
+  type EventSink,
   type RunStore,
-  type SandboxAdapter,
-  type StepExecutor,
-  type SubRunAdapter,
-  type ContextSummarizerAdapter,
-  type AgentRuntimeMessagesOptions,
-  type ToolAdapter,
-  type WorkspaceProvider,
 } from "@clearideas/agent-runtime-core";
-import type { SandboxProvider } from "@clearideas/agent-runtime-sandbox";
 import {
   EXECUTION_PROTOCOL_VERSION,
   parseWorkerInvocation,
@@ -46,9 +30,7 @@ import {
   type WorkerMessage,
 } from "@clearideas/agent-runtime-execution";
 import {
-  composeRuntime,
   discoverMcpConnectionTools,
-  emptyAgentRuntimeConfig,
   loadAgentRuntimeConfig,
   parseAgentRuntimeConfig,
   type AgentRuntimeConfig,
@@ -58,17 +40,19 @@ import {
   validateRuntimeConfiguration,
   type WorkspaceCompositionOptions,
 } from "@clearideas/agent-runtime-config";
-import { LoopStepExecutor } from "@clearideas/agent-runtime-step-loop";
 import {
-  PromptMessageHistoryCompactor,
-  PromptStepExecutor,
-} from "@clearideas/agent-runtime-step-prompt";
-import {
-  ApprovalStepExecutor,
-  CodeStepExecutor,
-  SubRunStepExecutor,
-  WebhookStepExecutor,
-} from "@clearideas/agent-runtime-step-standard";
+  composeHostRuntime,
+  hostRuntimeDependencies,
+  loadHostRunStore,
+  loadHostRuntime,
+  resolveAgentRuntimeConfig,
+  runServe,
+  validateHostRuntime,
+  type HostRuntime,
+  type HostRuntimeModule,
+  type InputSourceConfig,
+  type ServeOptions,
+} from "@clearideas/agent-runtime-server";
 import {
   FileArtifactStore,
   FileAgentManifestSource,
@@ -109,6 +93,9 @@ Usage:
   agent-runtime examples show <variables|conditions|loops>
   agent-runtime examples run <variables|conditions|loops> [run options]
   agent-runtime worker [--store <path>] [--store-driver <file|sqlite>] [--config <config.yaml>] [--runtime-module <local-js-file>]
+  agent-runtime serve [<manifest>] [--server-config <server.yaml>] [--no-server-config] [--served-model-name <name>] [--config <runtime.yaml>] [--runtime-module <local-js-file>] [--host <host>] [--port <port>] [--api-key-env <VAR>] [--allow-unauthenticated] [--input <variable>=<source>]... [--output <final|step:id|variable:name>] [--stream-mode <auto|live|committed>] [--progress <none|status>] [--store-driver <memory|sqlite>] [--store <path>] [--ledger <memory|sqlite:path>] [--on-unrecognized <unsigned|reject|restart>] [--client-tools <ignore|reject>] [--max-concurrent-runs <count>] [--request-timeout <ms>] [--warmup] [--check]
+
+Options accept --name value or --name=value.
 `;
 
 const packageDirectory = path.resolve(
@@ -140,6 +127,8 @@ const isExampleName = (value: string): value is ExampleName =>
 interface ParsedOptions {
   positional: string[];
   options: Map<string, string>;
+  /** Every value of a repeatable option, in order. */
+  repeated: Map<string, string[]>;
 }
 
 export type CliStoreDriver = "file" | "sqlite";
@@ -199,36 +188,56 @@ const resolveCliStore = async (
   };
 };
 
+/**
+ * Parse `--name value` and `--name=value` options. Flags take no value;
+ * repeatable options may appear more than once.
+ */
 const parseOptions = (
   args: string[],
   allowed: ReadonlySet<string>,
   flags: ReadonlySet<string> = new Set(),
+  repeatable: ReadonlySet<string> = new Set(),
 ): ParsedOptions => {
   const positional: string[] = [];
   const options = new Map<string, string>();
+  const repeated = new Map<string, string[]>();
   for (let index = 0; index < args.length; index += 1) {
     const value = args[index]!;
     if (!value.startsWith("--")) {
       positional.push(value);
       continue;
     }
-    const name = value.slice(2);
-    if (!allowed.has(name)) throw new Error(`Unknown option: ${value}`);
+    const separator = value.indexOf("=");
+    const name = value.slice(2, separator < 0 ? undefined : separator);
+    const option = `--${name}`;
+    if (!allowed.has(name)) throw new Error(`Unknown option: ${option}`);
     if (flags.has(name)) {
+      if (separator >= 0)
+        throw new Error(`Option ${option} does not take a value.`);
       if (options.has(name))
-        throw new Error(`Option ${value} may only be provided once.`);
+        throw new Error(`Option ${option} may only be provided once.`);
       options.set(name, "true");
       continue;
     }
-    const optionValue = args[index + 1];
-    if (!optionValue || optionValue.startsWith("--"))
-      throw new Error(`Option ${value} requires a value.`);
+    let optionValue: string | undefined;
+    if (separator >= 0) {
+      optionValue = value.slice(separator + 1);
+    } else {
+      optionValue = args[index + 1];
+      if (optionValue?.startsWith("--")) optionValue = undefined;
+      index += 1;
+    }
+    if (!optionValue) throw new Error(`Option ${option} requires a value.`);
+    if (repeatable.has(name)) {
+      repeated.set(name, [...(repeated.get(name) ?? []), optionValue]);
+      options.set(name, optionValue);
+      continue;
+    }
     if (options.has(name))
-      throw new Error(`Option ${value} may only be provided once.`);
+      throw new Error(`Option ${option} may only be provided once.`);
     options.set(name, optionValue);
-    index += 1;
   }
-  return { positional, options };
+  return { positional, options, repeated };
 };
 
 const requireOnePositional = (parsed: ParsedOptions, label: string): string => {
@@ -373,7 +382,7 @@ const inspectConnections = async (args: string[], io: CliIo): Promise<void> => {
       throw new Error(`Unknown connection "${name}".`);
   }
   const runtimeModulePath = parsed.options.get("runtime-module");
-  const moduleRuntime = await loadRuntime(runtimeModulePath, {
+  const moduleRuntime = await loadHostRuntime(runtimeModulePath, {
     manifest: {
       schemaVersion: "1.0",
       connections: names.map((ref) => ({ ref })),
@@ -440,7 +449,7 @@ const inspect = async (args: string[], io: CliIo): Promise<void> => {
   const resolved = await resolveCliStore(parsed);
   try {
     const store =
-      (await loadRuntimeStore(parsed.options.get("runtime-module"), {
+      (await loadHostRunStore(parsed.options.get("runtime-module"), {
         runId,
         storeDirectory: resolved.baseDirectory,
         storeDriver: resolved.driver,
@@ -483,37 +492,7 @@ const events = async (args: string[], io: CliIo): Promise<void> => {
 };
 
 /** Adapters a local runtime module may contribute to CLI execution. */
-export interface CliRuntime {
-  /** Called once after execution, including failed setup. Own only module-created resources. */
-  shutdown?: () => void | Promise<void>;
-  runStore?: RunStore;
-  artifactStore?: ArtifactStore;
-  model?: ModelAdapter;
-  tools?: ToolAdapter;
-  connectionCredentials?: ConnectionCredentialProvider;
-  approvals?: ApprovalAdapter;
-  sandbox?: SandboxAdapter;
-  subRuns?: SubRunAdapter;
-  /** Resolves manifest workspace bindings instead of the configuration's `workspaces` section. */
-  workspaces?: WorkspaceProvider;
-  /** Opens run sandboxes instead of the configuration's `sandbox` section. */
-  runSandbox?: RunSandboxProvider;
-  /** Backs `sandbox.driver: host` in the configuration. */
-  sandboxProvider?: SandboxProvider;
-  eventSinks?: EventSink[];
-  stepExecutors?: StepExecutor[];
-  /** Host default execution policies; manifests and steps override them. */
-  policies?: ExecutionPolicies;
-  /** Host execution policies applied last; manifests cannot override them. */
-  enforcedPolicies?: ExecutionPolicies;
-  /** Observes, changes, or replaces context summarization. */
-  summarizer?: ContextSummarizerAdapter;
-  /**
-   * Conversation message options, merged over the configuration's `messages`
-   * section: for example `authorizeArtifact` or a KMS-backed signer.
-   */
-  messages?: AgentRuntimeMessagesOptions;
-}
+export type CliRuntime = HostRuntime;
 
 export interface CliRuntimeContext {
   manifest: AgentManifest;
@@ -527,351 +506,7 @@ export interface CliRuntimeContext {
 
 export type CliStoreContext = Omit<CliRuntimeContext, "manifest">;
 
-export interface CliRuntimeModule extends CliRuntime {
-  store?: RunStore;
-  artifacts?: ArtifactStore;
-  modelAdapter?: ModelAdapter;
-  toolAdapter?: ToolAdapter;
-  credentialProvider?: ConnectionCredentialProvider;
-  approvalAdapter?: ApprovalAdapter;
-  sandboxAdapter?: SandboxAdapter;
-  subRunAdapter?: SubRunAdapter;
-  workspaceProvider?: WorkspaceProvider;
-  runSandboxProvider?: RunSandboxProvider;
-  eventSink?: EventSink;
-  executors?: StepExecutor[];
-}
-
-type ImportedRuntimeModule = CliRuntimeModule & {
-  default?: CliRuntimeModule;
-  runtime?: CliRuntimeModule;
-  createRuntime?: (
-    context: CliRuntimeContext,
-  ) => CliRuntime | Promise<CliRuntime>;
-  createRunStore?: (context: CliStoreContext) => RunStore | Promise<RunStore>;
-};
-
-const adapterMethod = (value: unknown, name: string): boolean =>
-  value != null &&
-  typeof value === "object" &&
-  typeof (value as Record<string, unknown>)[name] === "function";
-
-const validateRuntime = (runtime: CliRuntime): CliRuntime => {
-  if (runtime.shutdown !== undefined && typeof runtime.shutdown !== "function")
-    throw new Error("Runtime shutdown must be a function.");
-  if (
-    runtime.runStore &&
-    (!adapterMethod(runtime.runStore, "createRun") ||
-      !adapterMethod(runtime.runStore, "loadRun") ||
-      !adapterMethod(runtime.runStore, "saveCheckpoint"))
-  ) {
-    throw new Error(
-      "Runtime runStore must implement the RunStore lifecycle methods.",
-    );
-  }
-  if (
-    runtime.artifactStore &&
-    (!adapterMethod(runtime.artifactStore, "put") ||
-      !adapterMethod(runtime.artifactStore, "get"))
-  ) {
-    throw new Error(
-      "Runtime artifactStore must implement ArtifactStore.put() and get().",
-    );
-  }
-  if (runtime.model && !adapterMethod(runtime.model, "generate"))
-    throw new Error("Runtime model must implement ModelAdapter.generate().");
-  if (
-    runtime.tools &&
-    (!adapterMethod(runtime.tools, "listTools") ||
-      !adapterMethod(runtime.tools, "executeTool"))
-  ) {
-    throw new Error(
-      "Runtime tools must implement ToolAdapter.listTools() and executeTool().",
-    );
-  }
-  if (
-    runtime.connectionCredentials &&
-    !adapterMethod(runtime.connectionCredentials, "getCredential")
-  ) {
-    throw new Error(
-      "Runtime connectionCredentials must implement ConnectionCredentialProvider.getCredential().",
-    );
-  }
-  if (runtime.approvals && !adapterMethod(runtime.approvals, "requestApproval"))
-    throw new Error(
-      "Runtime approvals must implement ApprovalAdapter.requestApproval().",
-    );
-  if (runtime.sandbox && !adapterMethod(runtime.sandbox, "execute"))
-    throw new Error("Runtime sandbox must implement SandboxAdapter.execute().");
-  if (runtime.subRuns && !adapterMethod(runtime.subRuns, "execute"))
-    throw new Error("Runtime subRuns must implement SubRunAdapter.execute().");
-  if (runtime.summarizer && !adapterMethod(runtime.summarizer, "summarize"))
-    throw new Error(
-      "Runtime summarizer must implement ContextSummarizerAdapter.summarize().",
-    );
-  if (
-    runtime.workspaces &&
-    !adapterMethod(runtime.workspaces, "resolveWorkspace")
-  ) {
-    throw new Error(
-      "Runtime workspaces must implement WorkspaceProvider.resolveWorkspace().",
-    );
-  }
-  if (
-    runtime.runSandbox &&
-    (!adapterMethod(runtime.runSandbox, "open") ||
-      !adapterMethod(runtime.runSandbox, "validate") ||
-      !adapterMethod(runtime.runSandbox, "tools"))
-  ) {
-    throw new Error(
-      "Runtime runSandbox must implement RunSandboxProvider.tools(), validate(), and open().",
-    );
-  }
-  if (
-    runtime.sandboxProvider &&
-    (!adapterMethod(runtime.sandboxProvider, "create") ||
-      !adapterMethod(runtime.sandboxProvider, "execute") ||
-      !adapterMethod(runtime.sandboxProvider, "terminate"))
-  ) {
-    throw new Error(
-      "Runtime sandboxProvider must implement the SandboxProvider lifecycle methods.",
-    );
-  }
-  if (
-    runtime.eventSinks &&
-    (!Array.isArray(runtime.eventSinks) ||
-      runtime.eventSinks.some((sink) => !adapterMethod(sink, "emit")))
-  ) {
-    throw new Error("Runtime eventSinks must be an array of EventSink values.");
-  }
-  if (
-    runtime.stepExecutors &&
-    (!Array.isArray(runtime.stepExecutors) ||
-      runtime.stepExecutors.some(
-        (executor) =>
-          !executor ||
-          typeof executor !== "object" ||
-          typeof executor.type !== "string" ||
-          !adapterMethod(executor, "execute"),
-      ))
-  ) {
-    throw new Error("Runtime stepExecutors must implement StepExecutor.");
-  }
-  return runtime;
-};
-
-const normalizeRuntime = (runtime: CliRuntimeModule): CliRuntime => ({
-  ...(runtime.shutdown ? { shutdown: runtime.shutdown } : {}),
-  ...((runtime.runStore ?? runtime.store)
-    ? { runStore: runtime.runStore ?? runtime.store }
-    : {}),
-  ...((runtime.artifactStore ?? runtime.artifacts)
-    ? { artifactStore: runtime.artifactStore ?? runtime.artifacts }
-    : {}),
-  ...((runtime.model ?? runtime.modelAdapter)
-    ? { model: runtime.model ?? runtime.modelAdapter }
-    : {}),
-  ...((runtime.tools ?? runtime.toolAdapter)
-    ? { tools: runtime.tools ?? runtime.toolAdapter }
-    : {}),
-  ...((runtime.connectionCredentials ?? runtime.credentialProvider)
-    ? {
-        connectionCredentials:
-          runtime.connectionCredentials ?? runtime.credentialProvider,
-      }
-    : {}),
-  ...((runtime.approvals ?? runtime.approvalAdapter)
-    ? { approvals: runtime.approvals ?? runtime.approvalAdapter }
-    : {}),
-  ...((runtime.sandbox ?? runtime.sandboxAdapter)
-    ? { sandbox: runtime.sandbox ?? runtime.sandboxAdapter }
-    : {}),
-  ...((runtime.subRuns ?? runtime.subRunAdapter)
-    ? { subRuns: runtime.subRuns ?? runtime.subRunAdapter }
-    : {}),
-  ...((runtime.workspaces ?? runtime.workspaceProvider)
-    ? { workspaces: runtime.workspaces ?? runtime.workspaceProvider }
-    : {}),
-  ...((runtime.runSandbox ?? runtime.runSandboxProvider)
-    ? { runSandbox: runtime.runSandbox ?? runtime.runSandboxProvider }
-    : {}),
-  ...(runtime.sandboxProvider
-    ? { sandboxProvider: runtime.sandboxProvider }
-    : {}),
-  ...(runtime.policies
-    ? { policies: executionPoliciesSchema.parse(runtime.policies) }
-    : {}),
-  ...(runtime.enforcedPolicies
-    ? {
-        enforcedPolicies: executionPoliciesSchema.parse(
-          runtime.enforcedPolicies,
-        ),
-      }
-    : {}),
-  ...(runtime.summarizer ? { summarizer: runtime.summarizer } : {}),
-  ...((runtime.eventSinks?.length ?? 0) > 0 || runtime.eventSink
-    ? {
-        eventSinks: [
-          ...(runtime.eventSinks ?? []),
-          ...(runtime.eventSink ? [runtime.eventSink] : []),
-        ],
-      }
-    : {}),
-  ...((runtime.stepExecutors?.length ?? 0) > 0 ||
-  (runtime.executors?.length ?? 0) > 0
-    ? { stepExecutors: runtime.stepExecutors ?? runtime.executors }
-    : {}),
-});
-
-const defaultStepExecutors = (allowUnsafeWebhooks: boolean): StepExecutor[] => [
-  new PromptStepExecutor(),
-  new LoopStepExecutor(),
-  ...(allowUnsafeWebhooks
-    ? [new WebhookStepExecutor({ allowUnsafeDestinations: true })]
-    : []),
-  new ApprovalStepExecutor(),
-  new CodeStepExecutor(),
-  new SubRunStepExecutor(),
-];
-
-const resolveStepExecutors = (
-  runtime: CliRuntime,
-  options: { allowUnsafeWebhooks?: boolean } = {},
-): StepExecutor[] => {
-  const byType = new Map(
-    defaultStepExecutors(options.allowUnsafeWebhooks === true).map(
-      (executor) => [executor.type, executor],
-    ),
-  );
-  for (const executor of runtime.stepExecutors ?? [])
-    byType.set(executor.type, executor);
-  return [...byType.values()];
-};
-
-const loadRuntime = async (
-  modulePath: string | undefined,
-  context: CliRuntimeContext,
-): Promise<CliRuntime> => {
-  if (!modulePath) return {};
-  const absolutePath = path.resolve(modulePath);
-  let imported: ImportedRuntimeModule;
-  try {
-    imported = (await import(
-      pathToFileURL(absolutePath).href
-    )) as ImportedRuntimeModule;
-  } catch (error) {
-    throw new Error(
-      `Could not load runtime module ${absolutePath}: ${error instanceof Error ? error.message : String(error)}`,
-    );
-  }
-  const staticRuntime = imported.default ?? imported.runtime ?? imported;
-  const composedRuntime = imported.createRuntime
-    ? await imported.createRuntime(context)
-    : normalizeRuntime(staticRuntime);
-  if (!composedRuntime || typeof composedRuntime !== "object") {
-    throw new Error(
-      `Runtime module ${absolutePath} did not export a runtime object.`,
-    );
-  }
-  const runtime =
-    !composedRuntime.runStore && imported.createRunStore
-      ? { ...composedRuntime, runStore: await imported.createRunStore(context) }
-      : composedRuntime;
-  return validateRuntime(runtime);
-};
-
-const loadRuntimeStore = async (
-  modulePath: string | undefined,
-  context: CliStoreContext,
-): Promise<RunStore | undefined> => {
-  if (!modulePath) return undefined;
-  const absolutePath = path.resolve(modulePath);
-  let imported: ImportedRuntimeModule;
-  try {
-    imported = (await import(
-      pathToFileURL(absolutePath).href
-    )) as ImportedRuntimeModule;
-  } catch (error) {
-    throw new Error(
-      `Could not load runtime module ${absolutePath}: ${error instanceof Error ? error.message : String(error)}`,
-    );
-  }
-  const staticRuntime = imported.default ?? imported.runtime ?? imported;
-  const store = imported.createRunStore
-    ? await imported.createRunStore(context)
-    : (staticRuntime.runStore ?? staticRuntime.store);
-  if (
-    store &&
-    (!adapterMethod(store, "createRun") ||
-      !adapterMethod(store, "loadRun") ||
-      !adapterMethod(store, "saveCheckpoint"))
-  ) {
-    throw new Error(
-      "Runtime runStore must implement the RunStore lifecycle methods.",
-    );
-  }
-  return store;
-};
-
-const defaultConfigNames = [
-  "agent-runtime.config.yaml",
-  "agent-runtime.config.yml",
-  "agent-runtime.config.json",
-] as const;
-
-const resolveConfig = async (
-  requested?: string,
-  searchDirectory = process.cwd(),
-): Promise<AgentRuntimeConfig> => {
-  if (requested) return loadAgentRuntimeConfig(requested);
-  for (const candidate of defaultConfigNames) {
-    const absolute = path.resolve(searchDirectory, candidate);
-    try {
-      await access(absolute);
-      return await loadAgentRuntimeConfig(absolute);
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
-    }
-  }
-  return emptyAgentRuntimeConfig();
-};
-
-/** Host-supplied workspace and sandbox adapters take precedence over configuration. */
-const workspaceCompositionOptions = (
-  ...runtimes: CliRuntime[]
-): WorkspaceCompositionOptions => {
-  const options: WorkspaceCompositionOptions = {};
-  for (const runtime of runtimes) {
-    if (runtime.workspaces && !options.provider)
-      options.provider = runtime.workspaces;
-    if (runtime.runSandbox && !options.runSandbox)
-      options.runSandbox = runtime.runSandbox;
-    if (runtime.sandboxProvider && !options.sandboxProvider)
-      options.sandboxProvider = runtime.sandboxProvider;
-  }
-  return options;
-};
-
-const mergeRuntimes = (
-  configured: CliRuntime,
-  moduleRuntime: CliRuntime,
-): CliRuntime =>
-  validateRuntime({
-    ...configured,
-    ...moduleRuntime,
-    ...(configured.messages || moduleRuntime.messages
-      ? { messages: { ...configured.messages, ...moduleRuntime.messages } }
-      : {}),
-    ...((configured.eventSinks?.length ?? 0) > 0 ||
-    (moduleRuntime.eventSinks?.length ?? 0) > 0
-      ? {
-          eventSinks: [
-            ...(configured.eventSinks ?? []),
-            ...(moduleRuntime.eventSinks ?? []),
-          ],
-        }
-      : {}),
-  });
+export type CliRuntimeModule = HostRuntimeModule;
 
 const sensitiveKey =
   /(?:authorization|cookie|credential|password|secret|token|api[-_]?key)/iu;
@@ -1025,14 +660,6 @@ class CliStreamingEventSink implements EventSink {
   }
 }
 
-/** The run's message options with the prompt package's history compactor. */
-const withHistoryCompactor = (
-  options: AgentRuntimeMessagesOptions | undefined,
-): AgentRuntimeMessagesOptions => ({
-  compactor: new PromptMessageHistoryCompactor(),
-  ...options,
-});
-
 /**
  * Read `--messages`: a JSON or YAML array of messages, or `{ messages,
  * signature }` as written by `--messages-out`.
@@ -1163,7 +790,7 @@ const execute = async (
     const runtimeModulePath = parsed.options.get("runtime-module");
     const runtimeStore =
       command === "resume"
-        ? await loadRuntimeStore(runtimeModulePath, {
+        ? await loadHostRunStore(runtimeModulePath, {
             runId: target,
             storeDirectory,
             storeDriver: resolvedStore.driver,
@@ -1232,29 +859,19 @@ const execute = async (
       ...(eventFile ? { eventFile } : {}),
       ...(artifactDirectory ? { artifactDirectory } : {}),
     };
-    const loadedModuleRuntime = await loadRuntime(runtimeModulePath, context);
+    const loadedModuleRuntime = await loadHostRuntime(
+      runtimeModulePath,
+      context,
+    );
     shutdown = loadedModuleRuntime.shutdown;
     const moduleRuntime = runtimeStore
-      ? validateRuntime({ ...loadedModuleRuntime, runStore: runtimeStore })
+      ? validateHostRuntime({ ...loadedModuleRuntime, runStore: runtimeStore })
       : loadedModuleRuntime;
-    const config = await resolveConfig(
+    const config = await resolveAgentRuntimeConfig(
       parsed.options.get("config"),
       configSearchDirectory,
     );
-    const configuredRuntime = composeRuntime(
-      manifest,
-      config,
-      {},
-      {
-        model: !moduleRuntime.model,
-        tools: !moduleRuntime.tools,
-        ...(moduleRuntime.connectionCredentials
-          ? { connectionCredentials: moduleRuntime.connectionCredentials }
-          : {}),
-        workspaceOptions: workspaceCompositionOptions(moduleRuntime),
-      },
-    );
-    const runtime = mergeRuntimes(configuredRuntime, moduleRuntime);
+    const runtime = composeHostRuntime(manifest, config, [moduleRuntime]);
     const jsonlSink = eventFile ? new JsonlEventSink(eventFile) : undefined;
     const requestedFormat =
       parsed.options.get("format") ??
@@ -1272,44 +889,30 @@ const execute = async (
             parsed.options.has("show-reasoning"),
           );
     const warnedSinks = new Set<EventSink>();
-    const runner = new AgentRuntime({
-      onEventSinkError(_error, _event, sink) {
-        if (warnedSinks.has(sink)) return;
-        warnedSinks.add(sink);
-        io.stderr(
-          `Warning: event delivery failed for ${sink instanceof SafeLocalEventSink ? `local log ${eventFile}` : sink.constructor.name}. Check permissions and available disk space. Execution continues.\n`,
-        );
-      },
-      runStore: runtime.runStore ?? store,
-      ...(agentManifestSource ? { agentManifestSource } : {}),
-      stepExecutors: resolveStepExecutors(runtime, {
-        allowUnsafeWebhooks: true,
+    const runner = new AgentRuntime(
+      hostRuntimeDependencies(runtime, {
+        // The operator runs manifests they chose on their own machine.
+        trust: "local-operator",
+        onEventSinkError(_error, _event, sink) {
+          if (warnedSinks.has(sink)) return;
+          warnedSinks.add(sink);
+          io.stderr(
+            `Warning: event delivery failed for ${sink instanceof SafeLocalEventSink ? `local log ${eventFile}` : sink.constructor.name}. Check permissions and available disk space. Execution continues.\n`,
+          );
+        },
+        runStore: runtime.runStore ?? store,
+        agentManifestSource,
+        eventSinks: [
+          ...(jsonlSink ? [new SafeLocalEventSink(jsonlSink)] : []),
+          ...(streamingSink ? [streamingSink] : []),
+        ],
+        artifacts:
+          runtime.artifactStore ??
+          (artifactDirectory
+            ? new FileArtifactStore(artifactDirectory)
+            : undefined),
       }),
-      conditionEvaluator: new JexlConditionEvaluator(),
-      eventSinks: [
-        ...(jsonlSink ? [new SafeLocalEventSink(jsonlSink)] : []),
-        ...(streamingSink ? [streamingSink] : []),
-        ...(runtime.eventSinks ?? []),
-      ],
-      ...(runtime.model ? { model: runtime.model } : {}),
-      ...(runtime.tools ? { tools: runtime.tools } : {}),
-      ...(runtime.approvals ? { approvals: runtime.approvals } : {}),
-      ...(runtime.sandbox ? { sandbox: runtime.sandbox } : {}),
-      ...(runtime.subRuns ? { subRuns: runtime.subRuns } : {}),
-      ...(runtime.workspaces ? { workspaces: runtime.workspaces } : {}),
-      ...(runtime.runSandbox ? { runSandbox: runtime.runSandbox } : {}),
-      ...(runtime.policies ? { policies: runtime.policies } : {}),
-      ...(runtime.enforcedPolicies
-        ? { enforcedPolicies: runtime.enforcedPolicies }
-        : {}),
-      ...(runtime.summarizer ? { summarizer: runtime.summarizer } : {}),
-      messages: withHistoryCompactor(runtime.messages),
-      ...(runtime.artifactStore
-        ? { artifacts: runtime.artifactStore }
-        : artifactDirectory
-          ? { artifacts: new FileArtifactStore(artifactDirectory) }
-          : {}),
-    });
+    );
 
     try {
       const result = await runner.run(
@@ -1546,8 +1149,8 @@ export const executeWorkerInvocation = async (
             );
           })()
       : undefined;
-  const moduleRuntime = await loadRuntime(runtimeReference, context);
-  const hostRuntime = validateRuntime(options.runtime ?? {});
+  const moduleRuntime = await loadHostRuntime(runtimeReference, context);
+  const hostRuntime = validateHostRuntime(options.runtime ?? {});
   let requestSuppliedConfiguration = false;
   const config = options.configFile
     ? await loadAgentRuntimeConfig(options.configFile)
@@ -1571,48 +1174,26 @@ export const executeWorkerInvocation = async (
                 "Worker request configReference requires a host resolveConfigReference callback.",
               );
             })()
-        : await resolveConfig(undefined, process.cwd());
+        : await resolveAgentRuntimeConfig(undefined, process.cwd());
   if (requestSuppliedConfiguration) {
     assertSafeInlineWorkerConfiguration(config);
   }
-  const configuredRuntime = composeRuntime(
+  const runtime = composeHostRuntime(
     manifest,
     config,
-    requestSuppliedConfiguration
-      ? { environment: options.environment ?? {} }
-      : options.environment
-        ? { environment: options.environment }
-        : {},
+    [moduleRuntime, hostRuntime],
     {
-      model: !moduleRuntime.model && !hostRuntime.model,
-      tools: !moduleRuntime.tools && !hostRuntime.tools,
-      workspaceOptions: {
-        ...options.workspaceOptions,
-        ...workspaceCompositionOptions(hostRuntime, moduleRuntime),
-      },
+      ...(requestSuppliedConfiguration
+        ? { environment: options.environment ?? {} }
+        : options.environment
+          ? { environment: options.environment }
+          : {}),
       ...(options.modelPolicy ? { modelPolicy: options.modelPolicy } : {}),
-      ...(options.toolOptions ||
-      hostRuntime.connectionCredentials ||
-      moduleRuntime.connectionCredentials
-        ? {
-            toolOptions: {
-              ...options.toolOptions,
-              ...((hostRuntime.connectionCredentials ??
-              moduleRuntime.connectionCredentials)
-                ? {
-                    credentialProvider:
-                      hostRuntime.connectionCredentials ??
-                      moduleRuntime.connectionCredentials,
-                  }
-                : {}),
-            },
-          }
+      ...(options.toolOptions ? { toolOptions: options.toolOptions } : {}),
+      ...(options.workspaceOptions
+        ? { workspaceOptions: options.workspaceOptions }
         : {}),
     },
-  );
-  const runtime = mergeRuntimes(
-    mergeRuntimes(configuredRuntime, moduleRuntime),
-    hostRuntime,
   );
   const store =
     runtime.runStore ??
@@ -1664,37 +1245,18 @@ export const executeWorkerInvocation = async (
       }
     }
 
-    const runner = new AgentRuntime({
-      runStore: store,
-      // Webhook execution is host-supplied in worker mode so destination policy
-      // cannot be bypassed by a remote manifest.
-      stepExecutors: resolveStepExecutors(runtime),
-      conditionEvaluator: new JexlConditionEvaluator(),
-      eventSinks: [
-        new PortableWorkerEventSink(options.onMessage),
-        ...(runtime.eventSinks ?? []),
-      ],
-      ...(runtime.model ? { model: runtime.model } : {}),
-      ...(runtime.tools ? { tools: runtime.tools } : {}),
-      ...(runtime.approvals ? { approvals: runtime.approvals } : {}),
-      ...(runtime.sandbox ? { sandbox: runtime.sandbox } : {}),
-      ...(runtime.subRuns ? { subRuns: runtime.subRuns } : {}),
-      ...(runtime.workspaces ? { workspaces: runtime.workspaces } : {}),
-      ...(runtime.runSandbox ? { runSandbox: runtime.runSandbox } : {}),
-      ...(runtime.policies ? { policies: runtime.policies } : {}),
-      ...(runtime.enforcedPolicies
-        ? { enforcedPolicies: runtime.enforcedPolicies }
-        : {}),
-      ...(runtime.summarizer ? { summarizer: runtime.summarizer } : {}),
-      messages: withHistoryCompactor(runtime.messages),
-      artifacts,
-      ...(options.maxParallelSteps
-        ? { maxParallelSteps: options.maxParallelSteps }
-        : {}),
-      ...(options.eventSinkFailurePolicy
-        ? { eventSinkFailurePolicy: options.eventSinkFailurePolicy }
-        : {}),
-    });
+    const runner = new AgentRuntime(
+      hostRuntimeDependencies(runtime, {
+        // Webhook execution is host-supplied in worker mode so destination
+        // policy cannot be bypassed by a remote manifest.
+        trust: "untrusted-request",
+        runStore: store,
+        eventSinks: [new PortableWorkerEventSink(options.onMessage)],
+        artifacts,
+        maxParallelSteps: options.maxParallelSteps,
+        eventSinkFailurePolicy: options.eventSinkFailurePolicy,
+      }),
+    );
     return await runner.run({
       manifest,
       ...(request.runId ? { runId: request.runId } : {}),
@@ -1799,6 +1361,165 @@ const worker = async (
   }
 };
 
+const serveOptionNames = new Set([
+  "server-config",
+  "no-server-config",
+  "served-model-name",
+  "config",
+  "runtime-config",
+  "runtime-module",
+  "host",
+  "port",
+  "api-key-env",
+  "allow-unauthenticated",
+  "input",
+  "output",
+  "stream-mode",
+  "progress",
+  "store-driver",
+  "store",
+  "ledger",
+  "on-unrecognized",
+  "client-tools",
+  "max-concurrent-runs",
+  "request-timeout",
+  "warmup",
+  "check",
+]);
+const serveFlags = new Set([
+  "no-server-config",
+  "allow-unauthenticated",
+  "warmup",
+  "check",
+]);
+
+const INPUT_SOURCES = new Set([
+  "last-user",
+  "transcript",
+  "system",
+  "json",
+  "client",
+]);
+
+const oneOf = <T extends string>(
+  parsed: ParsedOptions,
+  name: string,
+  values: readonly T[],
+): T | undefined => {
+  const value = parsed.options.get(name);
+  if (value === undefined) return undefined;
+  if (!(values as readonly string[]).includes(value))
+    throw new Error(`--${name} must be one of ${values.join(", ")}.`);
+  return value as T;
+};
+
+/** Parse `agent-runtime serve` arguments into server options. */
+export const parseServeArguments = (
+  args: string[],
+): ServeOptions & { check?: boolean } => {
+  const parsed = parseOptions(
+    args,
+    serveOptionNames,
+    serveFlags,
+    new Set(["input"]),
+  );
+  if (parsed.positional.length > 1)
+    throw new Error("Serve one manifest, or use --server-config for several.");
+  if (parsed.options.has("config") && parsed.options.has("runtime-config"))
+    throw new Error("--runtime-config is an alias of --config; use one.");
+  const manifest = parsed.positional[0];
+  const input: Record<string, InputSourceConfig> = {};
+  for (const entry of parsed.repeated.get("input") ?? []) {
+    const separator = entry.indexOf("=");
+    const variable = entry.slice(0, separator);
+    const source = entry.slice(separator + 1);
+    if (separator <= 0 || !INPUT_SOURCES.has(source)) {
+      throw new Error(
+        `--input expects <variable>=<source> with source last-user, transcript, system, json, or client; got ${JSON.stringify(entry)}.`,
+      );
+    }
+    if (input[variable]) throw new Error(`--input maps ${variable} twice.`);
+    input[variable] = source as InputSourceConfig;
+  }
+  const port = parsed.options.get("port");
+  const portNumber = port === undefined ? undefined : Number(port);
+  if (
+    portNumber !== undefined &&
+    (!Number.isInteger(portNumber) || portNumber < 0 || portNumber > 65_535)
+  )
+    throw new Error("--port must be an integer from 0 to 65535.");
+  const runtimeConfig =
+    parsed.options.get("config") ?? parsed.options.get("runtime-config");
+  const streamMode = oneOf(parsed, "stream-mode", [
+    "auto",
+    "live",
+    "committed",
+  ] as const);
+  const progress = oneOf(parsed, "progress", ["none", "status"] as const);
+  const storeDriver = oneOf(parsed, "store-driver", [
+    "memory",
+    "sqlite",
+  ] as const);
+  const onUnrecognized = oneOf(parsed, "on-unrecognized", [
+    "unsigned",
+    "reject",
+    "restart",
+  ] as const);
+  const clientTools = oneOf(parsed, "client-tools", [
+    "ignore",
+    "reject",
+  ] as const);
+  const maxConcurrentRuns = positiveSafeIntegerOption(
+    parsed,
+    "max-concurrent-runs",
+  );
+  const requestTimeoutMs = positiveSafeIntegerOption(parsed, "request-timeout");
+  if (storeDriver === "sqlite" && !parsed.options.has("store"))
+    throw new Error("--store-driver sqlite requires --store <path>.");
+  const value = (name: string): string | undefined => parsed.options.get(name);
+  return {
+    ...(manifest ? { manifest } : {}),
+    ...(value("server-config")
+      ? { serverConfig: value("server-config")! }
+      : {}),
+    ...(parsed.options.has("no-server-config") ? { noServerConfig: true } : {}),
+    ...(value("served-model-name")
+      ? { servedModelName: value("served-model-name")! }
+      : {}),
+    ...(runtimeConfig ? { runtimeConfig } : {}),
+    ...(value("runtime-module")
+      ? { runtimeModule: value("runtime-module")! }
+      : {}),
+    ...(value("host") ? { host: value("host")! } : {}),
+    ...(portNumber !== undefined ? { port: portNumber } : {}),
+    ...(value("api-key-env") ? { apiKeyEnv: value("api-key-env")! } : {}),
+    ...(parsed.options.has("allow-unauthenticated")
+      ? { allowUnauthenticated: true }
+      : {}),
+    ...(Object.keys(input).length > 0 ? { input } : {}),
+    ...(value("output") ? { output: value("output")! } : {}),
+    ...(streamMode ? { streamMode } : {}),
+    ...(progress ? { progress } : {}),
+    ...(storeDriver ? { storeDriver } : {}),
+    ...(value("store") ? { store: value("store")! } : {}),
+    ...(value("ledger") ? { ledger: value("ledger")! } : {}),
+    ...(onUnrecognized ? { onUnrecognized } : {}),
+    ...(clientTools ? { clientTools } : {}),
+    ...(maxConcurrentRuns ? { maxConcurrentRuns } : {}),
+    ...(requestTimeoutMs ? { requestTimeoutMs } : {}),
+    ...(parsed.options.has("warmup") ? { warmup: true } : {}),
+    ...(parsed.options.has("check") ? { check: true } : {}),
+  };
+};
+
+const serve = async (
+  args: string[],
+  io: CliIo,
+  signal?: AbortSignal,
+): Promise<void> => {
+  await runServe(parseServeArguments(args), io, signal);
+};
+
 const examples = async (
   args: string[],
   io: CliIo,
@@ -1873,6 +1594,7 @@ export const runCli = async (
       await execute(command, commandArgs, io, options.signal);
     } else if (command === "worker")
       return (await worker(commandArgs, io, options.signal)) ? 0 : 1;
+    else if (command === "serve") await serve(commandArgs, io, options.signal);
     else {
       io.stderr(`Unknown command: ${command}\n\n${usage}`);
       return 2;

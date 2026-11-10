@@ -212,6 +212,35 @@ describe("preflight", () => {
     expect(runStore.runs.has("preflight")).toBe(false);
   });
 
+  it("checks a manifest without creating a run through preflight()", async () => {
+    let executed = 0;
+    const { agentRuntime, runStore } = runtime([
+      {
+        type: "prompt",
+        execute: async () => {
+          executed += 1;
+          return {};
+        },
+      },
+    ]);
+    await expect(
+      agentRuntime.preflight(manifest([prompt("ok")])),
+    ).resolves.toBeUndefined();
+    await expect(
+      agentRuntime.preflight(
+        manifest([
+          prompt("ok"),
+          { id: "hook", type: "webhook", url: "https://example.test/hook" },
+        ]),
+      ),
+    ).rejects.toMatchObject({ code: "MANIFEST_PREFLIGHT_FAILED" });
+    await expect(
+      agentRuntime.preflight({ schemaVersion: "1.0" } as never),
+    ).rejects.toThrow(/Agent manifest is invalid/u);
+    expect(executed).toBe(0);
+    expect(runStore.runs.size).toBe(0);
+  });
+
   it("requires a condition evaluator when conditions are used", async () => {
     const { agentRuntime } = runtime([
       { type: "prompt", execute: async () => ({}) },

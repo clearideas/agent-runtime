@@ -35,19 +35,21 @@ results commit in manifest order.
 - [Persistence and recovery](./persistence-and-recovery.md) — stores, checkpoints, resume, and fencing
 - [Local execution](./local-execution.md) — embed execution in a Node.js process
 - [Remote execution](./remote-execution.md) — worker protocol, HTTPS, and compute adapters
+- [OpenAI-compatible server](./serving.md) — serve agents to chat front ends and OpenAI SDKs
 - [Sandboxes and artifacts](./sandboxes-and-artifacts.md) — isolated code and generated files
 - [Production guide](./production.md) — security, limits, observability, and operations
 - [Contract reference](./reference.md) — fields, adapter interfaces, events, and packages
 
 ## Choose an integration path
 
-| Goal                             | Start with              | Add when needed                                          |
-| -------------------------------- | ----------------------- | -------------------------------------------------------- |
-| Try an agent locally             | CLI quick start         | model profiles, SQLite                                   |
-| Add agents to a Node application | embedding guide         | custom event and persistence adapters                    |
-| Run on ad hoc compute            | remote execution        | durable control plane, secure transport, compute adapter |
-| Allow code or file generation    | sandboxes and artifacts | select a local or remote sandbox provider                |
-| Operate a multi-instance service | production guide        | transactional store, telemetry, reconciliation           |
+| Goal                             | Start with               | Add when needed                                          |
+| -------------------------------- | ------------------------ | -------------------------------------------------------- |
+| Try an agent locally             | CLI quick start          | model profiles, SQLite                                   |
+| Add agents to a Node application | embedding guide          | custom event and persistence adapters                    |
+| Run on ad hoc compute            | remote execution         | durable control plane, secure transport, compute adapter |
+| Serve agents to chat front ends  | OpenAI-compatible server | API keys, message signing, server configuration file     |
+| Allow code or file generation    | sandboxes and artifacts  | select a local or remote sandbox provider                |
+| Operate a multi-instance service | production guide         | transactional store, telemetry, reconciliation           |
 
 ## Components
 

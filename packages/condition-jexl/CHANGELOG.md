@@ -1,5 +1,13 @@
 # @clearideas/agent-runtime-condition-jexl
 
+## 0.9.0
+
+### Patch Changes
+
+- Updated dependencies
+  - @clearideas/agent-runtime-core@0.9.0
+  - @clearideas/agent-runtime-contracts@0.9.0
+
 ## 0.8.0
 
 ### Patch Changes

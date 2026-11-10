@@ -1,7 +1,8 @@
 # Clear Ideas Agent Runtime CLI
 
 The `agent-runtime` CLI validates and runs agent manifests, resumes stored
-runs, inspects events, and starts worker processes.
+runs, inspects events, starts worker processes, and serves manifests over an
+OpenAI-compatible API.
 
 Install it in a project and run it with `npx`:
 
@@ -23,7 +24,11 @@ npx agent-runtime inspect run_123 --store ./.agent-runtime
 npx agent-runtime events ./.agent-runtime/events.jsonl --run run_123 --tail 20
 npx agent-runtime examples run variables --stream
 npx agent-runtime run ./agent.yaml --store-driver sqlite --store ./.agent-runtime/runs.sqlite
+npx agent-runtime serve ./support-chat.agent.yaml --port 8000
+npx agent-runtime serve --server-config ./agent-runtime.server.yaml
 ```
+
+Options accept `--name value` or `--name=value`.
 
 `--stream` shows model text on stdout and lifecycle progress on stderr. Use
 `--format ndjson` for a machine-readable stream containing event and result
@@ -247,3 +252,23 @@ newline-delimited `ready`, `event`, `result`, or `error` messages to stdout.
 Child-process and remote execution adapters launch this command. The worker
 uses only host-pinned `--config` and `--runtime-module` files; request-supplied
 paths and inline configuration are rejected by default.
+
+## Serve command
+
+`agent-runtime serve` exposes agent manifests as models on an
+OpenAI-compatible API (`/v1/models`, `/v1/chat/completions`), so chat front
+ends and OpenAI SDKs can run whole agents:
+
+```sh
+export AGENT_RUNTIME_API_KEY="a-key-you-choose"
+npx agent-runtime serve ./support-chat.agent.yaml --config ./runtime.yaml --port 8000
+```
+
+With no arguments, it reads `agent-runtime.server.yaml` (or `.yml`, `.json`)
+from the working directory; `--server-config <file>` selects another file.
+Manifests that declare `messages` receive the chat as conversation turns;
+others receive variables mapped with `--input <variable>=<source>`. Serve
+follows the worker's trust rules: webhook steps need an authorizing executor
+from the runtime module, and requests never supply configuration. `--check`
+validates everything and exits. See
+[Serve agents over an OpenAI-compatible API](https://agent-runtime.clearideas.com/serving).

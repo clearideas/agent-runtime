@@ -67,7 +67,24 @@ try {
     ["install", "--ignore-scripts", "--omit=dev", "--no-audit", "--no-fund"],
     consumer,
   );
-  const source = `import { createAgentRuntime, createHmacMessageSigner, conversationTurns, defineAgent, MessagesValidationError } from '@clearideas/agent-runtime';
+  await writeFile(
+    path.join(consumer, "serve.agent.json"),
+    JSON.stringify({
+      schemaVersion: "1.0",
+      model: { provider: "test", model: "local" },
+      messages: { required: true },
+      steps: [
+        {
+          id: "reply",
+          type: "prompt",
+          systemPrompt: "Answer.",
+          history: "all",
+        },
+      ],
+    }),
+  );
+  const source = `import { AgentServer, createFetchHandler, singleManifestServerConfig } from '@clearideas/agent-runtime-server';
+import { createAgentRuntime, createHmacMessageSigner, conversationTurns, defineAgent, MessagesValidationError } from '@clearideas/agent-runtime';
 const manifest = defineAgent({schemaVersion:'1.0',model:{provider:'openai',model:'test'},steps:[{id:'hello',type:'prompt',prompt:'Hello',includeInFinalOutput:true}]});
 const result = await createAgentRuntime({manifest,model:{generate:async()=>({output:'hello',transcript:[]})}}).run({});
 if(result.output !== 'hello') throw new Error('Unexpected consumer result');
@@ -88,7 +105,24 @@ try {
   if(!(error instanceof MessagesValidationError) || error.code !== 'MESSAGES_SIGNATURE_INVALID') throw error;
 }
 `;
-  await writeFile(path.join(consumer, "smoke.ts"), source);
+  const serverSource = `
+const server = await AgentServer.create({
+  loaded: singleManifestServerConfig({manifest:'./serve.agent.json',servedModelName:'packed-agent'}),
+  runtime: {model:{generate:async()=>({output:'packed reply',transcript:[]})}},
+  logger: {info(){},warn(){},error(){}},
+});
+try {
+  const handle = createFetchHandler(server);
+  const models = await handle(new Request('http://localhost/v1/models'));
+  if(models.status !== 200 || (await models.json()).data[0].id !== 'packed-agent') throw new Error('Packed server did not list its model');
+  const response = await handle(new Request('http://localhost/v1/chat/completions', {
+    method:'POST', headers:{'content-type':'application/json'},
+    body:JSON.stringify({model:'packed-agent',messages:[{role:'user',content:'Hello'}]}),
+  }));
+  if(response.status !== 200 || (await response.json()).choices[0].message.content !== 'packed reply') throw new Error('Packed server did not execute its manifest');
+} finally { await server.shutdown(0); }
+`;
+  await writeFile(path.join(consumer, "smoke.ts"), source + serverSource);
   await writeFile(
     path.join(consumer, "tsconfig.json"),
     JSON.stringify({
@@ -145,6 +179,22 @@ try {
     ],
     { cwd: consumer, stdio: "pipe" },
   );
+  const checked = JSON.parse(
+    execFileSync(
+      process.execPath,
+      [
+        cli,
+        "serve",
+        "./serve.agent.json",
+        "--runtime-module",
+        "./mock.mjs",
+        "--check",
+      ],
+      { cwd: consumer, encoding: "utf8" },
+    ),
+  );
+  if (checked.valid !== true || checked.models[0].name !== "serve")
+    throw new Error("Packed CLI did not preflight its served manifest");
   let bytes = 0;
   const measure = async (directory) => {
     for (const entry of await readdir(directory, { withFileTypes: true })) {
@@ -158,7 +208,7 @@ try {
     await readFile(path.join(consumer, "package-lock.json"), "utf8"),
   );
   console.log(
-    `Packed API, TypeScript, and CLI passed. Combined standard API + CLI installation: ${Object.keys(lock.packages).length - 1} packages, ${(bytes / 1024 / 1024).toFixed(1)} MiB.`,
+    `Packed API, TypeScript, CLI, and server passed. Combined standard API + CLI installation: ${Object.keys(lock.packages).length - 1} packages, ${(bytes / 1024 / 1024).toFixed(1)} MiB.`,
   );
 } catch (error) {
   if (error.stdout) process.stderr.write(error.stdout);

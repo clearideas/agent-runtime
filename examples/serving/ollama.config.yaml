@@ -1,0 +1,20 @@
+# The same profiles, served by a local Ollama model. Pull a model with
+# structured-output support first, for example: ollama pull qwen3
+version: "1.0"
+
+providers:
+  ollama:
+    driver: openai-compatible
+    baseURL: http://127.0.0.1:11434/v1
+    supportsStructuredOutputs: true
+
+models:
+  default:
+    provider: ollama
+    model: qwen3
+
+messages:
+  signing:
+    activeKeyId: local
+    keys:
+      local: { env: AGENT_MESSAGES_KEY }

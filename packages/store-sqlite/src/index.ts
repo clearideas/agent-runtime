@@ -470,6 +470,33 @@ export class SqliteRunStore implements RunStore {
     }
   }
 
+  async deleteRun(runId: string): Promise<boolean> {
+    this.#database.exec("BEGIN IMMEDIATE");
+    try {
+      const row = this.#database
+        .prepare(
+          "SELECT record_json AS json FROM agent_runtime_runs WHERE run_id = ?",
+        )
+        .get(runId) as JsonRow | undefined;
+      if (!row) {
+        this.#database.exec("COMMIT");
+        return false;
+      }
+      if (parse<RunRecord>(row.json).status === "running") {
+        throw new Error(`Cannot delete running run ${runId}`);
+      }
+      // Checkpoints are removed by the foreign key's ON DELETE CASCADE.
+      this.#database
+        .prepare("DELETE FROM agent_runtime_runs WHERE run_id = ?")
+        .run(runId);
+      this.#database.exec("COMMIT");
+      return true;
+    } catch (error) {
+      this.#database.exec("ROLLBACK");
+      throw error;
+    }
+  }
+
   close(): void {
     this.#database.close();
   }

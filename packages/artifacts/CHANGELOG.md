@@ -1,5 +1,11 @@
 # @clearideas/agent-runtime-artifacts
 
+## 0.9.0
+
+### Patch Changes
+
+- @clearideas/agent-runtime-sandbox@0.9.0
+
 ## 0.8.0
 
 ### Patch Changes

@@ -1,5 +1,16 @@
 # @clearideas/agent-runtime-config
 
+## 0.9.0
+
+### Patch Changes
+
+- Updated dependencies
+  - @clearideas/agent-runtime-core@0.9.0
+  - @clearideas/agent-runtime-store-local@0.9.0
+  - @clearideas/agent-runtime-model-ai-sdk@0.9.0
+  - @clearideas/agent-runtime-sandbox@0.9.0
+  - @clearideas/agent-runtime-contracts@0.9.0
+
 ## 0.8.0
 
 ### Patch Changes

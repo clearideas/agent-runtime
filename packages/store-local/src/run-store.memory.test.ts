@@ -189,4 +189,22 @@ describe("MemoryRunStore", () => {
     await store.cancelRun("run-interrupted", "2026-07-22T12:03:00.000Z", 2);
     expect((await store.loadRun("run-interrupted"))?.status).toBe("cancelled");
   });
+
+  it("deletes finished runs and their checkpoints, never a running run", async () => {
+    const store = new MemoryRunStore();
+    await store.createRun(runRecord());
+    await store.saveCheckpoint(checkpoint("checkpoint-1", 1));
+    await expect(store.deleteRun("run-memory")).rejects.toThrow(
+      "Cannot delete running run run-memory",
+    );
+    await store.cancelRun("run-memory", "2026-07-22T10:01:00.000Z", 1);
+    await expect(store.deleteRun("run-memory")).resolves.toBe(true);
+    await expect(store.loadRun("run-memory")).resolves.toBeNull();
+    await expect(store.loadLatestCheckpoint("run-memory")).resolves.toBeNull();
+    await expect(store.deleteRun("run-memory")).resolves.toBe(false);
+    await store.createRun(runRecord());
+    await expect(store.loadRun("run-memory")).resolves.toMatchObject({
+      status: "running",
+    });
+  });
 });

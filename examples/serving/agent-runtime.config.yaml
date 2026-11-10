@@ -1,0 +1,17 @@
+# Runtime configuration: which model each profile uses, and message signing.
+version: "1.0"
+
+providers:
+  openai:
+    driver: openai # reads OPENAI_API_KEY
+
+models:
+  default:
+    provider: openai
+    model: gpt-5.6
+
+messages:
+  signing:
+    activeKeyId: local
+    keys:
+      local: { env: AGENT_MESSAGES_KEY }

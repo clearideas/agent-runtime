@@ -398,7 +398,9 @@ See [connections and tools](./connections-and-tools.md#verifying-mcp-tool-metada
 | `MessageHistoryCompactor`      | summarize the oldest part of a conversation, once per run                |
 
 `RunStore` implementations may add `interruptRun` to record the `interrupted`
-status; without it, interruptions are stored as retryable failures.
+status; without it, interruptions are stored as retryable failures. For
+retention, they may add `deleteRun(runId)`, which removes a run that is not
+`running`, with its checkpoints; the memory and SQLite stores implement it.
 
 ## Execution interface
 
@@ -443,4 +445,5 @@ Remote execution divides the implementation between
 | `@clearideas/agent-runtime-sandbox-modal`   | Modal sandbox provider                                             |
 | `@clearideas/agent-runtime-artifacts`       | sandboxed artifact generation                                      |
 | `@clearideas/agent-runtime-telemetry-otel`  | OpenTelemetry event sink                                           |
-| `@clearideas/agent-runtime-cli`             | CLI host and worker command                                        |
+| `@clearideas/agent-runtime-server`          | OpenAI-compatible server and shared host composition               |
+| `@clearideas/agent-runtime-cli`             | CLI host, worker, and serve commands                               |

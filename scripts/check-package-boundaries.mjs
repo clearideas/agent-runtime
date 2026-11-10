@@ -57,6 +57,7 @@ const runtimePackages = packageEntries
   )
   .map((entry) => path.join(packagesRoot, entry.name));
 
+const SERVER_PACKAGE = "@clearideas/agent-runtime-server";
 const violations = [];
 for (const packageRoot of runtimePackages) {
   const packageJson = JSON.parse(
@@ -67,6 +68,25 @@ for (const packageRoot of runtimePackages) {
     ...Object.keys(packageJson.peerDependencies ?? {}),
     ...Object.keys(packageJson.optionalDependencies ?? {}),
   ]);
+  // Tests may also use the package's declared development dependencies.
+  const declaredForTests = new Set(
+    Object.keys(packageJson.devDependencies ?? {}),
+  );
+
+  // The HTTP server is a host. Runtime packages never depend on it; only the
+  // CLI, which offers `serve`, may.
+  if (
+    declared.has(SERVER_PACKAGE) &&
+    packageJson.name !== "@clearideas/agent-runtime-cli"
+  ) {
+    violations.push({
+      file: path.relative(
+        workspaceRoot,
+        path.join(packageRoot, "package.json"),
+      ),
+      reason: `depends on the host package ${SERVER_PACKAGE}; only the CLI may`,
+    });
+  }
 
   for (const name of declared) {
     if (
@@ -112,6 +132,7 @@ for (const packageRoot of runtimePackages) {
         !isNodeBuiltin(specifier) &&
         !declared.has(dependency) &&
         !testOnlyImports.has(dependency) &&
+        !(file.includes(".test.") && declaredForTests.has(dependency)) &&
         !(
           file.includes(".test.") &&
           (dependency === "@clearideas/agent-runtime" ||

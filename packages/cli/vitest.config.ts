@@ -25,6 +25,9 @@ export default defineConfig({
       "@clearideas/agent-runtime-step-standard": fileURLToPath(
         new URL("../step-standard/src/index.ts", import.meta.url),
       ),
+      "@clearideas/agent-runtime-server": fileURLToPath(
+        new URL("../server/src/index.ts", import.meta.url),
+      ),
       "@clearideas/agent-runtime-store-local": fileURLToPath(
         new URL("../store-local/src/index.ts", import.meta.url),
       ),
