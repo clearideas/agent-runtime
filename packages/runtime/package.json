@@ -42,7 +42,7 @@
     "@ai-sdk/groq": "^4.0.78",
     "@ai-sdk/openai": "^4.0.111",
     "@ai-sdk/openai-compatible": "^3.0.87",
-    "@ai-sdk/xai": "^4.0.59",
+    "@ai-sdk/xai": "^5.0.40",
     "@clearideas/agent-runtime-contracts": "0.9.0",
     "@clearideas/agent-runtime-core": "0.9.0",
     "@clearideas/agent-runtime-model-ai-sdk": "0.9.0",
