@@ -149,7 +149,7 @@ every model request is a bar, split by message kind, against the limit.
 durable transcript keeps every tool result either way. See
 [Context management](./context-management.md).
 
-The showcase pins Agent Runtime 0.8.0, which includes the context management
+The showcase pins Agent Runtime 0.9.0, which includes the context management
 needed by Long Investigation.
 
 ### Data Chat
@@ -181,7 +181,7 @@ path, so **What have we changed so far?** still lists every file. See
 [Files in a conversation](./conversations.md#files-in-a-conversation).
 
 Data Chat and Document Chat use the conversation history support included in
-the pinned Agent Runtime 0.8.0 packages.
+the pinned Agent Runtime 0.9.0 packages.
 
 ## Use a live model
 

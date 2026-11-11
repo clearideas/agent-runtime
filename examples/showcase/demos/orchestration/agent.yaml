@@ -11,7 +11,7 @@ model:
 variables:
   - key: product
     type: string
-    value: Agent Runtime 0.8.0
+    value: Agent Runtime 0.9.0
     description: What is launching.
   - key: regulatedMarket
     type: boolean
