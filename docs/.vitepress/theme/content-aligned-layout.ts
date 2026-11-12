@@ -8,6 +8,7 @@ import {
 } from "vue";
 import { useRoute } from "vitepress";
 import DefaultTheme from "vitepress/theme";
+import ConsentFooter from "./ConsentFooter.vue";
 
 /** Keep the brand aligned with the main content area before its inner text padding, including aside/route changes. */
 export default defineComponent({
@@ -53,6 +54,7 @@ export default defineComponent({
       window.removeEventListener("resize", schedule);
       document.documentElement.style.removeProperty("--docs-content-left");
     });
-    return () => h(DefaultTheme.Layout);
+    return () =>
+      h(DefaultTheme.Layout, null, { "layout-bottom": () => h(ConsentFooter) });
   },
 });

@@ -16,7 +16,8 @@
     "test": "node --test dev-server.test.mjs"
   },
   "devDependencies": {
-    "vitepress": "1.6.4"
+    "vitepress": "1.6.4",
+    "@clearideas/consent-analytics": "0.1.0-rc.1"
   },
   "engines": {
     "node": ">=22.20.0"

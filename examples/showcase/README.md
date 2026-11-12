@@ -485,3 +485,25 @@ model and whichever sandbox the machine provides. Force a sandbox with
   stub work even though sandbox commands receive almost no environment. If a
   sandbox command still fails, the helper's error output is printed in the
   terminal running `npm start`.
+
+## Optional consent and analytics
+
+Self-hosted showcases do not send analytics by default. To enable the shared
+consent client, register this deployment's exact origin and site key in the API's
+`BROWSER_ANALYTICS_SITES_JSON`, then set both values before starting the showcase:
+
+```sh
+SHOWCASE_ANALYTICS_API_BASE_URL=https://api.clearideas.com \
+SHOWCASE_ANALYTICS_SITE_KEY=ci-runtime-demo npm start
+```
+
+The server exposes only these public settings. It serves the pinned npm client's
+script and stylesheet locally, keeps the existing strict CSP, and permits network
+connections to the configured collector origin. The built-in consent banner owns
+optional tracking. A footer **Cookie settings** link reopens preferences and replaces
+the floating settings button. Chat is disabled for the showcase.
+
+For local API testing, use `https://api.clearideas.local` and explicitly register the
+local showcase origin (including its port). Do not point a development site key at
+an unregistered production collector. Omitting both variables disables analytics;
+partial or invalid configuration fails at startup.

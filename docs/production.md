@@ -198,3 +198,15 @@ Embedded hosts can use `onEventSinkError(error, event, sink)` for alerts or sele
 `eventSinkFailurePolicy: "fail-run"` for strict delivery before durable completion.
 A telemetry failure cannot roll back an already committed result. Pretty CLI
 output includes suspension reasons and webhook retry delays.
+
+### Documentation consent client
+
+The documentation site builds with the public `@clearideas/consent-analytics`
+package. Its default production hostname is `agent-runtime.clearideas.com`, using
+`ci-docs` to retain the existing reporting destination. The API registry must allow
+that hostname for `ci-docs`. A footer link opens cookie settings; the floating
+settings button stays automatic and is hidden while that link exists.
+
+Override `VITE_ANALYTICS_API_BASE_URL` and `VITE_ANALYTICS_SITE_KEY` for a registered
+staging site. Local documentation builds do not enable analytics unless a site key
+is explicitly supplied. See the showcase README for its separate opt-in settings.
