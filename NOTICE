@@ -3,6 +3,6 @@ Copyright 2026 Clear Ideas Incorporated
 
 Clear Ideas is a trademark of Clear Ideas Incorporated.
 
-The documentation site includes @clearideas/analytics 1.16.11, distributed
+The documentation site includes @clearideas/consent-analytics 0.1.0-rc.1, distributed
 under the MIT License. Its license text is available at
-docs/public/assets/analytics/LICENSE.clearideas-analytics.txt.
+docs/public/assets/analytics/LICENSE.clearideas-consent-analytics.txt.

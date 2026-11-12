@@ -19,6 +19,10 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import type { JsonValue, ModelAdapter } from "@clearideas/agent-runtime";
 
 import { catalog, demos } from "./lib/catalog.ts";
+import {
+  resolveBrowserAnalytics,
+  type BrowserAnalyticsOptions,
+} from "./lib/browser-analytics.ts";
 import type { DemoContext, ShowcaseDemo, ShowcaseMessage } from "./lib/demo.ts";
 import {
   detectEnvironment,
@@ -32,6 +36,14 @@ const publicDirectory = path.join(showcaseDirectory, "public");
 const require = createRequire(import.meta.url);
 
 const vendor: Record<string, readonly [string, string]> = {
+  "/vendor/consent-analytics.js": [
+    require.resolve("@clearideas/consent-analytics/script"),
+    "text/javascript",
+  ],
+  "/vendor/consent-analytics.css": [
+    require.resolve("@clearideas/consent-analytics/consent.css"),
+    "text/css",
+  ],
   "/vendor/marked.js": [
     path.join(path.dirname(require.resolve("marked")), "marked.umd.js"),
     "text/javascript",
@@ -96,13 +108,30 @@ const readJson = async (
 };
 
 /** Serve files beneath public/ only, by known extension. */
-const servePublic = async (response: ServerResponse, pathname: string) => {
+const servePublic = async (
+  response: ServerResponse,
+  pathname: string,
+  collectorOrigin?: string,
+) => {
   const file = path.resolve(publicDirectory, `.${pathname}`);
   const type = contentTypes[path.extname(file)];
   if (!file.startsWith(`${publicDirectory}${path.sep}`) || !type) return false;
   const content = await readFile(file).catch(() => undefined);
   if (!content) return false;
-  response.writeHead(200, { ...securityHeaders, "content-type": type });
+  response.writeHead(200, {
+    ...securityHeaders,
+    "content-type": type,
+    ...(collectorOrigin
+      ? {
+          "content-security-policy": securityHeaders[
+            "content-security-policy"
+          ].replace(
+            "connect-src 'self'",
+            `connect-src 'self' ${collectorOrigin}`,
+          ),
+        }
+      : {}),
+  });
   response.end(content);
   return true;
 };
@@ -143,6 +172,7 @@ const reportFailure = (demoId: string, message: ShowcaseMessage) => {
 };
 
 export interface ShowcaseOptions {
+  analytics?: BrowserAnalyticsOptions | false;
   host?: string;
   port?: number;
   dataDirectory?: string;
@@ -166,6 +196,7 @@ export interface ShowcaseApp {
 export const createShowcaseApp = async (
   options: ShowcaseOptions = {},
 ): Promise<ShowcaseApp> => {
+  const analytics = resolveBrowserAnalytics(options.analytics);
   const host = options.host ?? process.env.SHOWCASE_HOST ?? "127.0.0.1";
   const port = Number(options.port ?? process.env.SHOWCASE_PORT ?? 4178);
   const dataDirectory =
@@ -305,6 +336,8 @@ export const createShowcaseApp = async (
     for (const demo of demos)
       if (await demo.route?.(contextFor(demo), request, response, url)) return;
 
+    if (method === "GET" && url.pathname === "/api/browser-analytics")
+      return sendJson(response, 200, analytics);
     if (method === "GET" && url.pathname === "/api/environment")
       return sendJson(response, 200, environment);
     if (method === "GET" && url.pathname === "/api/demos")
@@ -409,7 +442,14 @@ export const createShowcaseApp = async (
         : /^\/demos\/[a-z-]+$/u.test(url.pathname)
           ? `${url.pathname}.html`
           : url.pathname;
-    if (await servePublic(response, page)) return;
+    if (
+      await servePublic(
+        response,
+        page,
+        analytics.enabled ? new URL(analytics.apiBaseUrl).origin : undefined,
+      )
+    )
+      return;
     response.writeHead(404, { "content-type": "text/plain; charset=utf-8" });
     response.end("Not found");
   };

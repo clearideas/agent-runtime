@@ -1,4 +1,5 @@
 /** Building blocks shared by every demo page. */
+import "./analytics.js";
 import { h, highlight } from "./ui.js";
 import { isolationBanner } from "./environment-view.js";
 

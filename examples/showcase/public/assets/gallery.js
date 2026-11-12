@@ -1,4 +1,5 @@
 import { h } from "./lib/ui.js";
+import "./lib/analytics.js";
 import { environmentRows, isolationBanner } from "./lib/environment-view.js";
 
 // Small static diagrams. Motion is saved for the demos themselves.

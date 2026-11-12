@@ -1,5 +1,6 @@
 import { inBrowser, type Theme } from "vitepress";
 import DefaultTheme from "vitepress/theme";
+import "@clearideas/consent-analytics/consent.css";
 import ContentAlignedLayout from "./content-aligned-layout";
 
 import { initializeDocumentationAnalytics } from "./analytics";
