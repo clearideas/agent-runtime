@@ -22,6 +22,12 @@ its dependencies are installed independently of the repository workspaces.
 
 ## Run it
 
+To connect a local page to an on-demand hosted showcase instead, run
+`SHOWCASE_URL=https://your-showcase-host.example npm run launch` and open
+`http://127.0.0.1:4179`. Only the launcher runs locally. The
+[hosting recipe](../../infrastructure/showcase/README.md) covers portable Linux
+hosting, the optional Modal deployment, and GitHub Actions.
+
 Requirements: Node.js 22.20.0 or newer, plus either Docker with Linux containers
 or `python3` on the host. Docker supplies Python inside its image; a separate
 host Python installation is needed only for bubblewrap or the fallback.

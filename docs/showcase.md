@@ -1,11 +1,17 @@
 ---
 title: Showcase
-description: Six self-hosted, animated demos of workspaces, durable runs, guardrails, document tools, orchestration, and context management.
+description: Interactive demos of workspaces, durable runs, guardrails, document tools, orchestration, and context management.
 ---
 
 # Showcase
 
-The showcase is a small web app you run on your own machine. Each of its seven
+<script setup>
+import HostedShowcase from './.vitepress/theme/HostedShowcase.vue';
+</script>
+
+<HostedShowcase />
+
+The showcase is a small web app you can run locally or host on a Linux server. Each of its eight
 demos runs a real agent through the real runtime and animates the event
 stream as it happens. Every demo page also shows the manifest, host
 configuration, and integration code that produced it.
@@ -19,6 +25,7 @@ configuration, and integration code that produced it.
 | **Orchestration**      | Parallel waves, a condition, collection and goal loops, in this process or a remote worker process    |
 | **Long Investigation** | A step that reads three times its input limit; the runtime prunes or summarizes its context to finish |
 | **Data Chat**          | A chat, one run per message: moderation, data and charts in the sandbox, and a signed history         |
+| **Document Chat**      | A conversation workspace with document uploads, revisions, and downloads                              |
 
 ## Run it
 

@@ -59,6 +59,9 @@ else
 console.log("\nSandbox");
 const dataDirectory = await mkdtemp(path.join(tmpdir(), "showcase-doctor-"));
 const app = await createShowcaseApp({
+  // The doctor is one local client, even when the host image defaults to
+  // per-visitor HTTP sessions. Its approval/resume requests share this store.
+  sessions: false,
   host: "127.0.0.1",
   port: 0,
   dataDirectory,
