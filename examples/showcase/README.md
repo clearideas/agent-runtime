@@ -1,19 +1,18 @@
 # Agent Runtime Showcase
 
-Self-hosted, animated demos of Clear Ideas Agent Runtime 0.9.0. Each demo runs a
-real agent manifest through the real runtime on your machine — real run
-sandboxes, real workspace files, real checkpoints — and visualizes the event
-stream as it happens. Every page also shows the manifest, host configuration,
-and integration code that produced it.
+Interactive examples of Clear Ideas Agent Runtime 0.9.0, available locally or
+on a hosted server. Each demo executes an agent manifest and visualizes the
+runtime's event stream. Every page also shows the manifest, host configuration,
+and integration code used by the example.
 
 | Demo                   | What it shows                                                                                                                     |
 | ---------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
 | **Repo Mechanic**      | A workspace, the run sandbox, an allowlisted test command, an `authorizeCommand` hook, a code step, and sync-back                 |
 | **Durable Runs**       | An approval step and a token budget pause the run; it resumes in a new attempt with a new sandbox, even after a restart           |
-| **Guardrails**         | An untrusted agent and a hostile model, stopped by configuration, tool digests, path and argument rules, a hook, and the sandbox  |
+| **Guardrails**         | Scripted unauthorized actions tested against configuration, tool digests, path and argument rules, a hook, and the sandbox        |
 | **Document Library**   | A read-only workspace with visibility globs, an image passed to the model as an artifact, and an MCP ticket tool                  |
 | **Orchestration**      | A parallel wave, a condition, a collection loop, and a goal loop, in this process or in a separate worker process                 |
-| **Long Investigation** | A step that reads more than three times its input limit; Agent Runtime prunes or summarizes its context so it finishes            |
+| **Long Investigation** | An investigation that processes logs and a runbook larger than its input limit, using context pruning or summarization            |
 | **Data Chat**          | A chat, one run per message: moderation, data read and charts rendered in the sandbox, and a signed history the browser keeps     |
 | **Document Chat**      | A chat about a Word document: each revision is a real .docx written in the sandbox, kept in a workspace per conversation, by turn |
 
@@ -21,6 +20,12 @@ The example targets the published **0.9.0** runtime and uses a separate lockfile
 its dependencies are installed independently of the repository workspaces.
 
 ## Run it
+
+To connect a local page to an on-demand hosted showcase instead, run
+`SHOWCASE_URL=https://your-showcase-host.example npm run launch` and open
+`http://127.0.0.1:4179`. Only the launcher runs locally. The
+[hosting recipe](../../infrastructure/showcase/README.md) covers portable Linux
+hosting, the optional Modal deployment, and GitHub Actions.
 
 Requirements: Node.js 22.20.0 or newer, plus either Docker with Linux containers
 or `python3` on the host. Docker supplies Python inside its image; a separate
@@ -35,11 +40,11 @@ npm start
 Open [http://127.0.0.1:4178](http://127.0.0.1:4178). From the repository root,
 `npm run example:showcase` starts it too.
 
-No API key is needed. The default **Scripted** mode replaces only the
-model's decisions; the runtime, sandbox, workspace stores, policies, and
-checkpoints are all real, and the script chooses each next step from the real
-tool results (failing test names, search matches, host denials). Choose
-**Live** in a demo to use a real model instead:
+No API key is needed in the default **Scripted** mode. A script supplies model
+decisions based on tool results, such as failing test names, search matches,
+and host denials. The runtime executes the tools, applies policies, updates
+workspace files, and saves checkpoints. Choose **Live** in a demo to make
+model-provider calls:
 
 ```sh
 export OPENAI_API_KEY="..."

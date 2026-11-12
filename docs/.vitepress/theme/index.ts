@@ -1,14 +1,14 @@
 import { inBrowser, type Theme } from "vitepress";
 import DefaultTheme from "vitepress/theme";
 import "@clearideas/consent-analytics/consent.css";
-import ContentAlignedLayout from "./content-aligned-layout";
+import DocumentationLayout from "./layout";
 
 import { initializeDocumentationAnalytics } from "./analytics";
 import "./style.css";
 
 const theme: Theme = {
   extends: DefaultTheme,
-  Layout: ContentAlignedLayout,
+  Layout: DocumentationLayout,
   enhanceApp({ router }) {
     if (inBrowser) {
       void initializeDocumentationAnalytics(router);

@@ -13,11 +13,10 @@ A prompt step's model input can outgrow its limits in three ways:
 | A single tool result | one call returns a large file, page, or listing                 |
 | The tool loop        | every round appends the model's response and the tool results   |
 
-Agent Runtime reduces each of these before it sends a request that would be
-too large, so a long-running step finishes instead of failing on
-`limits.maxInputBytes`, `limits.maxMessagesPerPrompt`, or the provider's own
-context window. Reduction is controlled by the `context` policy, which a host,
-a manifest, and a step can each set. See
+The `context` policy controls how Agent Runtime handles these inputs as they
+approach `limits.maxInputBytes`, `limits.maxMessagesPerPrompt`, or the model's
+context window. It can prune or summarize content, or fail the step when input
+exceeds a limit. A host, a manifest, and a step can each set the policy. See
 [Execution policies](./execution-policies.md) for how the layers combine.
 
 A conversation history supplied to a run is compacted separately: once per

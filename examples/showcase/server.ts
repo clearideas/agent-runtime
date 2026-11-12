@@ -4,6 +4,7 @@
  * lives in each demo's host.ts.
  */
 import { existsSync } from "node:fs";
+import { randomUUID } from "node:crypto";
 import { mkdir, readFile } from "node:fs/promises";
 import {
   createServer,
@@ -19,6 +20,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import type { JsonValue, ModelAdapter } from "@clearideas/agent-runtime";
 
 import { catalog, demos } from "./lib/catalog.ts";
+import { createSessionResolver, parseOrigin } from "./lib/hosting.ts";
 import {
   resolveBrowserAnalytics,
   type BrowserAnalyticsOptions,
@@ -112,6 +114,7 @@ const servePublic = async (
   response: ServerResponse,
   pathname: string,
   collectorOrigin?: string,
+  frameAncestors: string[] = [],
 ) => {
   const file = path.resolve(publicDirectory, `.${pathname}`);
   const type = contentTypes[path.extname(file)];
@@ -121,16 +124,15 @@ const servePublic = async (
   response.writeHead(200, {
     ...securityHeaders,
     "content-type": type,
-    ...(collectorOrigin
-      ? {
-          "content-security-policy": securityHeaders[
-            "content-security-policy"
-          ].replace(
-            "connect-src 'self'",
-            `connect-src 'self' ${collectorOrigin}`,
-          ),
-        }
-      : {}),
+    "content-security-policy": securityHeaders["content-security-policy"]
+      .replace(
+        "connect-src 'self'",
+        `connect-src 'self'${collectorOrigin ? ` ${collectorOrigin}` : ""}`,
+      )
+      .replace(
+        "frame-ancestors 'none'",
+        `frame-ancestors ${frameAncestors.length ? frameAncestors.join(" ") : "'none'"}`,
+      ),
   });
   response.end(content);
   return true;
@@ -180,6 +182,16 @@ export interface ShowcaseOptions {
   sandbox?: string;
   /** Default pace for runs that do not request one. */
   pace?: number;
+  /** External HTTPS origin when a reverse proxy terminates TLS. */
+  publicOrigin?: string;
+  /** Exact parent origins permitted to embed and check readiness. */
+  frameAncestors?: string[];
+  /** Separate demo files, resets, and checkpoints by signed browser session. */
+  sessions?: boolean;
+  /** Refuse to start unless the configured isolated sandbox is available. */
+  requireIsolation?: boolean;
+  /** Maximum simultaneous runs across all sessions; 0 means no global limit. */
+  maxActiveRuns?: number;
   /** Tests only: replaces the live provider model for each demo. */
   liveModel?: (demoId: string) => ModelAdapter;
 }
@@ -204,6 +216,18 @@ export const createShowcaseApp = async (
     process.env.SHOWCASE_DATA ??
     path.join(showcaseDirectory, ".data");
   const preference = options.sandbox ?? process.env.SHOWCASE_SANDBOX;
+  const originSetting =
+    options.publicOrigin ?? process.env.SHOWCASE_PUBLIC_ORIGIN;
+  const publicOrigin = originSetting ? parseOrigin(originSetting) : undefined;
+  const frameAncestors = (
+    options.frameAncestors ??
+    (process.env.SHOWCASE_FRAME_ANCESTORS ?? "").split(",").filter(Boolean)
+  ).map(parseOrigin);
+  const sessions = options.sessions ?? process.env.SHOWCASE_SESSIONS === "1";
+  const maxActiveRuns =
+    options.maxActiveRuns ?? Number(process.env.SHOWCASE_MAX_ACTIVE_RUNS ?? 0);
+  if (!Number.isSafeInteger(maxActiveRuns) || maxActiveRuns < 0)
+    throw new Error("SHOWCASE_MAX_ACTIVE_RUNS must be a non-negative integer.");
   const environment = await detectEnvironment({
     host,
     ...(preference ? { preference } : {}),
@@ -217,6 +241,19 @@ export const createShowcaseApp = async (
       ? { liveModel: process.env.SHOWCASE_MODEL }
       : {}),
   });
+  if (
+    (options.requireIsolation ??
+      process.env.SHOWCASE_REQUIRE_ISOLATION === "1") &&
+    !environment.sandbox.isolated
+  )
+    throw new Error(
+      `An isolated sandbox is required. ${environment.sandbox.notes.join(" ")}`,
+    );
+  const instanceId = randomUUID();
+  const startedAt = new Date().toISOString();
+  const sessionFor = sessions
+    ? await createSessionResolver(dataDirectory)
+    : undefined;
 
   // Live normally requires an isolated sandbox because a real model chooses
   // its own commands. A test model replays a demo script, so it may run on
@@ -229,33 +266,52 @@ export const createShowcaseApp = async (
       model: "test",
     };
   let serverUrl = `http://${host}:${port}`;
-  const contextFor = (demo: ShowcaseDemo): DemoContext => ({
+  const contextFor = (demo: ShowcaseDemo, session?: string): DemoContext => ({
     environment,
-    dataDirectory: path.join(dataDirectory, demo.id),
+    dataDirectory: session
+      ? path.join(dataDirectory, "sessions", session, demo.id)
+      : path.join(dataDirectory, demo.id),
     serverUrl: () => serverUrl,
     ...(options.liveModel
       ? { liveModel: () => options.liveModel!(demo.id) }
       : {}),
   });
-  for (const demo of demos) {
-    const context = contextFor(demo);
-    if (!existsSync(context.dataDirectory)) {
-      await mkdir(context.dataDirectory, { recursive: true });
-      await demo.reset?.(context);
+  const initialized = new Map<string, Promise<void>>();
+  const initialize = async (demo: ShowcaseDemo, context: DemoContext) => {
+    let pending = initialized.get(context.dataDirectory);
+    if (!pending) {
+      pending = (async () => {
+        if (!existsSync(context.dataDirectory)) {
+          await mkdir(context.dataDirectory, { recursive: true });
+          await demo.reset?.(context);
+        }
+      })();
+      initialized.set(context.dataDirectory, pending);
+      pending.catch(() => initialized.delete(context.dataDirectory));
     }
-  }
+    await pending;
+  };
+  if (!sessions)
+    for (const demo of demos) await initialize(demo, contextFor(demo));
   const active = new Set<string>();
 
   const handleRun = async (
     demo: ShowcaseDemo,
     request: IncomingMessage,
     response: ServerResponse,
+    context: DemoContext,
     resumeRunId?: string,
   ) => {
     const body = await readJson(request, demo.maxRequestBytes);
-    if (active.has(demo.id)) {
+    if (active.has(context.dataDirectory)) {
       sendJson(response, 409, {
         error: "A run is already in progress for this demo.",
+      });
+      return;
+    }
+    if (maxActiveRuns && active.size >= maxActiveRuns) {
+      sendJson(response, 429, {
+        error: "The showcase is busy. Please try again shortly.",
       });
       return;
     }
@@ -289,18 +345,17 @@ export const createShowcaseApp = async (
       if (!response.destroyed && !response.writableEnded)
         response.write(`${JSON.stringify(message)}\n`);
     };
-    active.add(demo.id);
+    active.add(context.dataDirectory);
     try {
       if (resumeRunId)
         await demo.resume!(
-          contextFor(demo),
+          context,
           resumeRunId,
           runRequest,
           emit,
           controller.signal,
         );
-      else
-        await demo.run(contextFor(demo), runRequest, emit, controller.signal);
+      else await demo.run(context, runRequest, emit, controller.signal);
     } catch (error) {
       emit({
         kind: "error",
@@ -311,7 +366,7 @@ export const createShowcaseApp = async (
       });
     } finally {
       finished = true;
-      active.delete(demo.id);
+      active.delete(context.dataDirectory);
       response.end();
     }
   };
@@ -319,6 +374,24 @@ export const createShowcaseApp = async (
   const route = async (request: IncomingMessage, response: ServerResponse) => {
     const url = new URL(request.url ?? "/", "http://localhost");
     const method = request.method ?? "GET";
+    if (method === "GET" && url.pathname === "/healthz") {
+      const origin = request.headers.origin;
+      if (origin && frameAncestors.includes(origin)) {
+        response.setHeader("access-control-allow-origin", origin);
+        response.setHeader("vary", "Origin");
+      }
+      return sendJson(
+        response,
+        environment.sandbox.kind === "none" ? 503 : 200,
+        {
+          status: environment.sandbox.kind === "none" ? "unavailable" : "ready",
+          instanceId,
+          startedAt,
+          sandbox: environment.sandbox.kind,
+          isolated: environment.sandbox.isolated,
+        },
+      );
+    }
     // Browser pages may not start, resume or reset local runs from another
     // origin. Origin-less local clients and the authenticated worker callbacks
     // remain supported.
@@ -327,14 +400,40 @@ export const createShowcaseApp = async (
       method !== "GET" &&
       method !== "HEAD" &&
       origin !== undefined &&
-      origin !== serverUrl
+      origin !== (publicOrigin ?? serverUrl)
     ) {
       return sendJson(response, 403, {
         error: "Cross-origin requests are not allowed.",
       });
     }
+    // The separate local orchestration worker uses its own signed callbacks.
+    if (url.pathname.startsWith("/internal/")) {
+      for (const demo of demos)
+        if (await demo.route?.(contextFor(demo), request, response, url))
+          return;
+      return sendJson(response, 404, { error: "Not found." });
+    }
+    const session = sessionFor?.(
+      request,
+      response,
+      publicOrigin?.startsWith("https:") ?? false,
+    );
+    const requestContexts = new Map<string, DemoContext>();
+    const requestContext = async (demo: ShowcaseDemo) => {
+      let context = requestContexts.get(demo.id);
+      if (!context) {
+        context = contextFor(demo, session);
+        requestContexts.set(demo.id, context);
+        await initialize(demo, context);
+      }
+      return context;
+    };
     for (const demo of demos)
-      if (await demo.route?.(contextFor(demo), request, response, url)) return;
+      if (
+        url.pathname.startsWith(`/api/demos/${demo.id}/`) &&
+        (await demo.route?.(await requestContext(demo), request, response, url))
+      )
+        return;
 
     if (method === "GET" && url.pathname === "/api/browser-analytics")
       return sendJson(response, 200, analytics);
@@ -350,7 +449,13 @@ export const createShowcaseApp = async (
     if (resume && method === "POST") {
       const demo = demos.find((entry) => entry.id === resume[1]);
       if (!demo) return sendJson(response, 404, { error: "Unknown demo." });
-      return handleRun(demo, request, response, resume[2]);
+      return handleRun(
+        demo,
+        request,
+        response,
+        await requestContext(demo),
+        resume[2],
+      );
     }
 
     const artifact =
@@ -360,7 +465,7 @@ export const createShowcaseApp = async (
     if (artifact && method === "GET") {
       const demo = demos.find((entry) => entry.id === artifact[1]);
       const found = demo?.artifact
-        ? await demo.artifact(contextFor(demo), artifact[2]!)
+        ? await demo.artifact(await requestContext(demo), artifact[2]!)
         : undefined;
       if (!found || !/^image\/(png|jpeg|gif|webp)$/u.test(found.mediaType))
         return sendJson(response, 404, { error: "Unknown artifact." });
@@ -382,7 +487,7 @@ export const createShowcaseApp = async (
       return sendJson(response, 404, { error: "Unknown demo." });
     if (demo && match) {
       const action = match[2];
-      const context = contextFor(demo);
+      const context = await requestContext(demo);
       if (method === "GET" && !action) {
         return sendJson(response, 200, {
           id: demo.id,
@@ -412,7 +517,7 @@ export const createShowcaseApp = async (
           (await demo.state?.(context, url)) ?? {},
         );
       if (method === "POST" && action === "reset") {
-        if (active.has(demo.id))
+        if (active.has(context.dataDirectory))
           return sendJson(response, 409, { error: "A run is in progress." });
         await demo.reset?.(context);
         return sendJson(response, 200, { reset: true });
@@ -420,7 +525,7 @@ export const createShowcaseApp = async (
       if (method === "POST" && action === "runs") {
         if (demo.unavailable)
           return sendJson(response, 409, { error: demo.unavailable });
-        return handleRun(demo, request, response);
+        return handleRun(demo, request, response, context);
       }
       return sendJson(response, 404, { error: "Not found." });
     }
@@ -447,6 +552,7 @@ export const createShowcaseApp = async (
         response,
         page,
         analytics.enabled ? new URL(analytics.apiBaseUrl).origin : undefined,
+        frameAncestors,
       )
     )
       return;

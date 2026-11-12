@@ -46,8 +46,8 @@ export const applyEnvironment = (environment) => {
       selectedValue("mode") === "live"
         ? `Real model calls to ${live.provider}/${live.model}.`
         : live.available
-          ? "Scripted decisions; everything else is real."
-          : `Scripted decisions; everything else is real. Live is off: ${live.reason}`;
+          ? "Scripted model decisions; tools and runtime operations execute on the server."
+          : `Scripted model decisions; tools and runtime operations execute on the server. Live is off: ${live.reason}`;
   };
   for (const input of document.querySelectorAll('input[name="mode"]'))
     input.addEventListener("change", describe);

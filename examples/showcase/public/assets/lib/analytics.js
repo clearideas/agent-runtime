@@ -8,14 +8,8 @@ async function startAnalytics() {
   stylesheet.rel = "stylesheet";
   stylesheet.href = "/vendor/consent-analytics.css";
   document.head.append(stylesheet);
-  const footer = document.createElement("footer");
-  footer.className = "consent-footer";
-  const settings = document.createElement("a");
-  settings.href = "#ci-consent-settings";
-  settings.textContent = "Cookie settings";
-  settings.setAttribute("data-ci-consent-settings", "");
-  footer.append(settings);
-  document.body.append(footer);
+  const settings = document.querySelector("[data-ci-consent-settings]");
+  if (settings) settings.hidden = false;
   window.ciAnalyticsConfig = {
     banner: { injectStyles: false },
     chatEnabled: false,
@@ -25,7 +19,13 @@ async function startAnalytics() {
   script.src = "/vendor/consent-analytics.js";
   script.dataset.apiBaseUrl = config.apiBaseUrl;
   script.dataset.siteKey = config.siteKey;
-  script.addEventListener("error", () => footer.remove(), { once: true });
+  script.addEventListener(
+    "error",
+    () => {
+      if (settings) settings.hidden = true;
+    },
+    { once: true },
+  );
   document.body.append(script);
 }
 void startAnalytics().catch(() =>

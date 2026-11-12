@@ -7,9 +7,9 @@ Agent Runtime separates portable agent manifests from execution infrastructure,
 so the same agent contracts can run in-process, in a child process, through a
 remote worker, or with host-provided adapters. Applications retain control of
 models, credentials, tools, persistence, compute, sandboxes, and telemetry.
-It is an independent open-source project licensed under Apache 2.0.
+Agent Runtime is open source and licensed under Apache 2.0.
 
-## Try it in five minutes
+## Run your first agent
 
 Use Agent Runtime when you want declarative agents with checkpoints, tool
 execution, and observable progress while keeping control of providers and
@@ -42,7 +42,7 @@ See [embedding](https://agent-runtime.clearideas.com/embedding) for a minimal ho
 
 ## Run the showcase
 
-Explore six end-to-end demos with real workspaces, sandbox commands, approvals,
+Explore eight end-to-end demos with workspaces, sandbox commands, approvals,
 checkpoints, MCP tools, remote execution and context management. Scripted mode
 needs no API key.
 
@@ -88,13 +88,12 @@ The complete documentation is available at
 
 ## Capabilities
 
-- Versioned YAML and TypeScript agent manifests
+- Versioned YAML and JSON agent manifests, with TypeScript APIs
 - Manifest-to-graph scheduling with deterministic orchestration and dependency-safe fan-out
 - Streaming model output and ordered tool execution
-- Native authorization boundaries for credentials, connections, and tools
-- Host-defined workspaces (code bases, document stores) operated on only
-  inside an isolated per-run sandbox, with every command policy-admitted,
-  reported, and recorded
+- Host-controlled authorization for credentials, connections, and tools
+- Host-defined workspaces (code bases, document stores) accessed through
+  per-run sandboxes, with command policies and an audit trail
 - Native sandbox contracts for code execution and generated artifacts
 - Conversation messages: declared chat histories that any step can read,
   continued one run per turn, compacted once, and optionally signed
@@ -103,11 +102,9 @@ The complete documentation is available at
 - Local, child-process, and remote execution engines
 - An OpenAI-compatible server (`agent-runtime serve`) that exposes manifests
   as models to chat front ends and OpenAI SDKs
-- Host-resolved Modal Sandbox networking with blocked, direct-domain, and
-  proxy-only modes
 - Memory, file, and SQLite run stores; JSONL and console event sinks
 - Provider-neutral model, compute, sandbox, artifact, and telemetry adapters
-- Privacy-conscious OpenTelemetry integration
+- OpenTelemetry integration with metadata-only attributes by default
 
 For each run, Agent Runtime resolves the manifest's variable reads and outputs
 into a dependency-aware execution plan. With parallel mode enabled, eligible
@@ -122,10 +119,11 @@ independent work.
 
 [Watch the 27-second manifest graph execution demonstration](https://clearideas.com/open-source/agent-runtime#manifest-graph-execution).
 
-## A declarative alternative
+## Agent definitions and host configuration
 
-For teams evaluating LangChain, LangGraph, or a custom agent harness, Agent
-Runtime provides a manifest-first option:
+Agent manifests describe steps, inputs, outputs, and the capabilities an agent
+requests. Host configuration determines how those requests are authorized and
+executed:
 
 - agent behavior and run inputs use portable, versioned contracts;
 - local and remote execution share the same event and checkpoint model;
@@ -134,8 +132,9 @@ Runtime provides a manifest-first option:
 - graph-scheduled execution, loops, conditions, approvals, and resumable runs
   use one runtime.
 
-Applications can embed the TypeScript API, invoke the CLI, or implement the
-remote execution protocol without changing their agent manifests.
+Applications can use the same agent manifest through the TypeScript API, CLI,
+or remote execution protocol, provided the host supplies the models, tools,
+and capabilities it requires.
 
 ## Repository layout
 

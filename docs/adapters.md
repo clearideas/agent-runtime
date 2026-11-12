@@ -7,7 +7,8 @@ description: Select packaged integrations for models, storage, compute, sandboxe
 
 Agent manifests describe agent behavior. The host application selects the
 infrastructure used to execute them by installing and configuring adapters.
-Changing an adapter does not require a different agent manifest.
+An adapter can be replaced without changing the agent manifest when the
+replacement supports the capabilities the agent requires.
 
 ## Adapter contracts
 

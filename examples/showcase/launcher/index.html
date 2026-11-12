@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Agent Runtime · Hosted showcase</title>
+    <link rel="stylesheet" href="/launcher.css" />
+  </head>
+  <body>
+    <main>
+      <header>
+        <a href="https://agent-runtime.clearideas.com/showcase"
+          >Clear Ideas / Agent Runtime</a
+        >
+        <span class="label">Interactive showcase</span>
+      </header>
+      <section class="intro">
+        <p class="eyebrow">Real agents. On demand.</p>
+        <h1>A small wait.<br />A real runtime.</h1>
+        <p>
+          The examples run on a hosted server that starts when you visit. Your
+          browser displays every step as it happens.
+        </p>
+      </section>
+      <form id="connection">
+        <label for="endpoint">Showcase URL</label>
+        <div class="connection-row">
+          <input
+            id="endpoint"
+            type="url"
+            placeholder="https://your-showcase.example.com"
+            required
+            autocomplete="url"
+          />
+          <button id="connect">Connect</button>
+        </div>
+      </form>
+      <section class="status-card" aria-live="polite" aria-atomic="true">
+        <span id="indicator" class="indicator"></span>
+        <div>
+          <strong id="status">Ready to connect</strong>
+          <p id="detail">
+            Enter the hosted showcase URL, or set SHOWCASE_URL before starting
+            this page.
+          </p>
+        </div>
+        <span id="elapsed"></span>
+      </section>
+      <div id="runtime-info" hidden>
+        <span id="instance"></span>
+        <a id="open-showcase" target="_blank" rel="noopener"
+          >Open in a new tab ↗</a
+        >
+      </div>
+      <iframe
+        id="showcase"
+        title="Agent Runtime interactive showcase"
+        hidden
+        allow="clipboard-write; fullscreen"
+      ></iframe>
+      <p class="footnote">
+        This page stops checking once connected. It sends no keep-alive
+        requests, so the hosted server can shut down when idle.
+      </p>
+    </main>
+    <script type="module" src="/launcher.js"></script>
+  </body>
+</html>

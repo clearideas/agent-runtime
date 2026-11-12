@@ -261,9 +261,10 @@ const startCanary = async (onHit: (path: string) => void) => {
 export const guardrails: ShowcaseDemo = {
   id: "guardrails",
   title: "Guardrails",
-  summary: "An untrusted agent tries to break out, and the host stops it.",
+  summary:
+    "See how host policies and sandbox isolation handle unauthorized actions.",
   tagline:
-    "An agent from a marketplace, driven by a hostile model, tries to read secrets, widen its access, and send data out. Each attempt is stopped, and you see which layer stopped it.",
+    "A scripted model attempts to read secrets, widen access, and send data out. Inspect which policy rejects each request and compare network behavior with an isolated sandbox or the local fallback.",
   features: [
     "Least privilege",
     "Model policy",

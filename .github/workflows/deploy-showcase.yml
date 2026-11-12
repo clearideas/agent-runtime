@@ -1,0 +1,66 @@
+name: Deploy showcase
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - "examples/showcase/**"
+      - "infrastructure/showcase/**"
+      - ".github/workflows/deploy-showcase.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: agent-runtime-showcase
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Validate and deploy on-demand showcase
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    environment:
+      name: showcase
+      url: ${{ vars.SHOWCASE_URL }}
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Set up Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: examples/showcase/package-lock.json
+      - name: Install showcase dependencies
+        run: npm ci
+        working-directory: examples/showcase
+      - name: Test showcase and hosted session boundaries
+        run: npm test
+        working-directory: examples/showcase
+        env:
+          SHOWCASE_SANDBOX: unisolated
+      - name: Set up Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: "3.12"
+      - name: Install pinned deployment tools
+        run: python -m pip install -r infrastructure/showcase/requirements.txt
+      - name: Test cookie isolation and HTTP streaming through the gateway
+        run: python -m unittest discover -s infrastructure/showcase -p 'test_*.py'
+      - name: Check credentials
+        env:
+          MODAL_TOKEN_ID: ${{ secrets.MODAL_TOKEN_ID }}
+          MODAL_TOKEN_SECRET: ${{ secrets.MODAL_TOKEN_SECRET }}
+        run: |
+          test -n "$MODAL_TOKEN_ID" || { echo "Missing MODAL_TOKEN_ID in the showcase environment"; exit 1; }
+          test -n "$MODAL_TOKEN_SECRET" || { echo "Missing MODAL_TOKEN_SECRET in the showcase environment"; exit 1; }
+      - name: Verify real demos in the hosting VM and deploy
+        run: python infrastructure/showcase/deploy.py
+        env:
+          MODAL_TOKEN_ID: ${{ secrets.MODAL_TOKEN_ID }}
+          MODAL_TOKEN_SECRET: ${{ secrets.MODAL_TOKEN_SECRET }}
+          SHOWCASE_MODEL_SECRET: ${{ vars.SHOWCASE_MODEL_SECRET }}
+      - name: Record deployment
+        run: echo "Showcase deployment complete. It starts on the first request and scales to zero when idle." >> "$GITHUB_STEP_SUMMARY"

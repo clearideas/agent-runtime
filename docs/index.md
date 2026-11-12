@@ -1,6 +1,6 @@
 ---
 title: Clear Ideas Agent Runtime
-description: A standalone TypeScript runtime for portable, declarative agents with native authorization, sandboxing, durable state, and local or remote execution.
+description: A standalone TypeScript runtime for declarative agents with host-controlled authorization, sandboxing, checkpoints, and local or remote execution.
 layout: doc
 aside: false
 ---
@@ -19,15 +19,15 @@ infrastructure, and adapters that fit your deployment.
 npm install @clearideas/agent-runtime
 ```
 
-Agent Runtime is an independent Apache-2.0 open-source project. It offers a
-manifest-first alternative for teams evaluating LangChain, LangGraph, or a
-custom agent harness: agent definitions remain portable while the host controls
-models, credentials, tools, storage, compute, and telemetry.
+Agent Runtime is open source and licensed under Apache 2.0. Agent manifests
+describe steps, inputs, outputs, and the capabilities an agent requests. The
+host controls models, credentials, tools, storage, compute, and telemetry.
+The same manifest can run across hosts that provide the capabilities it requires.
 
 <div class="runtime-grid">
   <a class="runtime-card" href="./quickstart">
     <strong>Quick start</strong>
-    <span>Run your first agent with one model API key.</span>
+    <span>Install the CLI and run your first agent.</span>
   </a>
   <a class="runtime-card" href="./build-agents">
     <strong>Build agents</strong>
@@ -65,13 +65,12 @@ Sequential mode follows manifest order. Parallel mode schedules eligible
 independent prompt branches concurrently, then commits their results in
 manifest order; dependent, stateful, and tool-enabled work remains ordered.
 
-Authorization policy, sandbox contracts, durable run state, and execution
-engines are native parts of Agent Runtime. Agent manifests may narrow
+Authorization policies, sandbox contracts, checkpoints, and execution engines
+are part of the runtime. Agent manifests may narrow
 host-authorized connections and tools, but cannot grant themselves credentials
-or broader access. Modal remote execution can apply a host-resolved direct
-domain list, allow only a host-provided proxy endpoint, or block networking
-without adding egress fields to the manifest. Docker and Modal sandbox
-providers ship as packages in the same project.
+or broader access. The host selects infrastructure integrations through
+adapters; see the [adapter catalog](./adapters.md) for included packages and
+extension points.
 
 ## Choose a path
 
