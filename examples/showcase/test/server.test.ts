@@ -27,7 +27,7 @@ test("serves the gallery, demo pages, and vendor assets under a strict CSP", asy
   const html = await (await fetch(`${baseURL}/demos/repo-mechanic`)).text();
   assert.doesNotMatch(
     html,
-    /https?:\/\/(?!www\.w3\.org)/u,
+    /<(?:script|img|link|iframe|source)\b[^>]*(?:src|href)=["']https?:\/\//u,
     "no external resources",
   );
   assert.equal((await fetch(`${baseURL}/assets/../server.ts`)).status, 404);

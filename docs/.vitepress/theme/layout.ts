@@ -1,10 +1,10 @@
 import { defineComponent, h } from "vue";
 import DefaultTheme from "vitepress/theme";
-import ConsentFooter from "./ConsentFooter.vue";
+import SiteFooter from "./SiteFooter.vue";
 
 export default defineComponent({
   setup() {
     return () =>
-      h(DefaultTheme.Layout, null, { "layout-bottom": () => h(ConsentFooter) });
+      h(DefaultTheme.Layout, null, { "doc-after": () => h(SiteFooter) });
   },
 });

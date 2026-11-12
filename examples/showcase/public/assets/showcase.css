@@ -3359,12 +3359,45 @@ textarea {
   }
 }
 
-.consent-footer {
-  padding: 20px;
-  text-align: center;
+.site-footer {
+  border-top: 1px solid var(--line);
+  color: var(--muted);
   font-size: 13px;
+  line-height: 1.6;
 }
-.consent-footer a {
+.site-footer-inner {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px 24px;
+  max-width: 1280px;
+  margin: 0 auto;
+  padding: 24px 32px;
+}
+.site-footer p {
+  margin: 0;
+}
+.site-footer nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+}
+.site-footer a {
   color: inherit;
+  text-decoration: none;
+  text-underline-offset: 3px;
+}
+.site-footer a:hover {
   text-decoration: underline;
+}
+.site-footer a:focus-visible {
+  outline: 2px solid var(--blue);
+  outline-offset: 3px;
+}
+@media (max-width: 768px) {
+  .site-footer-inner {
+    padding-right: 16px;
+    padding-left: 16px;
+  }
 }
