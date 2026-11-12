@@ -32,11 +32,12 @@
 
 .VPNavBar > .wrapper > .container {
   max-width: none;
-  padding: 0 8px 0 var(--docs-content-left, 24px);
+  padding: 0 8px 0 24px;
 }
 
 @media (min-width: 768px) {
   .VPNavBar > .wrapper > .container {
+    padding-left: 32px;
     padding-right: 32px;
   }
 }
@@ -88,8 +89,7 @@
 @media (min-width: 960px) {
   .VPNavBar.has-sidebar > .wrapper > .container {
     align-items: center;
-    padding: 0 32px 0
-      var(--docs-content-left, calc(var(--vp-sidebar-width) + 32px));
+    padding: 0 32px;
   }
 
   .VPNavBar.has-sidebar > .wrapper > .container > .title {
@@ -116,7 +116,17 @@
   }
 }
 
-/* Keep navigation usable when the content-aligned brand leaves less room. */
+/* Match the sidebar menu's outer gutter on wide screens. */
+@media (min-width: 1440px) {
+  .VPNavBar.has-sidebar > .wrapper > .container {
+    padding-left: max(
+      32px,
+      calc((100% - (var(--vp-layout-max-width) - 64px)) / 2)
+    );
+  }
+}
+
+/* Keep navigation usable at smaller desktop widths. */
 @media (min-width: 960px) and (max-width: 1279px) {
   .VPNavBar.has-sidebar .content {
     padding-left: 16px;

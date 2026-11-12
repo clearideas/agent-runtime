@@ -48,7 +48,12 @@ onBeforeUnmount(() => controller?.abort());
       <span>{{ status }}</span>
       <small v-if="!failed">{{ elapsed }}s</small>
       <button v-if="failed" type="button" @click="connect">Try again</button>
-      <a v-if="ready" :href="endpoint" target="_blank" rel="noopener"
+      <a
+        v-if="ready"
+        class="showcase-open"
+        :href="endpoint"
+        target="_blank"
+        rel="noopener"
         >Open in a new tab ↗</a
       >
     </div>
@@ -68,6 +73,9 @@ onBeforeUnmount(() => controller?.abort());
 <style scoped>
 .hosted-showcase {
   margin: 28px 0;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
 }
 .showcase-connection {
   display: flex;
@@ -80,8 +88,31 @@ onBeforeUnmount(() => controller?.abort());
 }
 .showcase-connection a,
 .showcase-connection small {
-  margin-left: auto;
   font-size: 12px;
+}
+.showcase-open {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 9px 16px;
+  border: 1px solid var(--vp-c-brand-1);
+  border-radius: 6px;
+  background: var(--vp-c-brand-1);
+  color: var(--vp-c-white);
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.4;
+  text-decoration: none;
+}
+.showcase-open:hover {
+  background: var(--vp-c-brand-2);
+  border-color: var(--vp-c-brand-2);
+  color: var(--vp-c-white);
+}
+.showcase-open:focus-visible {
+  outline: 2px solid var(--vp-c-brand-1);
+  outline-offset: 3px;
 }
 .showcase-connection button {
   color: var(--vp-c-brand-1);
@@ -101,6 +132,7 @@ onBeforeUnmount(() => controller?.abort());
   background: #e76471;
 }
 iframe {
+  display: block;
   width: 100%;
   min-height: 1000px;
   border: 1px solid var(--vp-c-divider);
