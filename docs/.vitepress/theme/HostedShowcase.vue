@@ -45,8 +45,10 @@ onBeforeUnmount(() => controller?.abort());
   >
     <div class="showcase-connection" role="status" aria-live="polite">
       <span :class="{ ready, failed }" class="showcase-dot"></span>
-      <span>{{ status }}</span>
-      <small v-if="!failed">{{ elapsed }}s</small>
+      <span class="showcase-status">
+        <span>{{ status }}</span>
+        <small v-if="!failed">{{ elapsed }}s</small>
+      </span>
       <button v-if="failed" type="button" @click="connect">Try again</button>
       <a
         v-if="ready"
@@ -86,9 +88,19 @@ onBeforeUnmount(() => controller?.abort());
   border: 1px solid var(--vp-c-divider);
   border-radius: 8px;
 }
+.showcase-status {
+  display: inline-flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 12px;
+}
 .showcase-connection a,
-.showcase-connection small {
+.showcase-status small {
   font-size: 12px;
+}
+.showcase-status small {
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
 }
 .showcase-open {
   margin-left: auto;
