@@ -11,21 +11,21 @@ import HostedShowcase from './.vitepress/theme/HostedShowcase.vue';
 
 <HostedShowcase />
 
-The showcase is a small web app you can run locally or host on a Linux server. Each of its eight
-demos runs a real agent through the real runtime and animates the event
-stream as it happens. Every demo page also shows the manifest, host
-configuration, and integration code that produced it.
+The showcase is a web app you can run locally or host on a Linux server. Its
+eight demos execute agent manifests and visualize the runtime's event stream.
+Every demo page also shows the manifest, host configuration, and integration
+code used by the example.
 
-| Demo                   | What it shows                                                                                         |
-| ---------------------- | ----------------------------------------------------------------------------------------------------- |
-| **Repo Mechanic**      | A workspace, the run sandbox, an allowlisted test command, an `authorizeCommand` hook, and sync-back  |
-| **Durable Runs**       | An approval step and a token budget that pause the run; resume in a new attempt, even after a restart |
-| **Guardrails**         | An untrusted agent and a hostile model stopped by configuration, path rules, hooks, and the sandbox   |
-| **Document Library**   | A read-only workspace with visibility globs, an image passed as an artifact, and an MCP tool          |
-| **Orchestration**      | Parallel waves, a condition, collection and goal loops, in this process or a remote worker process    |
-| **Long Investigation** | A step that reads three times its input limit; the runtime prunes or summarizes its context to finish |
-| **Data Chat**          | A chat, one run per message: moderation, data and charts in the sandbox, and a signed history         |
-| **Document Chat**      | A conversation workspace with document uploads, revisions, and downloads                              |
+| Demo                   | What it shows                                                                                          |
+| ---------------------- | ------------------------------------------------------------------------------------------------------ |
+| **Repo Mechanic**      | A workspace, the run sandbox, an allowlisted test command, an `authorizeCommand` hook, and sync-back   |
+| **Durable Runs**       | An approval step and a token budget that pause the run; resume in a new attempt, even after a restart  |
+| **Guardrails**         | Scripted unauthorized actions tested against configuration, path rules, hooks, and the sandbox         |
+| **Document Library**   | A read-only workspace with visibility globs, an image passed as an artifact, and an MCP tool           |
+| **Orchestration**      | Parallel waves, a condition, collection and goal loops, in this process or a remote worker process     |
+| **Long Investigation** | Logs and a runbook larger than the step's input limit, processed with context pruning or summarization |
+| **Data Chat**          | A chat, one run per message: moderation, data and charts in the sandbox, and a signed history          |
+| **Document Chat**      | A conversation workspace with document uploads, revisions, and downloads                               |
 
 ## Run it
 
@@ -54,11 +54,11 @@ Guardrails with scripted model decisions. Docker may pull its Python image
 on the first run. Successful checks report a synced fix, an approval/resume
 cycle, and blocked network access when the sandbox is isolated.
 
-No API key is needed. In **Scripted** mode only the model's decisions are
-scripted: the runtime, sandbox, workspace stores, policy hooks, checkpoints,
-and MCP calls are real, and each next step is chosen from the real tool
-results. Set `OPENAI_API_KEY` (or `SHOWCASE_PROVIDER` and `SHOWCASE_MODEL`)
-and choose **Live** to use a real model.
+No API key is needed in **Scripted** mode. A script supplies model decisions
+based on tool results. The runtime executes tools and MCP calls, applies policy
+hooks, updates workspace files, and saves checkpoints. Set `OPENAI_API_KEY`
+(or `SHOWCASE_PROVIDER` and `SHOWCASE_MODEL`) and choose **Live** to make
+model-provider calls.
 
 ## Sandboxes
 

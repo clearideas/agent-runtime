@@ -287,7 +287,7 @@ export const longInvestigation: ShowcaseDemo = {
   id: "long-investigation",
   title: "Long Investigation",
   summary:
-    "An agent reads far more than fits in its context, and still finishes.",
+    "Explore context pruning and summarization during a long-running investigation.",
   tagline:
     "An on-call agent reads 16 service logs and a long runbook to find an incident's root cause: more than three times its input limit. Agent Runtime prunes or summarizes the opening prompt and older tool rounds before each request would be too large.",
   ...(unavailable ? { unavailable } : {}),

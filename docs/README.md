@@ -20,7 +20,7 @@ results commit in manifest order.
 ## Start here
 
 - [Quick start](./quickstart.md) — run an agent with only a model API key
-- [Showcase](./showcase.md) — six end-to-end demos you can run locally without an API key
+- [Showcase](./showcase.md) — eight end-to-end demos you can run locally without an API key
 - [Core concepts](./concepts.md) — manifests, configuration, state, steps, and adapters
 - [Build agents](./build-agents.md) — prompt chains, routing, loops, tools, and approvals
 - [Agent manifests and agent run manifests](./manifests.md) — reusable definitions and runtime inputs

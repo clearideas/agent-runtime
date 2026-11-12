@@ -290,16 +290,15 @@ reduced. See [Context management](./context-management.md).
 | `limits.maxToolCallsPerIteration` | the model is asked for a final answer (`toolCallLimit: finalize`)                  |
 | `budget.maxTotalTokens`           | suspends the run when cumulative usage reaches this                                |
 
-Reduction is a safety net, not a design. Long tool sessions still work best
-when:
+To limit context growth during long tool sessions:
 
-- the work is split into several steps, each writing a variable, so that each
+- split the work into several steps, each writing a variable, so that each
   step starts with a fresh context;
-- tool results are small at the source—the tool adapter or MCP server can
+- keep tool results small at the source—the tool adapter or MCP server can
   return excerpts, identifiers, or counts instead of full documents;
-- the model is told to be selective about which calls it makes and to stop
+- instruct the model to be selective about which calls it makes and to stop
   when it has enough;
-- research-heavy steps use a model profile with a larger input window.
+- give research-heavy steps a model profile with a larger input window.
 
 ## Parallel execution and shared state
 

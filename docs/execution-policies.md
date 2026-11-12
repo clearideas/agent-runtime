@@ -1,14 +1,13 @@
 ---
 title: Execution policies
-description: Decide how a run handles oversized input, model errors, invalid output, tool-call limits, and failed steps so that it completes whenever completion is possible.
+description: Configure how runs handle input limits, model errors, invalid output, tool-call limits, and failed steps.
 ---
 
 # Execution policies
 
-A run should stop only when it cannot continue: a required connection is
-down, a host policy denies something, or a person cancels it. Conditions that
-have a safe mitigation are handled instead. Execution policies decide those
-mitigations.
+Execution policies configure whether a run retries, reduces context, attempts
+output repair, suspends, or fails when it encounters a limit or error. Choose
+the behavior appropriate to the task and the host's requirements.
 
 ## Layers
 
