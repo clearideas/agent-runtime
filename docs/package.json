@@ -17,7 +17,7 @@
   },
   "devDependencies": {
     "vitepress": "1.6.4",
-    "@clearideas/consent-analytics": "0.1.0-rc.1"
+    "@clearideas/consent-analytics": "0.1.1"
   },
   "engines": {
     "node": ">=22.20.0"
