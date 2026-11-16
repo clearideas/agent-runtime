@@ -664,6 +664,167 @@ describe.skipIf(!hasPython)("ProviderRunSandbox", { timeout: 60_000 }, () => {
     await session.close("suspended");
   });
 
+  it("tells the model which changes were not saved, once per path and reason", async () => {
+    const provider = new HostProcessTestProvider();
+    const notes = new MemoryStore("read_write");
+    notes.failWrites = true;
+    const runSandbox = new ProviderRunSandbox({
+      provider,
+      image: "test",
+      shell: { enabled: true },
+    });
+    const { session } = await open(runSandbox, [resolved("notes", notes)]);
+    const first = await session.execute({
+      stepId: "s",
+      kind: "shell",
+      name: "shell",
+      alias: "notes",
+      arguments: {
+        command: "echo hi > new.md; mkdir -p .cache; echo x > .cache/env",
+      },
+    });
+    const reported = (first.output as JsonObject).notPersisted;
+    expect(reported).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          alias: "notes",
+          path: "new.md",
+          reason: "store-rejected",
+        }),
+        expect.objectContaining({ path: ".cache", reason: "invalid-path" }),
+      ]),
+    );
+    expect(first.notPersisted).toEqual(reported);
+    // Nothing new is unsaved; the earlier report is not repeated.
+    const second = await session.execute({
+      stepId: "s",
+      kind: "shell",
+      name: "shell",
+      alias: "notes",
+      arguments: { command: "true" },
+    });
+    expect((second.output as JsonObject).notPersisted).toBeUndefined();
+    // A builtin write that the store rejects is reported on the helper result.
+    const third = await session.execute({
+      stepId: "s",
+      kind: "builtin",
+      name: "write_file",
+      alias: "notes",
+      arguments: { path: "other.md", content: "x" },
+    });
+    expect((third.output as JsonObject).notPersisted).toEqual([
+      expect.objectContaining({ path: "other.md", reason: "store-rejected" }),
+    ]);
+    await session.close("completed");
+  });
+
+  it("keeps a workspace within its limits and never deletes on an incomplete listing", async () => {
+    class LimitedStore extends MemoryStore {
+      override readonly limits = {
+        maxFiles: 5,
+        maxFileBytes: 4096,
+        maxTotalBytes: 64,
+      };
+    }
+    const provider = new HostProcessTestProvider();
+    const work = new LimitedStore("read_write", {
+      "z1.txt": "keep",
+      "z2.txt": "keep",
+      "z3.txt": "keep",
+    });
+    const runSandbox = new ProviderRunSandbox({
+      provider,
+      image: "test",
+      shell: { enabled: true },
+    });
+    const { session } = await open(runSandbox, [resolved("work", work)]);
+    // More files than the workspace allows: the listing is cut off.
+    const flood = await session.execute({
+      stepId: "s",
+      kind: "shell",
+      name: "shell",
+      alias: "work",
+      arguments: {
+        command:
+          "mkdir -p a && for i in 1 2 3 4 5 6 7 8; do echo x > a/f$i.txt; done",
+      },
+    });
+    expect(work.deletes).toEqual([]);
+    expect(
+      [...work.files.keys()].filter((path) => path.startsWith("z")),
+    ).toEqual(["z1.txt", "z2.txt", "z3.txt"]);
+    expect(work.files.size).toBeLessThanOrEqual(5);
+    expect((flood.output as JsonObject).notPersisted).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ path: "*", reason: "workspace-limit" }),
+      ]),
+    );
+    // Remove the flood; deletions apply again once the listing is complete.
+    await session.execute({
+      stepId: "s",
+      kind: "shell",
+      name: "shell",
+      alias: "work",
+      arguments: { command: "rm -rf a" },
+    });
+    expect([...work.files.keys()].sort()).toEqual([
+      "z1.txt",
+      "z2.txt",
+      "z3.txt",
+    ]);
+    // Byte growth beyond maxTotalBytes is refused; shrinking is accepted.
+    const grow = await session.execute({
+      stepId: "s",
+      kind: "shell",
+      name: "shell",
+      alias: "work",
+      arguments: {
+        command: "printf '%060d' 0 > big.txt; printf 'k' > z1.txt",
+      },
+    });
+    expect(work.text("big.txt")).toBeUndefined();
+    expect(work.text("z1.txt")).toBe("k");
+    expect((grow.output as JsonObject).notPersisted).toEqual([
+      expect.objectContaining({ path: "big.txt", reason: "workspace-limit" }),
+    ]);
+    await session.close("completed");
+    const total = [...work.files.values()].reduce(
+      (sum, data) => sum + data.byteLength,
+      0,
+    );
+    expect(total).toBeLessThanOrEqual(64);
+  });
+
+  it("accumulates copied-back changes per path until they are taken", async () => {
+    const provider = new HostProcessTestProvider();
+    const notes = new MemoryStore("read_write", { "old.md": "old" });
+    const runSandbox = new ProviderRunSandbox({
+      provider,
+      image: "test",
+      shell: { enabled: true },
+    });
+    const { session } = await open(runSandbox, [resolved("notes", notes)]);
+    const shell = (command: string) =>
+      session.execute({
+        stepId: "s",
+        kind: "shell",
+        name: "shell",
+        alias: "notes",
+        arguments: { command },
+      });
+    await shell("echo 1 > draft.md; echo gone > temp.md");
+    await shell("echo 2 > draft.md; rm temp.md old.md");
+    const taken = session.takeChanges();
+    expect(
+      taken.notes?.changes.map(({ path, action }) => ({ path, action })),
+    ).toEqual([
+      { path: "draft.md", action: "created" },
+      { path: "old.md", action: "deleted" },
+    ]);
+    expect(session.takeChanges()).toEqual({});
+    await session.close("completed");
+  });
+
   it("fails validation for oversized workspaces and unreadable helpers before opening", async () => {
     const provider = new HostProcessTestProvider();
     const big = new MemoryStore("read", { "a.txt": "x".repeat(100) });
@@ -702,7 +863,7 @@ describe.skipIf(!hasPython)("ProviderRunSandbox", { timeout: 60_000 }, () => {
         )
       ).map((tool) => tool.name),
     ).toEqual(["read_file", "lint"]);
-    expect(runSandbox.policy.limits.maxCommandsPerRun).toBe(200);
+    expect(runSandbox.policy.limits.maxCommandsPerRun).toBe(2_000);
     const spec: JsonObject = { ok: true };
     expect(spec.ok).toBe(true);
   });

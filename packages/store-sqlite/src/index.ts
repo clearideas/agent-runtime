@@ -9,9 +9,11 @@ import type {
 import type {
   CompletedRunRecord,
   ResumeRunOptions,
+  RunCheckpointSummary,
   RunRecord,
   RunStore,
 } from "@clearideas/agent-runtime-core";
+import { summarizeCheckpoint } from "@clearideas/agent-runtime-core";
 
 interface JsonRow {
   json: string;
@@ -56,6 +58,7 @@ export class SqliteRunStore implements RunStore {
         sequence INTEGER NOT NULL CHECK (sequence > 0),
         checkpoint_id TEXT NOT NULL,
         checkpoint_json TEXT NOT NULL,
+        summary_json TEXT,
         PRIMARY KEY (run_id, sequence),
         UNIQUE (run_id, checkpoint_id),
         FOREIGN KEY (run_id) REFERENCES agent_runtime_runs(run_id) ON DELETE CASCADE
@@ -65,6 +68,54 @@ export class SqliteRunStore implements RunStore {
     `);
     if (filename !== ":memory:")
       this.#database.exec("PRAGMA journal_mode = WAL;");
+    // Databases created by earlier releases lack the summary column.
+    const columns = this.#database
+      .prepare("PRAGMA table_info(agent_runtime_checkpoints)")
+      .all() as Array<{ name: string }>;
+    if (!columns.some((column) => column.name === "summary_json")) {
+      this.#database.exec(
+        "ALTER TABLE agent_runtime_checkpoints ADD COLUMN summary_json TEXT",
+      );
+    }
+  }
+
+  async listCheckpoints(
+    runId: string,
+    options: { boundaries?: boolean } = {},
+  ): Promise<RunCheckpointSummary[]> {
+    const rows = this.#database
+      .prepare(
+        `
+        SELECT summary_json AS summary, checkpoint_json AS json
+        FROM agent_runtime_checkpoints
+        WHERE run_id = ?
+        ORDER BY sequence ASC
+      `,
+      )
+      .all(runId) as Array<{ summary: string | null; json: string }>;
+    return rows
+      .map((row) =>
+        row.summary
+          ? parse<RunCheckpointSummary>(row.summary)
+          : summarizeCheckpoint(parse<RunCheckpoint>(row.json)),
+      )
+      .filter((summary) => !options.boundaries || summary.boundary);
+  }
+
+  async loadCheckpoint(
+    runId: string,
+    sequence: number,
+  ): Promise<RunCheckpoint | null> {
+    const row = this.#database
+      .prepare(
+        `
+        SELECT checkpoint_json AS json
+        FROM agent_runtime_checkpoints
+        WHERE run_id = ? AND sequence = ?
+      `,
+      )
+      .get(runId, sequence) as JsonRow | undefined;
+    return row ? parse<RunCheckpoint>(row.json) : null;
   }
 
   async createRun(record: RunRecord): Promise<void> {
@@ -135,6 +186,7 @@ export class SqliteRunStore implements RunStore {
       const attempt = (current.attempt ?? 1) + 1;
       const resumed: RunRecord = {
         ...current,
+        ...(options?.manifest ? { manifest: options.manifest } : {}),
         status: "running",
         attempt,
         updatedAt: resumedAt,
@@ -225,11 +277,17 @@ export class SqliteRunStore implements RunStore {
         .prepare(
           `
           INSERT INTO agent_runtime_checkpoints
-            (run_id, sequence, checkpoint_id, checkpoint_json)
-          VALUES (?, ?, ?, ?)
+            (run_id, sequence, checkpoint_id, checkpoint_json, summary_json)
+          VALUES (?, ?, ?, ?, ?)
         `,
         )
-        .run(checkpoint.runId, checkpoint.sequence, checkpoint.id, encoded);
+        .run(
+          checkpoint.runId,
+          checkpoint.sequence,
+          checkpoint.id,
+          encoded,
+          serialize(summarizeCheckpoint(checkpoint)),
+        );
       this.#database.exec("COMMIT");
     } catch (error) {
       this.#database.exec("ROLLBACK");

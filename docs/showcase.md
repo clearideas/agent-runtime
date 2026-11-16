@@ -19,7 +19,7 @@ code used by the example.
 | Demo                   | What it shows                                                                                          |
 | ---------------------- | ------------------------------------------------------------------------------------------------------ |
 | **Repo Mechanic**      | A workspace, the run sandbox, an allowlisted test command, an `authorizeCommand` hook, and sync-back   |
-| **Durable Runs**       | An approval step and a token budget that pause the run; resume in a new attempt, even after a restart  |
+| **Durable Runs**       | Approval, a token limit, and an outage pause the run; resume, restart from a step, or edit the agent   |
 | **Guardrails**         | Scripted unauthorized actions tested against configuration, path rules, hooks, and the sandbox         |
 | **Document Library**   | A read-only workspace with visibility globs, an image passed as an artifact, and an MCP tool           |
 | **Orchestration**      | Parallel waves, a condition, collection and goal loops, in this process or a remote worker process     |
@@ -106,10 +106,19 @@ Run once and wait for the approval panel. Choose **Approve and resume** to
 publish the report, or **Reject** to finish without publication. The resumed
 attempt uses a fresh sandbox and the saved draft.
 
-For the budget path, enable **Token budget** before running. When it pauses,
-use **Raise the limit … and resume**, then approve the report. To try restart
-recovery, stop the server while the run is paused, restart with the same data
-directory, and reopen the demo. Its pending approval or budget decision remains.
+For the limit path, enable **Token limit** before running. When the run is
+blocked, use **Raise the limit … and resume**, then approve the report. For
+the failure path, enable **Provider outage**: after approval, Publish fails,
+the run is blocked instead of failed, and **The provider is back: resume**
+publishes it. To try restart recovery, stop the server while the run is
+paused, restart with the same data directory, and reopen the demo. Its
+pending decision remains.
+
+Each completed step appears under **Restart points** with the reports folder
+as it was then. **Restart from here** starts a new run from that step with
+the folder restored. Choose an **Agent edit** to see, before anything runs,
+whether resuming or restarting would accept it, rerun the step in progress,
+or refuse it; a refused edit can still start a new run.
 
 ### Guardrails
 

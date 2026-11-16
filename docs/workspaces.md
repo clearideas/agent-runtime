@@ -59,20 +59,39 @@ host workspaces suppress it unless `attach: auto` is selected.
 
 ### `sandbox`
 
-| Field                | Notes                                                                                                   |
-| -------------------- | ------------------------------------------------------------------------------------------------------- |
-| `driver`             | `bubblewrap` (Linux, no daemon), `docker` (requires `image`), or `host` (a `SandboxProvider` from code) |
-| `image`              | container image for Docker; `allowedImages` defaults to `[image]`                                       |
-| `binds`              | host directories bound read-only by bubblewrap; defaults to the system directories                      |
-| `helper`             | `command` and `source` of the in-sandbox helper; defaults to the bundled Python script                  |
-| `limits`             | memory, CPU, processes, tmpfs size, per-command and per-run timeouts, command count, output ceilings    |
-| `commands`           | host-allowlisted programs exposed as tools (see below)                                                  |
-| `shell`              | `enabled: true` exposes `<alias>__shell`; disabled by default                                           |
-| `allowedEnvironment` | environment names code steps may forward                                                                |
+| Field      | Notes                                                                                                           |
+| ---------- | --------------------------------------------------------------------------------------------------------------- |
+| `driver`   | `bubblewrap` (Linux, no daemon), `docker` (requires `image`), or `host` (a `SandboxProvider` from code)         |
+| `image`    | container image for Docker; `allowedImages` defaults to `[image]`                                               |
+| `binds`    | host directories bound read-only by bubblewrap; defaults to the system directories                              |
+| `helper`   | `command` and `source` of the in-sandbox helper; defaults to the bundled Python script                          |
+| `limits`   | memory, CPU, processes, tmpfs size, per-command and per-run timeouts, command count, output ceilings; see below |
+| `commands` | host-allowlisted programs exposed as tools (see below)                                                          |
+| `shell`    | `enabled: true` exposes `<alias>__shell`; disabled by default                                                   |
 
-Defaults: 1 GiB memory, 1 CPU, 128 processes, 1 GiB `/workspace`, 60 s per
-command (15 min ceiling), 200 commands and 900 sandbox-seconds per run, 1 MiB
-stdout and 256 KiB stderr per command, 256 MiB staged across all mounts.
+### Sandbox usage limits
+
+The sandbox's resources (`memoryMb`, `cpuCount`, `processLimit`,
+`workspaceTmpfsMb`, `maxTotalStagedBytes`, `maxArgs`, `maxArgBytes`) are host
+configuration only. Its usage limits are the host's defaults and ceilings: a
+manifest, or a resume request granting limits, may set them lower through
+`limits.sandbox`, never higher than the host's values.
+
+| Host `sandbox.limits`                      | Manifest `limits.sandbox`                  | Host default    |
+| ------------------------------------------ | ------------------------------------------ | --------------- |
+| `maxCommandsPerRun`                        | `maxCommands`                              | 2,000           |
+| `maxTotalSandboxSeconds`                   | `maxSeconds`                               | 14,400 (4 h)    |
+| `commandTimeoutMs` / `maxCommandTimeoutMs` | `commandTimeoutMs` / `maxCommandTimeoutMs` | 5 min / 1 h     |
+| `maxStdoutBytes` / `maxStderrBytes`        | `maxStdoutBytes` / `maxStderrBytes`        | 1 MiB / 256 KiB |
+| `maxOutputFiles` / `maxOutputBytes`        | `maxOutputFiles` / `maxOutputBytes`        | 500 / 500 MiB   |
+
+Commands and sandbox seconds are cumulative across attempts. When a run uses
+up its budget (its own `limits.sandbox.maxCommands` or `maxSeconds`, or the
+host's values), the run is blocked (kind `awaiting-host`, limit
+`sandbox.maxCommands` or `sandbox.maxSeconds`) instead of spending more model
+turns; the command that reached the limit runs on resume, once a higher limit
+is granted up to the host's value. Before 0.10, the model received a
+`sandbox_budget_exhausted` tool error and the run continued.
 
 ## Agent manifest
 
@@ -127,10 +146,13 @@ segments such as `_package/__init__.py` remain valid. A leading slash anchors a
 tool path at the selected workspace root; it never names a host filesystem path.
 
 Non-zero exits from commands are returned as output so the model can react to
-failing tests. Policy denials, invalid paths, limits, budgets, and timeouts are
+failing tests. Policy denials, invalid paths, limits, and timeouts are
 returned as tool errors (`tool_not_allowed`, `workspace_path_invalid`,
-`workspace_limit_exceeded`, `sandbox_budget_exhausted`,
-`sandbox_command_timeout`, `sandbox_command_failed`, `sandbox_unavailable`).
+`workspace_limit_exceeded`, `sandbox_command_timeout`,
+`sandbox_command_failed`, `sandbox_unavailable`). An exhausted sandbox budget
+blocks the run instead (see [Sandbox usage limits](#sandbox-usage-limits)). A shell or configured command
+interrupted by a crash is not repeated on resume: the model receives
+`tool_call_interrupted` and checks the workspace first.
 
 Binary `read_file` results never contain base64. When an `ArtifactStore` is
 configured, the bytes are stored as an artifact and the reference is attached
@@ -148,13 +170,99 @@ opens. After every command, read-write mounts are compared with the staged
 baseline and changed files are written back through the workspace store,
 which re-applies the path rule, visibility, and size limits. Read-only mounts
 are staged with read-only permissions and are never synced back; changes the
-model makes to them vanish with the sandbox. Paths the store rejects are
-reported in the command record under `ignoredPaths`.
+model makes to them vanish with the sandbox.
+
+Copy-back keeps the store within the `maxFiles` and `maxTotalBytes` limits it
+is staged under, so a run can never make its own workspace too large to
+resume. Deletions and changes that shrink the workspace are applied first,
+then changes that grow it, in path order, while they fit. If a mount holds
+more files than `maxFiles`, its listing is incomplete: files beyond the limit
+are not saved, and no deletions are saved from that listing, because a file
+that was not listed cannot be told apart from a deleted one.
+
+### Changes that were not saved
+
+A change the store does not receive is reported to the model in the result of
+the command that made it, as `notPersisted`, so a model never believes a
+change was saved when it was not. Each path is reported once per reason, and
+again only if the problem returns after being resolved:
+
+```json
+{
+  "exitCode": 0,
+  "stdout": "",
+  "notPersisted": [
+    {
+      "alias": "reports",
+      "path": ".cache",
+      "reason": "invalid-path",
+      "message": "Hidden or unsupported names are never saved to the workspace."
+    }
+  ]
+}
+```
+
+| `reason`          | Cause                                                                                               |
+| ----------------- | --------------------------------------------------------------------------------------------------- |
+| `invalid-path`    | a hidden entry or a name the path rule rejects                                                      |
+| `symlink`         | a symbolic link                                                                                     |
+| `too-large`       | the file exceeds `maxFileBytes`                                                                     |
+| `store-rejected`  | the workspace store refused the write or deletion (for example, excluded)                           |
+| `workspace-limit` | saving it would exceed `maxFiles` or `maxTotalBytes`; `path` is `*` when the excess cannot be named |
+
+Code steps record the same list in `StepResult.metadata.notPersisted` and emit
+a `WORKSPACE_CHANGES_NOT_SAVED` diagnostic. Every path is also listed in the
+command record's `ignoredPaths`.
 
 Workspaces are not run state. The sandbox is never checkpointed; a suspended
 or resumed run rebuilds it from the stores, and a failed run does not roll
 back writes already synced. Use `read` bindings, a scratch workspace, or host
 version control when a run may be retried.
+
+If the final copy-back fails when a run suspends, is interrupted, or fails,
+the runtime commits a copy of the latest checkpoint marked
+`metadata.workspaceSync: { failed: true, error, at }`. When the run resumes, it
+emits a `WORKSPACE_SYNC_FAILED_PREVIOUSLY` diagnostic, and the resumed prompt
+step tells its model, once, that some workspace changes may be missing.
+
+## Step commit points
+
+Changes are copied back after every command; a step's completion is a
+consistent point for the whole workspace. At each step completion, including
+each completed child of a loop iteration, the runtime offers every read-write
+workspace that changed since the previous commit point to its store:
+
+```ts
+interface WorkspaceStore {
+  // ...
+  commit?(point: WorkspaceCommitPoint): Promise<{ token?: string } | undefined>;
+  version?(): Promise<string | undefined>;
+}
+```
+
+`WorkspaceCommitPoint` carries the run, attempt, alias, the completed step's
+path and execution key, the sequence of the checkpoint that will record the
+result, the files created, modified, and deleted since the previous commit
+point (across attempts of the step), and the changes that were not saved. A
+store may snapshot the workspace (a git commit, a file-system snapshot, a copy)
+and return an opaque token; the runtime records it in the step's checkpoint
+under `workspaces.<alias>` and never interprets it. The same information is
+emitted as `workspace.committed` for hosts that observe instead.
+
+The store is called before the checkpoint is saved: a checkpoint never names a
+token the store did not return. A crash in between leaves a snapshot no
+checkpoint refers to, which the host may discard.
+
+For read-only bindings, `version()` is called once when a run starts, and the
+token is recorded in the checkpoint's `inputs`.
+
+### Restarting from a step
+
+When a run is [restarted from a step](./persistence-and-recovery.md#restart-from-a-step),
+the new run's `WorkspaceProvider.resolveWorkspace(binding, context)` receives
+`context.restoreFrom`: per alias, the token recorded at that step. The host
+decides what it means, such as checking out a snapshot into a fresh directory
+for the new run; the runtime only hands it over.
 
 ## Code steps
 
@@ -163,7 +271,10 @@ executes inside the run sandbox instead of a per-step sandbox. It sees the
 mounts at the paths listed in `/workspace/workspaces.json`
 (`AGENT_WORKSPACES_FILE`), receives `AGENT_VARIABLES_FILE` and
 `AGENT_OUTPUT_DIRECTORY`, and its output files become artifacts. The command
-is admitted, budgeted, and recorded like any other.
+is admitted, budgeted, and recorded like any other. If an attempt stops while
+the code runs, the resumed run is blocked once with
+`STEP_INTERRUPTED_IN_DOUBT` so the host can inspect the workspace; the next
+resume runs the code again (at once under `onFailure: fail`).
 
 ## Visibility and control
 

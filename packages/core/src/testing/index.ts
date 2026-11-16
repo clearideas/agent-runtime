@@ -9,9 +9,11 @@ import type {
   EventSink,
   IdGenerator,
   ResumeRunOptions,
+  RunCheckpointSummary,
   RunRecord,
   RunStore,
 } from "../ports/index.js";
+import { summarizeCheckpoint } from "../ports/index.js";
 
 export class SequenceIdGenerator implements IdGenerator {
   #next = 0;
@@ -53,6 +55,25 @@ export class MemoryRunStore implements RunStore {
     return checkpoint ? structuredClone(checkpoint) : null;
   }
 
+  async listCheckpoints(
+    runId: string,
+    options: { boundaries?: boolean } = {},
+  ): Promise<RunCheckpointSummary[]> {
+    return (this.checkpoints.get(runId) ?? [])
+      .filter((checkpoint) => !options.boundaries || checkpoint.boundary)
+      .map(summarizeCheckpoint);
+  }
+
+  async loadCheckpoint(
+    runId: string,
+    sequence: number,
+  ): Promise<RunCheckpoint | null> {
+    const checkpoint = this.checkpoints
+      .get(runId)
+      ?.find((candidate) => candidate.sequence === sequence);
+    return checkpoint ? structuredClone(checkpoint) : null;
+  }
+
   async resumeRun(
     runId: string,
     resumedAt: string,
@@ -69,6 +90,9 @@ export class MemoryRunStore implements RunStore {
     const attempt = (record.attempt ?? 1) + 1;
     this.runs.set(runId, {
       ...structuredClone(record),
+      ...(options?.manifest
+        ? { manifest: structuredClone(options.manifest) }
+        : {}),
       status: "running",
       attempt,
       updatedAt: resumedAt,

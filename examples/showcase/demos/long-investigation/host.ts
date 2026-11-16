@@ -423,6 +423,8 @@ export const longInvestigation: ShowcaseDemo = {
     // ─── The host's default context strategy ─────────────────────────────────
     // Host defaults are the lowest policy layer: the manifest's `policies`
     // (retain, summarizer, variables) merge over this, field by field.
+    // A failure would normally pause the run for the host to resume; this
+    // page never resumes an investigation, so a failure ends it instead.
     //
     // ─── The host's summarizer adapter ───────────────────────────────────────
     // Every summarization passes through the host. This one calls the built-in
@@ -430,7 +432,7 @@ export const longInvestigation: ShowcaseDemo = {
     // also rewrite the request, redact the material, cache results, or
     // summarize some other way.
     const hostControls = {
-      policies: { context: { strategy } },
+      policies: { context: { strategy }, onFailure: "fail" as const },
       summarizer: {
         summarize: async (
           request: {

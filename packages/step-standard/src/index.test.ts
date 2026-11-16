@@ -355,6 +355,39 @@ describe("WebhookStepExecutor", () => {
     ).not.toThrow();
   });
 
+  it("derives the default idempotency key from the execution key", async () => {
+    const step: WebhookStep = {
+      id: "notify",
+      type: "webhook",
+      url: "https://hooks.example.test/notify",
+    };
+    const keys: Array<string | null> = [];
+    const fetch = vi.fn<FetchLike>(async (_url, init) => {
+      keys.push(new Headers(init?.headers).get("idempotency-key"));
+      return new Response("{}", { status: 200 });
+    });
+    const executor = new WebhookStepExecutor({
+      fetch,
+      allowUnsafeDestinations: true,
+    });
+    const base = {
+      runId: "run-1",
+      manifest: manifestFor(step),
+      step,
+      stepIndex: 0,
+      variables: {},
+      emit: eventCollector().emit,
+    };
+    await executor.execute(base);
+    await executor.execute({ ...base, executionKey: "each[0]/notify" });
+    await executor.execute({ ...base, executionKey: "each[1]/notify" });
+    expect(keys).toEqual([
+      "run-1:notify",
+      "run-1:each[0]/notify",
+      "run-1:each[1]/notify",
+    ]);
+  });
+
   it("authorizes the destination before issuing the request", async () => {
     const step: WebhookStep = {
       id: "webhook-policy",
@@ -1103,5 +1136,91 @@ describe("SubRunStepExecutor", () => {
     expect(requests[1]!.variables).toEqual([
       { key: "topic", value: "refunds" },
     ]);
+  });
+});
+
+describe("code steps interrupted in the run sandbox", () => {
+  const harness = async (policies?: { onFailure: "pause" | "fail" }) => {
+    const { AgentRuntime } = await import("@clearideas/agent-runtime-core");
+    const { MemoryRunStore } =
+      await import("@clearideas/agent-runtime-core/testing");
+    let executions = 0;
+    let crash = true;
+    const runSandbox = {
+      tools: async () => [],
+      validate: async () => undefined,
+      open: async () => ({
+        id: "sb",
+        execute: async () => {
+          executions += 1;
+          if (crash) {
+            crash = false;
+            throw new Error("worker lost");
+          }
+          return {
+            record: {
+              id: "cmd",
+              exitCode: 0,
+              stdoutBytes: 2,
+              stderrBytes: 0,
+            } as never,
+            output: "ok",
+            stdout: "ok",
+            stderr: "",
+          };
+        },
+        budget: () => ({ commandsUsed: 0, sandboxSecondsUsed: 0 }),
+        close: async () => undefined,
+      }),
+    };
+    const runStore = new MemoryRunStore();
+    const runtime = () =>
+      new AgentRuntime({
+        runStore,
+        runSandbox,
+        stepExecutors: [new CodeStepExecutor()],
+        ...(policies ? { policies } : {}),
+      });
+    const manifest = {
+      schemaVersion: "1.0" as const,
+      steps: [
+        {
+          id: "migrate",
+          type: "code" as const,
+          language: "python",
+          code: "print('ok')",
+          sandbox: "run" as const,
+        },
+      ],
+    };
+    await expect(runtime().run({ runId: "code", manifest })).rejects.toThrow(
+      "worker lost",
+    );
+    return { runtime, executions: () => executions };
+  };
+
+  it("run again on resume under onFailure: fail", async () => {
+    const { runtime, executions } = await harness({ onFailure: "fail" });
+    const result = await runtime().run({ runId: "code", resume: true });
+    expect(result.output).toBe("ok");
+    expect(executions()).toBe(2);
+  });
+
+  it("pause once for the host by default, then run again on the next resume", async () => {
+    const { runtime, executions } = await harness();
+    await expect(
+      runtime().run({ runId: "code", resume: true }),
+    ).rejects.toMatchObject({
+      reason: "blocked",
+      details: {
+        cause: "error",
+        error: { code: "STEP_INTERRUPTED_IN_DOUBT" },
+        stepId: "migrate",
+      },
+    });
+    expect(executions()).toBe(1);
+    const result = await runtime().run({ runId: "code", resume: true });
+    expect(result.output).toBe("ok");
+    expect(executions()).toBe(2);
   });
 });

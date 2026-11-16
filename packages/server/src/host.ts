@@ -26,8 +26,12 @@ import type {
   AgentManifest,
   ExecutionPolicies,
   RunEvent,
+  RunLimits,
 } from "@clearideas/agent-runtime-contracts";
-import { executionPoliciesSchema } from "@clearideas/agent-runtime-contracts";
+import {
+  executionPoliciesSchema,
+  runLimitsSchema,
+} from "@clearideas/agent-runtime-contracts";
 import type {
   AgentManifestSource,
   AgentRuntimeDependencies,
@@ -83,6 +87,13 @@ export interface HostRuntime {
   policies?: ExecutionPolicies;
   /** Host execution policies applied last; manifests cannot override them. */
   enforcedPolicies?: ExecutionPolicies;
+  /**
+   * Host default run limits, replacing values of `DEFAULT_RUN_LIMITS`;
+   * manifests and resume grants override them.
+   */
+  limits?: RunLimits;
+  /** Host ceilings on run limits; nothing can exceed them. */
+  enforcedLimits?: RunLimits;
   /** Observes, changes, or replaces context summarization. */
   summarizer?: ContextSummarizerAdapter;
   /**
@@ -303,6 +314,10 @@ const normalizeRuntime = (runtime: HostRuntimeModule): HostRuntime => ({
           runtime.enforcedPolicies,
         ),
       }
+    : {}),
+  ...(runtime.limits ? { limits: runLimitsSchema.parse(runtime.limits) } : {}),
+  ...(runtime.enforcedLimits
+    ? { enforcedLimits: runLimitsSchema.parse(runtime.enforcedLimits) }
     : {}),
   ...(runtime.summarizer ? { summarizer: runtime.summarizer } : {}),
   ...(runtime.messages ? { messages: runtime.messages } : {}),
@@ -597,6 +612,8 @@ export const hostRuntimeDependencies = (
   ...(runtime.enforcedPolicies
     ? { enforcedPolicies: runtime.enforcedPolicies }
     : {}),
+  ...(runtime.limits ? { limits: runtime.limits } : {}),
+  ...(runtime.enforcedLimits ? { enforcedLimits: runtime.enforcedLimits } : {}),
   ...(runtime.summarizer ? { summarizer: runtime.summarizer } : {}),
   messages: withHistoryCompactor(runtime.messages),
   ...(options.artifacts ? { artifacts: options.artifacts } : {}),

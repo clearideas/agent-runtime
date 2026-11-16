@@ -21,7 +21,7 @@ The exported TypeScript type is `AgentManifest`; validate external input with
 | `messages`                  | object                        | accept a conversation history from runs               |
 | `steps`                     | array                         | ordered execution plan                                |
 | `policies`                  | object                        | default execution policies; steps may override them   |
-| `limits`                    | object                        | step, output, tool-call, and provider bounds          |
+| `limits`                    | object                        | step, output, tool-call, provider, and run limits     |
 | `metadata`                  | JSON object                   | inert application metadata                            |
 | `extensions`                | JSON object                   | namespaced host extensions                            |
 
@@ -40,6 +40,27 @@ notation is reserved for reading properties from object values.
 
 Final output selection is declared with `includeInFinalOutput` on top-level
 steps.
+
+### `limits`
+
+| Field                                                     | Notes                                                                                                                                                                                 |
+| --------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `maxSteps`                                                | declared steps, counted recursively; checked before a run starts                                                                                                                      |
+| `maxMessagesPerPrompt`, `maxInputBytes`, `maxOutputBytes` | prompt input and step/run output bounds                                                                                                                                               |
+| `maxToolCallsPerIteration`                                | tool calls per prompt step execution; default 25                                                                                                                                      |
+| `providerTimeoutMs`                                       | one model request                                                                                                                                                                     |
+| `maxTotalTokens`, `maxStepTokens`, `maxEstimatedCost`     | run limits: reported model tokens and cost                                                                                                                                            |
+| `maxRunActiveMs`, `maxStepActiveMs`                       | run limits: execution time across attempts                                                                                                                                            |
+| `maxRecoveries`, `maxResumesWithoutProgress`              | run limits: recoveries, and the crash-loop guard                                                                                                                                      |
+| `maxTurnsPerPrompt`, `maxLoopIterations`                  | run limits: model requests per prompt step, iterations per loop                                                                                                                       |
+| `maxArtifacts`, `maxArtifactBytes`, `maxCheckpointBytes`  | run limits: recorded artifacts and checkpoint size                                                                                                                                    |
+| `sandbox`                                                 | run-sandbox usage, capped by the host: `maxCommands`, `maxSeconds`, `commandTimeoutMs`, `maxCommandTimeoutMs`, `maxStdoutBytes`, `maxStderrBytes`, `maxOutputFiles`, `maxOutputBytes` |
+
+Every run has `DEFAULT_RUN_LIMITS`, and reaching a limit blocks the run; see
+[Run limits](./execution-policies.md#run-limits). `AgentRuntimeDependencies.limits`
+replaces defaults for a host's runs, `RunRequest.limits` grants different
+values on a run or resume, and `AgentRuntimeDependencies.enforcedLimits` sets
+host ceilings.
 
 ## Agent variable declaration
 
@@ -79,7 +100,8 @@ last and override all of them.
 | `toolCallLimit`                   | `finalize` or `fail`                                                                                                                                         | default `finalize`                                                                   |
 | `modelRetry`                      | `maxAttempts` (1–10), `initialDelayMs`, `maxDelayMs`                                                                                                         | defaults 3, 1000, 20000                                                              |
 | `outputRepair.maxAttempts`        | integer from 0 to 5                                                                                                                                          | default 1                                                                            |
-| `onError`                         | `fail` or `continue`                                                                                                                                         | default `fail`; the only field allowed on non-prompt steps                           |
+| `onError`                         | `fail` or `continue`                                                                                                                                         | default `fail`; allowed on every step type                                           |
+| `onFailure`                       | `pause` or `fail`                                                                                                                                            | default `pause`; run-level only: host or manifest, never a step                      |
 
 See [Execution policies](./execution-policies.md) and
 [Context management](./context-management.md).
@@ -376,31 +398,100 @@ See [connections and tools](./connections-and-tools.md#verifying-mcp-tool-metada
 
 ## Adapter interfaces
 
-| Adapter interface              | Responsibility                                                           |
-| ------------------------------ | ------------------------------------------------------------------------ |
-| `AgentManifestSource`          | load an agent manifest by opaque reference                               |
-| `RunStore`                     | durable lifecycle, checkpoints, and fencing                              |
-| `ModelAdapter`                 | generation, optional streaming, and optional `describeModel` limits      |
-| `ToolAdapter`                  | list and execute host-authorized tools; optional `unavailableToolReason` |
-| `ConnectionCredentialProvider` | supply and invalidate host-managed connection auth                       |
-| `EventSink`                    | observe ordered run events                                               |
-| `ArtifactStore`                | put/get artifact bytes by reference                                      |
-| `ApprovalAdapter`              | resolve a human approval request                                         |
-| `SandboxAdapter`               | execute a per-step code sandbox                                          |
-| `WorkspaceProvider`            | resolve workspace bindings to `WorkspaceStore`s                          |
-| `WorkspaceStore`               | enumerate and move opaque workspace bytes                                |
-| `RunSandboxProvider`           | open the per-run sandbox that executes commands                          |
-| `SubRunAdapter`                | invoke an isolated child agent manifest                                  |
-| `ConditionEvaluator`           | evaluate `when`, loop conditions, and goals; optional `validate`         |
-| `StepExecutor`                 | execute one step type; optional `preflight` checks                       |
-| `ContextSummarizerAdapter`     | observe, change, or replace context summarization                        |
-| `MessageHistorySigner`         | sign and verify conversation histories                                   |
-| `MessageHistoryCompactor`      | summarize the oldest part of a conversation, once per run                |
+| Adapter interface              | Responsibility                                                                         |
+| ------------------------------ | -------------------------------------------------------------------------------------- |
+| `AgentManifestSource`          | load an agent manifest by opaque reference                                             |
+| `RunStore`                     | durable lifecycle, checkpoints, fencing; optional checkpoint listing                   |
+| `ModelAdapter`                 | generation, optional streaming, and optional `describeModel` limits                    |
+| `ToolAdapter`                  | list and execute host-authorized tools; optional `unavailableToolReason`, `replaySafe` |
+| `ConnectionCredentialProvider` | supply and invalidate host-managed connection auth                                     |
+| `EventSink`                    | observe ordered run events                                                             |
+| `ArtifactStore`                | put/get artifact bytes by reference                                                    |
+| `ApprovalAdapter`              | resolve a human approval request                                                       |
+| `SandboxAdapter`               | execute a per-step code sandbox                                                        |
+| `WorkspaceProvider`            | resolve workspace bindings to `WorkspaceStore`s                                        |
+| `WorkspaceStore`               | enumerate and move opaque workspace bytes; optional `commit`, `version`                |
+| `RunSandboxProvider`           | open the per-run sandbox that executes commands                                        |
+| `SubRunAdapter`                | invoke an isolated child agent manifest                                                |
+| `ConditionEvaluator`           | evaluate `when`, loop conditions, and goals; optional `validate`                       |
+| `StepExecutor`                 | execute one step type; optional `preflight` checks                                     |
+| `ContextSummarizerAdapter`     | observe, change, or replace context summarization                                      |
+| `MessageHistorySigner`         | sign and verify conversation histories                                                 |
+| `MessageHistoryCompactor`      | summarize the oldest part of a conversation, once per run                              |
 
 `RunStore` implementations may add `interruptRun` to record the `interrupted`
 status; without it, interruptions are stored as retryable failures. For
 retention, they may add `deleteRun(runId)`, which removes a run that is not
 `running`, with its checkpoints; the memory and SQLite stores implement it.
+`listCheckpoints(runId, { boundaries })` and `loadCheckpoint(runId, sequence)`
+expose restart points; every built-in store implements them. `resumeRun`
+receives `options.manifest` when a resume supplies a manifest, and should store
+it as the run's.
+
+`ToolAdapter.replaySafe(call)` returns `false` for calls that must not be
+repeated when an attempt stopped while they ran; the model is then told the
+call was interrupted. `WorkspaceStore.commit(point)` is called at step commit
+points and may return an opaque token; `version()` names a read-only input's
+state. See [Workspaces](./workspaces.md#step-commit-points).
+
+## Step executors
+
+A `StepExecutor` receives a `StepExecutionContext`. The members that matter
+for durable execution:
+
+| Member                                  | Purpose                                                                                                      |
+| --------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
+| `checkpoint(nested)`                    | commit resumable state while the step is still running: state, continuation, cumulative transcript/artifacts |
+| `resume`                                | present when the step resumes: `continuation`, `transcript`, `artifacts`, and `notices` for the model        |
+| `executionKey`                          | stable identity of this execution, such as `each[2]/notify`; distinct per loop iteration, kept on resume     |
+| `executeChild(step, vars, path, frame)` | run a child step; a `ChildExecutionFrame` keeps the parent's state in the child's checkpoints                |
+
+A parent that checkpoints its own progress passes a frame:
+
+```ts
+interface ChildExecutionFrame {
+  /** Wrap the child's nested checkpoint in the parent's continuation, cursor, transcript, and artifacts. */
+  checkpoint(nested: NestedCheckpointInput): NestedCheckpointInput;
+  /** The child's share of the parent's restored state, when resuming into it. */
+  resume?: {
+    continuation?: JsonObject;
+    transcript?: TranscriptItem[];
+    artifacts?: ArtifactRef[];
+  };
+  /** Distinguishes repeated executions of the child, such as the loop iteration. */
+  key?: string;
+}
+```
+
+With a frame, a child resumes only from `frame.resume`. Without one, a child
+that checkpoints mid-step replaces its parent's saved position; the built-in
+loop executor always passes a frame.
+
+## Runs, resumes, and restarts
+
+`AgentRuntime.run(request)` accepts, besides the manifest and run inputs:
+
+| Field                  | Notes                                                                                                    |
+| ---------------------- | -------------------------------------------------------------------------------------------------------- |
+| `resume`               | resume `runId` from its latest checkpoint; a changed `manifest` is accepted within the fingerprint rules |
+| `limits`               | run limits to grant for this attempt and later ones; host ceilings apply                                 |
+| `budget`               | the explicit cumulative token budget                                                                     |
+| `seed`                 | start a new run from a step-completion checkpoint of another run                                         |
+| `allowRunningTakeover` | resume a run still marked `running` once its owner is known to be gone                                   |
+| `signal`               | abort to pause (`createRunPauseRequest`), interrupt (`RunInterruptedError`), or cancel                   |
+
+A run that is blocked rejects with a `RunSuspendedError` whose `reason` is
+`blocked` (`suspensionKind` returns `awaiting-host`) and whose `details.cause`
+is `limit` or `error`. `isFatalRunError(error)` tells which errors fail a run
+regardless of `onFailure`; hosts throw `RunFatalError` to mark their own.
+`assessManifestChange(checkpoint, manifest)` reports what resuming or
+restarting with an edited manifest would do (see
+[Manifest changes on resume](./persistence-and-recovery.md#manifest-changes-on-resume)).
+
+Checkpoint contract `1.1` adds `ledger`, `fingerprints`, `boundary`,
+`workspaces`, and `inputs` (see
+[Checkpoints](./persistence-and-recovery.md#checkpoints)); `1.0` checkpoints
+are still read.
 
 ## Execution interface
 

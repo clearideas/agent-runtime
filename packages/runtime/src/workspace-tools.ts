@@ -8,7 +8,11 @@ import type {
   ToolCall,
   ToolResult,
 } from "@clearideas/agent-runtime-contracts";
-import { resolveAgentWorkspaces } from "@clearideas/agent-runtime-core";
+import {
+  createLimitSuspension,
+  isRunSuspendedError,
+  resolveAgentWorkspaces,
+} from "@clearideas/agent-runtime-core";
 import type {
   AgentTool,
   ResolvedWorkspace,
@@ -78,8 +82,27 @@ interface PendingCall {
   context: ToolExecutionContext;
   call: ToolCall;
   result?: RunSandboxCommandResult;
-  failure?: { code: string; message: string };
+  failure?: {
+    code: string;
+    message: string;
+    /** A run limit the command reached (the sandbox usage budget). */
+    limit?: { name: string; used: number; value: number };
+  };
 }
+
+/** The run limit carried by a sandbox budget error, if any. */
+const limitOf = (
+  error: unknown,
+): { name: string; used: number; value: number } | undefined => {
+  const limit = (error as { limit?: unknown } | undefined)?.limit;
+  if (limit == null || typeof limit !== "object") return undefined;
+  const { name, used, value } = limit as Record<string, unknown>;
+  return typeof name === "string" &&
+    typeof used === "number" &&
+    typeof value === "number"
+    ? { name, used, value }
+    : undefined;
+};
 
 interface WorkspaceRelay {
   workspace: ResolvedWorkspace;
@@ -176,6 +199,17 @@ export class WorkspaceToolAdapter implements ToolAdapter {
     return tools;
   }
 
+  /**
+   * Built-in operations set a file's state (or only read), so repeating an
+   * interrupted one is safe. Shell and configured commands may append or
+   * act on state a first execution already changed: not replayed.
+   */
+  replaySafe(call: ToolCall): boolean | undefined {
+    const tool = this.#resolvedTools.get(call.name);
+    if (!tool) return undefined;
+    return tool.kind === "builtin";
+  }
+
   async executeTool(
     call: ToolCall,
     context: ToolExecutionContext,
@@ -265,6 +299,16 @@ export class WorkspaceToolAdapter implements ToolAdapter {
             }
           : {}),
       };
+      // A sandbox usage limit suspends the run until the host grants more;
+      // the call is repeated on resume.
+      if (pending.failure?.limit) {
+        throw createLimitSuspension({
+          limit: pending.failure.limit.name,
+          used: pending.failure.limit.used,
+          value: pending.failure.limit.value,
+          stepId: context.stepId,
+        });
+      }
       if (mcpResult.isError || pending.failure) {
         const failure = pending.failure ?? {
           code: "sandbox_command_failed",
@@ -298,6 +342,7 @@ export class WorkspaceToolAdapter implements ToolAdapter {
         metadata,
       };
     } catch (error) {
+      if (isRunSuspendedError(error)) throw error;
       return {
         callId: call.id,
         name: call.name,
@@ -429,9 +474,11 @@ export class WorkspaceToolAdapter implements ToolAdapter {
           structuredContent: structured,
         } satisfies CallToolResult;
       } catch (error) {
+        const limit = limitOf(error);
         pending.failure = {
           code: errorCode(error),
           message: error instanceof Error ? error.message : String(error),
+          ...(limit ? { limit } : {}),
         };
         return {
           content: [{ type: "text", text: pending.failure.message }],

@@ -58,7 +58,10 @@ Non-goals:
   transport change, not a redesign.
 - Transactional rollback of workspace writes on run failure. Writes are
   host-visible side effects applied through the workspace store; hosts that
-  need rollback use a scratch workspace or version control.
+  need rollback use a scratch workspace or version control. The runtime
+  calls `WorkspaceStore.commit` at each step completion so a host can
+  snapshot there, records the token it returns, and hands it back as
+  `restoreFrom` when a run restarts from that step.
 - Network access from the run sandbox. The sandbox has no network.
 
 ## 3. Terminology
@@ -302,10 +305,10 @@ sandbox:
     cpuCount: 2 # default 1
     processLimit: 256 # default 128
     workspaceTmpfsMb: 1024 # default 1024; must exceed staged bytes
-    commandTimeoutMs: 60000 # default 60 s; per-command ceiling
-    maxCommandTimeoutMs: 900000 # default 15 min; ceiling for per-entry overrides
-    maxCommandsPerRun: 200 # default 200
-    maxTotalSandboxSeconds: 900 # default 900
+    commandTimeoutMs: 60000 # default 300000 (5 min); per-command ceiling
+    maxCommandTimeoutMs: 900000 # default 3600000 (1 h); ceiling for per-entry overrides
+    maxCommandsPerRun: 200 # default 2000
+    maxTotalSandboxSeconds: 900 # default 14400 (4 h)
     maxStdoutBytes: 1048576 # default 1 MiB
     maxStderrBytes: 262144 # default 256 KiB
     maxArgs: 64 # default 64
@@ -377,8 +380,8 @@ sandbox:
 | `helper.command`                               | `["python3", "/workspace/bin/agent-fs"]`        |
 | `memoryMb` / `cpuCount` / `processLimit`       | 1024 / 1 / 128                                  |
 | `workspaceTmpfsMb`                             | 1024                                            |
-| `commandTimeoutMs` / `maxCommandTimeoutMs`     | 60 000 / 900 000                                |
-| `maxCommandsPerRun` / `maxTotalSandboxSeconds` | 200 / 900                                       |
+| `commandTimeoutMs` / `maxCommandTimeoutMs`     | 300 000 / 3 600 000                             |
+| `maxCommandsPerRun` / `maxTotalSandboxSeconds` | 2 000 / 14 400                                  |
 | `maxStdoutBytes` / `maxStderrBytes`            | 1 MiB / 256 KiB                                 |
 | `maxArgs` / `maxArgBytes`                      | 64 / 4096                                       |
 | `maxTotalStagedBytes`                          | 256 MiB                                         |
@@ -612,11 +615,14 @@ configuration needs no `image`; the `image` reported in events is
    transcript records exactly which commands completed.
 
 Budgets: `maxCommandsPerRun` and `maxTotalSandboxSeconds` are cumulative
-across attempts and are persisted in checkpoint metadata
-(`checkpoint.metadata.sandboxBudget`), following the token-budget precedent.
-Exhaustion returns a `sandbox_budget_exhausted` tool error; the run does not
-suspend automatically because, unlike tokens, a host cannot safely raise the
-limit without reviewing what was executed.
+across attempts and are persisted in every checkpoint (`ledger.sandbox`, and
+`metadata.sandboxBudget` for readers of contract 1.0), including checkpoints
+saved before an attempt reopens its sandbox. A run may set a lower budget
+through `limits.sandbox`. Exhausting the budget blocks the run (suspension
+kind `awaiting-host`, limit `sandbox.maxCommands` or `sandbox.maxSeconds`):
+the host reviews what was executed and grants more, up to its configured
+values, or stops. (Revised in 0.10; the first release returned a
+`sandbox_budget_exhausted` tool error and let the model continue.)
 
 ## 10. Tool surface
 
@@ -687,7 +693,7 @@ disabled by default.
 | `tool_not_authorized`      | `authorizeTool` or `authorizeCommand` rejected the call     |
 | `workspace_path_invalid`   | path fails the rule or names an invisible/unavailable file  |
 | `workspace_limit_exceeded` | file, listing, search, argument, or output ceiling exceeded |
-| `sandbox_budget_exhausted` | `maxCommandsPerRun` or `maxTotalSandboxSeconds` reached     |
+| `sandbox_budget_exhausted` | budget reached; blocks the run rather than returning a result |
 | `sandbox_command_timeout`  | per-command timeout                                         |
 | `sandbox_command_failed`   | provider or helper failure (non-zero exit from the helper)  |
 | `sandbox_unavailable`      | session could not be opened                                 |
@@ -764,11 +770,19 @@ After every command (and at `close`):
    provider `modifiedAt` (when available) is newer. Files exceeding
    `maxFileBytes` are not synced and are reported under `ignoredPaths` with
    reason `size`.
-3. For each changed or new file: `store.write(path, bytes)`; for each missing
-   baseline file: `store.delete(path)`. The store re-applies the path rule,
-   visibility, and size ceiling; a rejection is reported in `ignoredPaths`
-   with reason `store`.
-4. Update the baseline and populate `filesChanged`.
+3. For each missing baseline file: `store.delete(path)`, but only when the
+   listing is complete. A listing cut off at `maxFiles` cannot tell a deleted
+   file from one that was not listed, so nothing is deleted from it.
+4. For each changed or new file: `store.write(path, bytes)`. Changes that do
+   not grow the workspace are written first, then growth in path order while
+   the projected totals stay within the store's `maxFiles` and
+   `maxTotalBytes`; the rest are refused with reason `limit`. The store
+   re-applies the path rule, visibility, and size ceiling; a rejection is
+   reported in `ignoredPaths` with reason `store`.
+5. Update the baseline and populate `filesChanged`.
+6. Report every path not saved in the command's result as `notPersisted`
+   (`invalid-path`, `symlink`, `too-large`, `store-rejected`,
+   `workspace-limit`), once per path and reason, so the model knows.
 
 Read-only mounts are never listed for sync-back. Modifications the model makes
 to a read-only mount's staged copy are confined to the sandbox and vanish with
@@ -1052,3 +1066,9 @@ All items ship in the first release; the order minimizes rework.
 | Code steps                                                             | optional `sandbox: run`, implied by `workspaces`                                                                        |
 | Write durability                                                       | immediate through sync-back after each command; no rollback on failure                                                  |
 | Sync granularity                                                       | after every command and at close                                                                                        |
+| Unsaved changes                                                        | reported to the model in the command result (`notPersisted`), not only in the record                                    |
+| Workspace growth                                                       | copy-back keeps the store within `maxFiles`/`maxTotalBytes`; an incomplete listing never deletes                        |
+| Failed final sync on suspension                                        | recorded on the latest checkpoint (`metadata.workspaceSync`); the resumed step is told                                  |
+| Sandbox budget exhaustion                                              | blocks the run for the host (revised in 0.10 from a tool error)                                                         |
+| Step commit points                                                     | `WorkspaceStore.commit` at each step completion; the opaque token is recorded in the checkpoint; rollback stays host scope |
+| Interrupted commands                                                   | shell and configured commands are not replayed on resume; the model is told; code steps block once                     |

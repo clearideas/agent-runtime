@@ -341,7 +341,8 @@ describe("AgentRuntime", () => {
     ).rejects.toThrow("checkpoint unavailable");
 
     expect(executed).toEqual(["first"]);
-    expect(store.failures.has("run-2")).toBe(true);
+    // Not fatal: the run waits for its host, resumable from its last checkpoint.
+    expect((await store.loadRun("run-2"))?.status).toBe("suspended");
   });
 
   it("rejects overlapping attempts for the same run in one Agent Runtime process", async () => {
@@ -430,7 +431,7 @@ describe("AgentRuntime", () => {
         },
       }),
     ).rejects.toThrow("exceeding the 4-byte output limit");
-    expect((await store.loadRun("output-too-large"))?.status).toBe("failed");
+    expect((await store.loadRun("output-too-large"))?.status).toBe("suspended");
   });
 
   it("validates runtime manifests before creating a run", async () => {
@@ -916,32 +917,40 @@ describe("AgentRuntime", () => {
     });
   });
 
-  it("rejects resume when the supplied manifest differs from the checkpoint", async () => {
+  it("rejects resume when a completed step of the supplied manifest changed", async () => {
     const store = new MemoryRunStore();
     const runner = new AgentRuntime({
       runStore: store,
       stepExecutors: [
         {
           type: "prompt",
-          execute: async () => {
-            throw new Error("stop after initial checkpoint");
+          execute: async ({ step: current }) => {
+            if (current.id === "second")
+              throw new Error("stop after the first step");
+            return { output: current.id };
           },
         },
       ],
       idGenerator: new SequenceIdGenerator(),
     });
     await expect(
-      runner.run({ manifest: manifest([step("only")]), runId: "run-mismatch" }),
-    ).rejects.toThrow("stop after initial checkpoint");
+      runner.run({
+        manifest: manifest([step("first"), step("second")]),
+        runId: "run-mismatch",
+      }),
+    ).rejects.toThrow("stop after the first step");
 
-    const changed = manifest([step("changed")]);
+    const changed = manifest([step("renamed"), step("second")]);
     await expect(
       runner.run({
         manifest: changed,
         runId: "run-mismatch",
         resume: true,
       }),
-    ).rejects.toThrow("Manifest does not match checkpoint");
+    ).rejects.toMatchObject({
+      code: "MANIFEST_CHANGED",
+      message: expect.stringContaining("Manifest does not match checkpoint"),
+    });
   });
 
   it("exposes nested continuation checkpoints to a resumed step", async () => {

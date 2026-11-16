@@ -7,7 +7,7 @@ import {
   type ShowcaseEnvironment,
 } from "../lib/environment.ts";
 import { parseAgentRuntimeConfig } from "@clearideas/agent-runtime";
-import { runDemo, startShowcase } from "./helpers.ts";
+import { hostSource, runDemo, startShowcase } from "./helpers.ts";
 
 test("serves the gallery, demo pages, and vendor assets under a strict CSP", async (context) => {
   const { baseURL } = await startShowcase(context);
@@ -82,10 +82,10 @@ test("lists all eight demos and describes the ready ones", async (context) => {
 test("serves only declared source files", async (context) => {
   const { baseURL } = await startShowcase(context);
   const host = await fetch(
-    `${baseURL}/api/demos/repo-mechanic/source?path=demos/repo-mechanic/host.ts`,
+    `${baseURL}/api/demos/repo-mechanic/source?path=${hostSource("repo-mechanic")}`,
   );
   assert.equal(host.status, 200);
-  assert.match((await host.json()).text, /composeRuntime/u);
+  assert.match((await host.json()).text, /composeRuntime|compose_runtime/u);
   const denied = await fetch(
     `${baseURL}/api/demos/repo-mechanic/source?path=server.ts`,
   );
@@ -96,7 +96,12 @@ test("live mode is refused without an isolated sandbox and a provider key", asyn
   const { baseURL } = await startShowcase(context, { sandbox: "unisolated" });
   const messages = await runDemo(baseURL, "repo-mechanic", { mode: "live" });
   const error = messages.find((message) => message.kind === "error");
-  assert.match(error?.error.message ?? "", /isolated sandbox/u);
+  // Without python3 (Windows without Python, say) the unisolated fallback
+  // is unavailable too, and the run is refused for having no sandbox.
+  assert.match(
+    error?.error.message ?? "",
+    /isolated sandbox|No sandbox is available/u,
+  );
 });
 
 const environment = (

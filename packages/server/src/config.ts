@@ -9,6 +9,7 @@ import path from "node:path";
 import {
   agentRunExecutionSchema,
   executionPoliciesSchema,
+  runLimitsSchema,
 } from "@clearideas/agent-runtime-contracts";
 import { parse as parseYaml } from "yaml";
 import { z } from "zod";
@@ -199,6 +200,9 @@ export const servedModelConfigSchema = z.strictObject({
   execution: agentRunExecutionSchema.optional(),
   policies: executionPoliciesSchema.optional(),
   enforcedPolicies: executionPoliciesSchema.optional(),
+  /** Default run limits for this model's runs, and ceilings on them. */
+  limits: runLimitsSchema.optional(),
+  enforcedLimits: runLimitsSchema.optional(),
   /** What a client disconnect does to its run. */
   onDisconnect: z.enum(["cancel", "continue"]).default("cancel"),
   /** `budget` maps max_tokens to the run's token budget, capped by the host. */

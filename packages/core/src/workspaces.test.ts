@@ -330,7 +330,10 @@ describe("AgentRuntime run sandbox lifecycle", () => {
     );
     const steps: AgentStep[] = [{ id: "first", type: "prompt", prompt: "x" }];
     await expect(
-      runner.run({ runId: "f", manifest: manifest(steps) }),
+      runner.run({
+        runId: "f",
+        manifest: { ...manifest(steps), policies: { onFailure: "fail" } },
+      }),
     ).rejects.toThrow(/boom/u);
     behaviour = "cancel";
     await expect(
@@ -362,7 +365,92 @@ describe("AgentRuntime run sandbox lifecycle", () => {
     });
   });
 
-  it("fails the run when the final sync-back cannot complete", async () => {
+  it("carries sandbox usage through an attempt that never opens the sandbox", async () => {
+    const sandbox = new FakeRunSandbox();
+    const runStore = new MemoryRunStore();
+    let attempt = 0;
+    const runner = runtime(
+      sandbox,
+      async (context) => {
+        attempt += 1;
+        // Attempt 2 checkpoints and suspends before any workspace command.
+        if (attempt !== 2) {
+          const session = await context.runSandbox!();
+          await session.execute({
+            stepId: context.step.id,
+            kind: "shell",
+            name: "shell",
+            arguments: {},
+          });
+        }
+        if (attempt === 3) return { output: "ok" };
+        await context.checkpoint?.({ state: { ...context.variables } });
+        throw new RunSuspendedError("paused");
+      },
+      runStore,
+    );
+    const steps: AgentStep[] = [{ id: "first", type: "prompt", prompt: "x" }];
+    await expect(
+      runner.run({ runId: "b", manifest: manifest(steps) }),
+    ).rejects.toThrow(/suspended/u);
+    await expect(runner.run({ runId: "b", resume: true })).rejects.toThrow(
+      /suspended/u,
+    );
+    expect((await runStore.loadLatestCheckpoint("b"))?.metadata).toEqual({
+      sandboxBudget: { commandsUsed: 1, sandboxSecondsUsed: 0.5 },
+    });
+    await runner.run({ runId: "b", resume: true });
+    expect(sandbox.opened.map((request) => request.budget)).toEqual([
+      undefined,
+      { commandsUsed: 1, sandboxSecondsUsed: 0.5 },
+    ]);
+    expect((await runStore.loadLatestCheckpoint("b"))?.metadata).toEqual({
+      sandboxBudget: { commandsUsed: 2, sandboxSecondsUsed: 1 },
+    });
+  });
+
+  it("records a failed final sync durably and tells the resumed step", async () => {
+    const sandbox = new FakeRunSandbox();
+    const runStore = new MemoryRunStore();
+    const notices: Array<string[] | undefined> = [];
+    let attempt = 0;
+    const runner = runtime(
+      sandbox,
+      async (context) => {
+        attempt += 1;
+        notices.push(context.resume?.notices);
+        await context.runSandbox!();
+        if (attempt === 2) return { output: "ok" };
+        await context.checkpoint?.({ state: { ...context.variables } });
+        sandbox.failClose = true;
+        throw new RunSuspendedError("paused");
+      },
+      runStore,
+    );
+    const steps: AgentStep[] = [{ id: "first", type: "prompt", prompt: "x" }];
+    await expect(
+      runner.run({ runId: "w", manifest: manifest(steps) }),
+    ).rejects.toThrow(/suspended/u);
+    expect((await runStore.loadRun("w"))?.status).toBe("suspended");
+    const saved = await runStore.loadLatestCheckpoint("w");
+    expect(saved?.cursor).toMatchObject({ stepIndex: 0, stepId: "first" });
+    expect(saved?.metadata?.workspaceSync).toMatchObject({
+      failed: true,
+      error: "sync failed",
+    });
+    sandbox.failClose = false;
+    await runner.run({ runId: "w", resume: true });
+    expect(notices[0]).toBeUndefined();
+    expect(notices[1]).toEqual([
+      expect.stringContaining("could not be saved when its sandbox closed"),
+    ]);
+    // The next checkpoint no longer carries the failure.
+    expect(
+      (await runStore.loadLatestCheckpoint("w"))?.metadata?.workspaceSync,
+    ).toBeUndefined();
+  });
+
+  it("blocks the run when the final sync-back cannot complete, then completes on resume", async () => {
     const sandbox = new FakeRunSandbox();
     sandbox.failClose = true;
     const runStore = new MemoryRunStore();
@@ -380,7 +468,10 @@ describe("AgentRuntime run sandbox lifecycle", () => {
         manifest: manifest([{ id: "first", type: "prompt", prompt: "x" }]),
       }),
     ).rejects.toThrow(/sync failed/u);
-    expect((await runStore.loadRun("run-6"))?.status).toBe("failed");
+    expect((await runStore.loadRun("run-6"))?.status).toBe("suspended");
     expect(sandbox.closed).toEqual(["completed"]);
+    sandbox.failClose = false;
+    await runner.run({ runId: "run-6", resume: true });
+    expect((await runStore.loadRun("run-6"))?.status).toBe("completed");
   });
 });

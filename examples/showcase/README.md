@@ -1,6 +1,6 @@
 # Agent Runtime Showcase
 
-Interactive examples of Clear Ideas Agent Runtime 0.9.0, available locally or
+Interactive examples of Clear Ideas Agent Runtime 0.10, available locally or
 on a hosted server. Each demo executes an agent manifest and visualizes the
 runtime's event stream. Every page also shows the manifest, host configuration,
 and integration code used by the example.
@@ -8,7 +8,7 @@ and integration code used by the example.
 | Demo                   | What it shows                                                                                                                     |
 | ---------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
 | **Repo Mechanic**      | A workspace, the run sandbox, an allowlisted test command, an `authorizeCommand` hook, a code step, and sync-back                 |
-| **Durable Runs**       | An approval step and a token budget pause the run; it resumes in a new attempt with a new sandbox, even after a restart           |
+| **Durable Runs**       | Approval, a token limit, and a provider outage pause the run; resume it, restart from a step's snapshot, or edit the agent        |
 | **Guardrails**         | Scripted unauthorized actions tested against configuration, tool digests, path and argument rules, a hook, and the sandbox        |
 | **Document Library**   | A read-only workspace with visibility globs, an image passed to the model as an artifact, and an MCP ticket tool                  |
 | **Orchestration**      | A parallel wave, a condition, a collection loop, and a goal loop, in this process or in a separate worker process                 |
@@ -16,8 +16,10 @@ and integration code used by the example.
 | **Data Chat**          | A chat, one run per message: moderation, data read and charts rendered in the sandbox, and a signed history the browser keeps     |
 | **Document Chat**      | A chat about a Word document: each revision is a real .docx written in the sandbox, kept in a workspace per conversation, by turn |
 
-The example targets the published **0.9.0** runtime and uses a separate lockfile;
-its dependencies are installed independently of the repository workspaces.
+The example targets Agent Runtime **0.10** and uses a separate lockfile. Until
+0.10.0 is published, it installs the runtime from this repository
+(`file:../../packages/...`), so build the repository first: run `npm ci` and
+`npm run build` at the repository root, then `npm ci` here.
 
 ## Run it
 
@@ -50,6 +52,33 @@ model-provider calls:
 export OPENAI_API_KEY="..."
 npm start
 ```
+
+## Run it on the Python runtime
+
+Every demo also runs on [Agent Runtime for Python](../../python/README.md):
+`server.py` serves the same pages and API as `server.ts`, and each demo's
+`host.py` and `script.py` sit beside its `host.ts` and `script.ts`, using the
+same `agent.yaml`, `runtime.config.yaml`, and fixtures. The top bar shows
+**Runtime: Python**, and "How it's built" shows the Python sources.
+
+Requirements: [uv](https://docs.astral.sh/uv/) (it installs Python 3.11+ and
+the runtime from `../../python`), plus this example's `npm ci` for the browser
+libraries.
+
+```sh
+cd examples/showcase
+npm ci
+npm run start:python         # uv run --project ../../python python server.py
+npm run doctor:python        # the doctor, on the Python runtime
+```
+
+It listens on the same port and reads the same `SHOWCASE_*` variables; its
+default data directory is `.data-python/`. Both servers can run at once on
+different ports. Keep their `SHOWCASE_DATA` directories separate: the Python
+port uses checkpoint contract 1.0 while the TypeScript durability update uses
+1.1, so cross-runtime resume is not yet supported. Durable Runs uses
+`agent.python.yaml` on the Python server because the TypeScript manifest has
+new 0.10 policy fields.
 
 ## Windows with Docker
 
@@ -231,9 +260,31 @@ is templated with the run's variables ("Publish the Q3 revenue report?"). The ho
 `ApprovalAdapter` throws `RunSuspendedError`, so the run is saved by
 `FileRunStore` and its sandbox closes. **Approve** resumes it in a new attempt
 with a new runtime and a new sandbox; the draft comes back from the host's
-files. Turn on **Token budget** and the run also pauses mid-draft when it has
-used 1,000 tokens; raising the limit continues without repeating any tool
-call. A paused run survives a server restart.
+files. A paused run survives a server restart.
+
+Turn on **Token limit** and the run is granted only 1,000 tokens
+(`RunRequest.limits`): it is blocked mid-draft, and raising the limit
+continues without repeating any tool call. Turn on **Provider outage** and
+every model call fails while Publish runs; the step retries
+(`policies.modelRetry`), then the run is blocked instead of failed
+(`policies.onFailure: pause`), with the cause saved in its checkpoint.
+**The provider is back: resume** runs Publish again without repeating the
+draft or the approval.
+
+When a step completes, the host's reports store snapshots the folder at the
+step commit point (`WorkspaceStore.commit`) and the token is recorded in the
+step's checkpoint. **Restart points** lists them; **Restart from here** starts
+a new run from that checkpoint (`RunRequest.seed`), and the host's workspace
+provider restores the snapshot (`restoreFrom`), so restarting after Draft
+asks for approval again on the same draft.
+
+**Agent edit** applies a change to the agent for the next run, resume, or
+restart, and shows what it would do before anything runs
+(`assessManifestChange`): a new limit or a changed Publish step is accepted
+while Publish has not run; a changed Draft step reruns Draft if the run was
+blocked in it, and is refused once Draft has completed; a changed variable is
+refused for every resume and restart. A refused edit can still start a new
+run.
 
 With a live model, the draft and publish steps each list the `reports`
 workspace before writing or reading a file by name: a workspace's tool paths
@@ -250,8 +301,10 @@ access, a shell, a different AI provider (the model policy allows only the
 host's profile), and a webhook to an AI endpoint (the host runs no webhook
 steps); it also removes a vendor MCP tool whose description changed after
 approval (pinned digests), and the step that names it runs without it. During the run, path and argument rules, a host
-quota hook, files that were never staged, the network-free sandbox, and the
-command budget stop the rest. One script tries to call an OpenAI-style
+quota hook, files that were never staged, and the network-free sandbox stop
+the rest. When the model floods the sandbox, the command budget blocks the
+run: it is saved for the host to grant more, and this host never does. One
+script tries to call an OpenAI-style
 endpoint with the host's API key: sandboxed commands receive no host
 environment, so there is no key, and no network to send it on.
 
@@ -409,7 +462,9 @@ lib/docx.ts             reads a .docx for the page's preview
 
 ```text
 server.ts                        HTTP wiring: static files, JSON endpoints, NDJSON run streams
-demos/<name>/                    one folder per demo (agent.yaml, runtime.config.yaml, host.ts, script.ts)
+server.py                        the same server on the Python runtime (Starlette + uvicorn)
+demos/<name>/                    one folder per demo (agent.yaml, runtime.config.yaml, host.ts,
+                                 script.ts, and their Python editions host.py and script.py)
 lib/catalog.ts                   the list of demos
 lib/environment.ts               sandbox detection and the Scripted/Live mode policy
 lib/scripted-model.ts            a paced, deterministic ModelAdapter
@@ -423,6 +478,7 @@ public/assets/lib/stage.js       the shared stage: agent → policy → sandbox 
 public/assets/lib/demo-page.js   page wiring shared by every demo
 public/assets/lib/context-state.js  model-input + context.reduced → context chart state (DOM-free)
 public/assets/<demo>.js          what each page adds (attack board, graph, decision panel, context chart)
+lib/*.py                         the Python editions of lib/*.ts (scripted_model.py, host_kit.py, …)
 ```
 
 `model.tool.*` events carry tool names, never payloads. To show inputs and
@@ -463,27 +519,44 @@ logic, and run every demo end to end through the HTTP API with the scripted
 model and whichever sandbox the machine provides. Force a sandbox with
 `SHOWCASE_SANDBOX=unisolated npm test`.
 
+The same HTTP tests run against the Python server, together with the parity
+tests that compare the two servers:
+
+```sh
+npm run test:python   # every test/*.test.ts against server.py, and test/parity.python.ts
+```
+
+With `SHOWCASE_RUNTIME=python`, `test/helpers.ts` starts `server.py` in the
+repository's Python environment (`python/.venv`, created with uv when
+missing) instead of `server.ts`. Live-mode tests reach the Python server's
+real OpenAI adapter through a local stand-in endpoint
+(`test/python-live-provider.ts`) answered by the same demo scripts.
+
+The parity tests (`test/parity.python.ts`) run every demo on both servers
+and require the same browser stream, host state, model requests, and stored
+run records and checkpoints, after normalizing IDs, times, ports, and
+measured durations. In Live mode, the provider must receive the same requests
+from both runtimes' OpenAI adapters. They also resume runs and continue chats
+across the two runtimes. This parity gate currently fails until the Python
+port adopts the TypeScript 0.10 durability behavior. From the repository
+root, `make test-showcase` runs this gate, and `make test` runs the Python host
+library's unit tests (`test_py/`).
+
 ## Notes
 
-- **Developing against unreleased runtime changes.** `package.json` pins the
-  published `@clearideas/agent-runtime` 0.9.0 packages, including the context
-  management used by Long Investigation and the conversation history used by
-  Data Chat and Document Chat. To use the repository's own packages
-  instead:
+- **Developing against unreleased runtime changes.** `package.json` uses the
+  repository's own runtime packages. Rebuild them after changing runtime code:
 
   ```sh
   # at the repository root
   npm ci
   npm run build
-  # in examples/showcase
+  # in examples/showcase, install the local packages
   npm ci
-  npm run use-local-runtime
   ```
 
-  The script removes the published `@clearideas` packages from this
-  example's `node_modules`, so Node resolves them from the repository's
-  workspace. Rebuild at the root after changing runtime code; run `npm ci`
-  here to return to the published packages.
+  The `use-local-runtime` script is retained for older published-package
+  installs; the package file references now make it unnecessary.
 
 - The unisolated fallback runs the interpreter that `python3` resolves to
   when the server starts, so pyenv or asdf shims and the macOS developer-tools

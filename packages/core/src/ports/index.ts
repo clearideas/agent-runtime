@@ -13,7 +13,11 @@ import type {
   RunCheckpoint,
   RunError,
   RunEvent,
+  ExecutionCursor,
+  RunCheckpointBoundary,
+  RunSandboxUsageLimits,
   AgentVariableOverride,
+  WorkspaceChange,
   SandboxCommandRecord,
   ToolCall,
   ToolResult,
@@ -75,9 +79,40 @@ export interface CompletedRunRecord extends Omit<RunRecord, "messages"> {
   };
 }
 
+/** What a store lists about a checkpoint without loading it. */
+export interface RunCheckpointSummary {
+  id: string;
+  sequence: number;
+  attempt?: number;
+  createdAt: string;
+  cursor: ExecutionCursor;
+  /** Present on step-completion checkpoints: the points a run can restart from. */
+  boundary?: RunCheckpointBoundary;
+}
+
+/** Summarize a checkpoint for `RunStore.listCheckpoints`. */
+export const summarizeCheckpoint = (
+  checkpoint: RunCheckpoint,
+): RunCheckpointSummary => ({
+  id: checkpoint.id,
+  sequence: checkpoint.sequence,
+  ...(checkpoint.attempt !== undefined ? { attempt: checkpoint.attempt } : {}),
+  createdAt: checkpoint.createdAt,
+  cursor: structuredClone(checkpoint.cursor),
+  ...(checkpoint.boundary
+    ? { boundary: structuredClone(checkpoint.boundary) }
+    : {}),
+});
+
 export interface ResumeRunOptions {
   /** Explicit host assertion that the previous running owner is no longer active. */
   allowRunningTakeover?: boolean;
+  /**
+   * The manifest this attempt runs, when the host supplied one that may
+   * differ from the stored one (for example with raised limits). Stores save
+   * it as the run's manifest so later resumes use it.
+   */
+  manifest?: AgentManifest;
 }
 
 /**
@@ -124,6 +159,21 @@ export interface RunStore {
     cancelledAt: string,
     expectedAttempt: number,
   ): Promise<void>;
+  /**
+   * Optional. The run's retained checkpoints, oldest first. With
+   * `boundaries: true`, only step-completion checkpoints: the points a run
+   * can restart from. Stores keep at least the latest checkpoint and every
+   * step-completion checkpoint; retention beyond that is theirs to decide.
+   */
+  listCheckpoints?(
+    runId: string,
+    options?: { boundaries?: boolean },
+  ): Promise<RunCheckpointSummary[]>;
+  /** Optional. Load one retained checkpoint by sequence. */
+  loadCheckpoint?(
+    runId: string,
+    sequence: number,
+  ): Promise<RunCheckpoint | null>;
   /**
    * Permanently remove a run record and its checkpoints, for retention.
    * Refuses a run that is still `running`. Returns false when the run does
@@ -201,6 +251,29 @@ export interface WorkspaceLimits {
  * follow symbolic links, expose only visible files, and refuse writes unless
  * their mode is read_write.
  */
+/**
+ * A step completed and every change it made to a read-write workspace has
+ * been copied back: a consistent point at which a host may snapshot the
+ * workspace. The runtime records the token the store returns in the
+ * step-completion checkpoint and hands it back when a run restarts from it.
+ */
+export interface WorkspaceCommitPoint {
+  runId: string;
+  attempt: number;
+  /** The workspace binding alias. */
+  alias: string;
+  /** The step that completed: a top-level step id or a nested step path. */
+  stepPath: string;
+  /** The completed execution, for example `each[2]/fetch`. */
+  executionKey?: string;
+  /** The checkpoint that will record the returned token. */
+  checkpointSequence: number;
+  /** Changes copied back since the previous commit point, across attempts. */
+  changes: WorkspaceChange[];
+  /** Changes that were not saved since the previous commit point. */
+  notPersisted: NotPersistedChange[];
+}
+
 export interface WorkspaceStore {
   readonly mode: WorkspaceMode;
   readonly limits?: WorkspaceLimits;
@@ -214,11 +287,31 @@ export interface WorkspaceStore {
     options?: { signal?: AbortSignal },
   ): Promise<WorkspaceEntry>;
   delete?(path: string, options?: { signal?: AbortSignal }): Promise<void>;
+  /**
+   * Optional. Called at each step commit point that changed this workspace.
+   * Return an opaque token that identifies the state (a snapshot, a commit,
+   * a version); the runtime never interprets it.
+   */
+  commit?(
+    point: WorkspaceCommitPoint,
+    options?: { signal?: AbortSignal },
+  ): Promise<{ token?: string } | undefined>;
+  /**
+   * Optional. An opaque token for the store's current state, recorded for
+   * read-only bindings when a run starts.
+   */
+  version?(options?: { signal?: AbortSignal }): Promise<string | undefined>;
 }
 
 export interface WorkspaceResolutionContext {
   runId?: string;
   signal?: AbortSignal;
+  /**
+   * For a run seeded from another run's step checkpoint: per workspace
+   * alias, the token the store returned at that step's commit point. The
+   * host prepares the workspace in that state (or decides not to).
+   */
+  restoreFrom?: Record<string, string>;
 }
 
 /** Resolves manifest workspace bindings to host-authorized stores. */
@@ -252,6 +345,7 @@ export const restrictWorkspace = (
     ...(store.attachable ? { attachable: store.attachable } : {}),
     entries: (options) => store.entries(options),
     read: (path, options) => store.read(path, options),
+    ...(store.version ? { version: (options) => store.version!(options) } : {}),
   };
 };
 
@@ -268,6 +362,11 @@ export interface RunSandboxOpenRequest {
   artifacts?: ArtifactStore;
   /** Cumulative usage restored from the latest checkpoint on resume. */
   budget?: SandboxBudgetState;
+  /**
+   * Usage limits the run requested (manifest and granted limits). Providers
+   * cap each at their host configuration; a run can lower a limit, not raise it.
+   */
+  limits?: RunSandboxUsageLimits;
   signal?: AbortSignal;
 }
 
@@ -284,6 +383,27 @@ export interface RunSandboxCommandRequest {
   signal?: AbortSignal;
 }
 
+/** Why a change in a read-write mount was not written to its workspace store. */
+export type NotPersistedReason =
+  | "invalid-path"
+  | "symlink"
+  | "too-large"
+  | "store-rejected"
+  | "workspace-limit";
+
+/**
+ * A change in a read-write mount that was not saved to the workspace store.
+ * Reported with the command that produced it, so a model never believes a
+ * change persisted when it did not. `path` is `*` when the mount holds more
+ * files than the workspace allows and the excess cannot be named.
+ */
+export interface NotPersistedChange {
+  alias: string;
+  path: string;
+  reason: NotPersistedReason;
+  message: string;
+}
+
 export interface RunSandboxCommandResult {
   record: SandboxCommandRecord;
   /** Structured output for builtin operations and code steps. */
@@ -291,6 +411,8 @@ export interface RunSandboxCommandResult {
   stdout: string;
   stderr: string;
   artifacts?: ArtifactRef[];
+  /** Changes this command made that were not saved, each reported once. */
+  notPersisted?: NotPersistedChange[];
 }
 
 /**
@@ -302,6 +424,14 @@ export interface RunSandboxSession {
   readonly id: string;
   execute(request: RunSandboxCommandRequest): Promise<RunSandboxCommandResult>;
   budget(): SandboxBudgetState;
+  /**
+   * Changes copied back to each read-write workspace since the last call,
+   * keyed by alias. The runtime collects them for step commit points.
+   */
+  takeChanges?(): Record<
+    string,
+    { changes: WorkspaceChange[]; notPersisted: NotPersistedChange[] }
+  >;
   /** Final sync-back and termination. Idempotent. */
   close(
     reason: "completed" | "failed" | "cancelled" | "suspended",
@@ -454,6 +584,14 @@ export interface ToolAdapter {
     call: ToolCall,
     context: ToolExecutionContext,
   ): Promise<ToolResult>;
+  /**
+   * Whether a call interrupted mid-execution may be executed again on resume
+   * (its effect sets state rather than adding to it, or the tool honors the
+   * idempotency key). `false` makes the runtime report the interruption to
+   * the model instead. Unknown (`undefined`) keeps the default: re-execute
+   * with the same idempotency key.
+   */
+  replaySafe?(call: ToolCall): boolean | undefined;
 }
 
 /**

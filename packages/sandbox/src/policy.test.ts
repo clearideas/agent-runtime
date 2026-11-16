@@ -8,7 +8,9 @@ import {
   SandboxPolicyError,
   admitCommand,
   describeWorkspaceTools,
+  narrowRunSandboxLimits,
   resolveRunSandboxLimits,
+  runSandboxBudget,
   resolveRunSandboxPolicy,
   type AdmissionContext,
 } from "./policy.js";
@@ -93,9 +95,12 @@ const rejects = (run: () => unknown, code: string, message?: RegExp): void => {
 describe("run sandbox policy", () => {
   it("applies defaults and rejects invalid limits and command entries", () => {
     expect(resolveRunSandboxLimits()).toMatchObject({
-      commandTimeoutMs: 60_000,
-      maxCommandsPerRun: 200,
-      maxTotalSandboxSeconds: 900,
+      commandTimeoutMs: 300_000,
+      maxCommandTimeoutMs: 3_600_000,
+      maxCommandsPerRun: 2_000,
+      maxTotalSandboxSeconds: 14_400,
+      maxOutputFiles: 500,
+      maxOutputBytes: 500 * 1_048_576,
       maxArgs: 64,
     });
     expect(() => resolveRunSandboxLimits({ maxArgs: 0 })).toThrow(/positive/u);
@@ -531,6 +536,45 @@ describe("run sandbox policy", () => {
         },
         context(undefined),
       ).timeoutMs,
-    ).toBe(900_000);
+    ).toBe(3_600_000);
+  });
+
+  it("narrows host limits to a run's usage limits and never raises them", () => {
+    const host = resolveRunSandboxLimits({
+      maxCommandsPerRun: 100,
+      commandTimeoutMs: 60_000,
+    });
+    expect(narrowRunSandboxLimits(host, undefined)).toBe(host);
+    const narrowed = narrowRunSandboxLimits(host, {
+      maxCommands: 10,
+      maxSeconds: 1_000_000,
+      maxCommandTimeoutMs: 30_000,
+      maxOutputFiles: 5,
+    });
+    expect(narrowed).toMatchObject({
+      // The host's budget stays; the run's own budget is separate (below).
+      maxCommandsPerRun: 100,
+      maxTotalSandboxSeconds: host.maxTotalSandboxSeconds,
+      maxCommandTimeoutMs: 30_000,
+      // The default timeout follows the lowered ceiling.
+      commandTimeoutMs: 30_000,
+      maxOutputFiles: 5,
+      memoryMb: host.memoryMb,
+    });
+    expect(
+      narrowRunSandboxLimits(host, { maxOutputFiles: 1_000 }).maxOutputFiles,
+    ).toBe(host.maxOutputFiles);
+  });
+
+  it("derives a run's sandbox budget from its limits, capped by the host, or the host's", () => {
+    const host = resolveRunSandboxLimits({ maxCommandsPerRun: 100 });
+    expect(runSandboxBudget(host, undefined)).toEqual({
+      maxCommands: 100,
+      maxSeconds: host.maxTotalSandboxSeconds,
+    });
+    expect(
+      runSandboxBudget(host, { maxCommands: 1_000, maxSeconds: 60 }),
+    ).toEqual({ maxCommands: 100, maxSeconds: 60 });
+    expect(runSandboxBudget(host, { maxCommands: 7 }).maxCommands).toBe(7);
   });
 });

@@ -255,4 +255,54 @@ describe("SqliteRunStore", () => {
       store.close();
     }
   });
+
+  it("lists and loads restart points, and adds the summary column to older databases", async () => {
+    const { DatabaseSync } = await import("node:sqlite");
+    // A database created by an earlier release.
+    const legacy = new DatabaseSync(filename);
+    legacy.exec(`
+      CREATE TABLE agent_runtime_runs (
+        run_id TEXT PRIMARY KEY,
+        record_json TEXT NOT NULL,
+        failure_json TEXT
+      );
+      CREATE TABLE agent_runtime_checkpoints (
+        run_id TEXT NOT NULL,
+        sequence INTEGER NOT NULL CHECK (sequence > 0),
+        checkpoint_id TEXT NOT NULL,
+        checkpoint_json TEXT NOT NULL,
+        PRIMARY KEY (run_id, sequence),
+        UNIQUE (run_id, checkpoint_id)
+      );
+    `);
+    legacy
+      .prepare(
+        "INSERT INTO agent_runtime_runs (run_id, record_json) VALUES (?, ?)",
+      )
+      .run("old", JSON.stringify(runRecord("old")));
+    legacy
+      .prepare(
+        "INSERT INTO agent_runtime_checkpoints (run_id, sequence, checkpoint_id, checkpoint_json) VALUES (?, ?, ?, ?)",
+      )
+      .run("old", 1, "checkpoint-1", JSON.stringify(checkpoint("old", 1)));
+    legacy.close();
+
+    const store = new SqliteRunStore(filename);
+    expect(
+      (await store.listCheckpoints("old")).map((summary) => summary.sequence),
+    ).toEqual([1]);
+    await store.saveCheckpoint({
+      ...checkpoint("old", 2),
+      boundary: { stepPath: "one", stepIndex: 0 },
+    });
+    await store.saveCheckpoint(checkpoint("old", 3));
+    expect(
+      (await store.listCheckpoints("old", { boundaries: true })).map(
+        (summary) => [summary.sequence, summary.boundary?.stepPath],
+      ),
+    ).toEqual([[2, "one"]]);
+    expect((await store.loadCheckpoint("old", 2))?.state).toEqual({ count: 2 });
+    expect(await store.loadCheckpoint("old", 9)).toBeNull();
+    store.close();
+  });
 });

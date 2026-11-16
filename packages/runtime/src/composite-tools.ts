@@ -56,6 +56,10 @@ export class CompositeToolAdapter implements ToolAdapter {
     return undefined;
   }
 
+  replaySafe(call: ToolCall): boolean | undefined {
+    return this.#routes.get(call.name)?.replaySafe?.(call);
+  }
+
   async executeTool(
     call: ToolCall,
     context: ToolExecutionContext,

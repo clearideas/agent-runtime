@@ -19,7 +19,13 @@ import {
   mapInputVariables,
   splitNewTurn,
 } from "./convert.js";
-import { ServerError } from "./errors.js";
+import {
+  AgentRuntimeError,
+  createErrorSuspension,
+  createLimitSuspension,
+} from "@clearideas/agent-runtime-core";
+
+import { ServerError, fromRunError } from "./errors.js";
 import { MemoryKeyValueStore, SqliteKeyValueStore } from "./kv.js";
 import { ConversationLedger, ledgerKey } from "./ledger.js";
 import { MediaIngestor, parseDataUrl } from "./media.js";
@@ -811,5 +817,31 @@ describe("live streaming decisions", () => {
     expect(conditionReads("recheck == true", "check")).toBe(false);
     expect(conditionReads("{{ check }} == 'x'", "check")).toBe(true);
     expect(conditionReads("messages.count > 2", "messages")).toBe(true);
+  });
+});
+
+describe("run error mapping", () => {
+  it("reports a run blocked by an error as that error, and keeps other codes", () => {
+    const cause = new AgentRuntimeError("Down", "PROVIDER_UNAVAILABLE", true);
+    const blocked = createErrorSuspension({
+      error: { code: "PROVIDER_UNAVAILABLE", message: "Down", retryable: true },
+      cause,
+    });
+    const mapped = fromRunError(blocked, { exposeErrors: true });
+    expect(mapped).toMatchObject({
+      status: 500,
+      code: "agent_execution_failed",
+    });
+    expect(mapped.message).toBe(
+      "The agent run failed (PROVIDER_UNAVAILABLE): Down",
+    );
+    expect(mapped.cause).toBe(cause);
+    // A limit suspension has no cause to unwrap.
+    expect(
+      fromRunError(
+        createLimitSuspension({ limit: "maxTotalTokens", used: 2, value: 1 }),
+        { exposeErrors: false },
+      ).message,
+    ).toBe("The agent run failed (AGENT_EXECUTION_FAILED).");
   });
 });
