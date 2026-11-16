@@ -1,5 +1,14 @@
 # @clearideas/agent-runtime-model-ai-sdk
 
+## 0.10.0
+
+### Patch Changes
+
+- Updated dependencies [4713bbb]
+- Updated dependencies [4713bbb]
+  - @clearideas/agent-runtime-core@0.10.0
+  - @clearideas/agent-runtime-contracts@0.10.0
+
 ## 0.9.0
 
 ### Patch Changes

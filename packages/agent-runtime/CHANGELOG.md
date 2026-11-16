@@ -1,5 +1,23 @@
 # @clearideas/agent-runtime
 
+## 0.10.0
+
+### Patch Changes
+
+- Updated dependencies [4713bbb]
+- Updated dependencies [4713bbb]
+  - @clearideas/agent-runtime-core@0.10.0
+  - @clearideas/agent-runtime-step-loop@0.10.0
+  - @clearideas/agent-runtime-step-prompt@0.10.0
+  - @clearideas/agent-runtime-step-standard@0.10.0
+  - @clearideas/agent-runtime-sandbox@0.10.0
+  - @clearideas/agent-runtime-config@0.10.0
+  - @clearideas/agent-runtime-contracts@0.10.0
+  - @clearideas/agent-runtime-store-local@0.10.0
+  - @clearideas/agent-runtime-execution@0.10.0
+  - @clearideas/agent-runtime-condition-jexl@0.10.0
+  - @clearideas/agent-runtime-model-ai-sdk@0.10.0
+
 ## 0.9.0
 
 ### Patch Changes
