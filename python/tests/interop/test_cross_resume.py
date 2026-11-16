@@ -110,6 +110,7 @@ async def test_a_suspended_run_resumes_in_the_other_runtime(kind, tmp_path, orac
 @pytest.mark.parametrize("kind", ["file", "sqlite"])
 async def test_store_files_are_byte_identical(kind, tmp_path, oracle):
     import sqlite3
+    from contextlib import closing
 
     ts_store = {"kind": kind, "path": str(tmp_path / "ts" / ("runs.sqlite" if kind == "sqlite" else "store"))}
     py_store = {"kind": kind, "path": str(tmp_path / "py" / ("runs.sqlite" if kind == "sqlite" else "store"))}
@@ -127,7 +128,7 @@ async def test_store_files_are_byte_identical(kind, tmp_path, oracle):
     else:
 
         def rows(path):
-            with sqlite3.connect(path) as database:
+            with closing(sqlite3.connect(path)) as database:
                 return (
                     database.execute(
                         "SELECT run_id, record_json, failure_json FROM agent_runtime_runs ORDER BY run_id"
