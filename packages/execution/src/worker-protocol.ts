@@ -6,6 +6,7 @@ import {
   parseConversationMessages,
   parseRunCheckpoint,
   parseAgentVariableOverrides,
+  runLimitsSchema,
   type JsonObject,
   type RunError,
   type RunEvent,
@@ -172,6 +173,7 @@ export const parseWorkerInvocation = (
     agentRunExecutionSchema.parse(request.execution);
   }
   if (request.budget != null) agentRunBudgetSchema.parse(request.budget);
+  if (request.limits != null) runLimitsSchema.parse(request.limits);
   if (request.messages != null) parseConversationMessages(request.messages);
   if (request.messagesSignature != null)
     messagesSignatureSchema.parse(request.messagesSignature);

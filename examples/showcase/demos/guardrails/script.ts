@@ -1,7 +1,7 @@
 /**
  * The hostile model for Guardrails. It tries one escape after another,
  * whatever the results, then floods the sandbox with commands until the
- * host's command budget stops it. Every attempt is a real tool call.
+ * host's command budget blocks the run. Every attempt is a real tool call.
  */
 import type {
   Script,
@@ -153,9 +153,8 @@ export const guardrailsScript: Script = (request) => {
       call: { name: attack.name, input: attack.input as never },
     };
   const flood = request.turn - plan.length;
-  const last = request.results.at(-1);
-  if (flood >= MAX_FLOOD || last?.error?.code === "sandbox_budget_exhausted")
-    return summary(request);
+  // The budget normally blocks the run first; this ends the flood if not.
+  if (flood >= MAX_FLOOD) return summary(request);
   return {
     say: `Flooding the sandbox with commands (${flood + 1}).`,
     call: { name: "scratch__list_files", input: {} },

@@ -301,6 +301,12 @@ Webhook:
   idempotencyKey: release-notification-v1
 ```
 
+Every attempt of a webhook step sends an `Idempotency-Key` header. Without an
+explicit `idempotencyKey`, the key is `<runId>:<execution key>`: the step id
+for a top-level step, and the step path with each enclosing loop's iteration
+for a step inside a loop (for example `run_1:each[2]/notify`). Retries and
+resumed executions reuse the key; separate loop iterations never share one.
+
 Approval:
 
 ```yaml
@@ -375,3 +381,29 @@ policies:
 
 See [Execution policies](./execution-policies.md) and
 [Context management](./context-management.md).
+
+A step failure that `onError` does not handle blocks the run for its host
+unless the error is fatal (`onFailure: pause`, the default); set
+`policies.onFailure: fail` on the manifest to fail the run instead.
+
+## Limits
+
+The optional `limits` block bounds the manifest (`maxSteps`), prompt input and
+output, tool calls per prompt step, and the run itself. Run limits stop a
+runaway run; their defaults are far above normal use, and a manifest may
+lower or raise them:
+
+```yaml
+limits:
+  maxToolCallsPerIteration: 40
+  maxTotalTokens: 5000000
+  maxRunActiveMs: 7200000
+  maxLoopIterations: 500
+  sandbox:
+    maxCommands: 400
+```
+
+A run that reaches a run limit is blocked until a higher limit is granted, by
+changing these values (a resume accepts it) or with `limits` on the resume
+request. Sandbox usage can only go as high as the host allows. See
+[Run limits](./execution-policies.md#run-limits).

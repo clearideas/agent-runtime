@@ -41,7 +41,8 @@ steps:
 
 `context`, `toolCallLimit`, `modelRetry`, and `outputRepair` apply to prompt
 steps; setting them on another step type fails validation. `onError` applies to
-every step type.
+every step type. `onFailure` applies to the whole run: set it on the host or in
+the manifest's `policies`; a step's `policies` cannot set it.
 
 ## Defaults
 
@@ -58,7 +59,8 @@ every step type.
 | `modelRetry.initialDelayMs` | 1000       | backoff doubles after each attempt                                |
 | `modelRetry.maxDelayMs`     | 20000      | longest wait between attempts                                     |
 | `outputRepair.maxAttempts`  | 1          | extra turns to repair invalid, empty, or truncated output         |
-| `onError`                   | `fail`     | a failed step fails the run                                       |
+| `onError`                   | `fail`     | a failed step ends the attempt (see `onFailure`)                  |
+| `onFailure`                 | `pause`    | a failure that is not fatal blocks the run until the host acts    |
 
 Set `context.strategy: fail` and `toolCallLimit: fail` to restore the behavior
 of earlier releases.
@@ -152,6 +154,106 @@ Inside a loop, a child with `onError: continue` records the error as that
 iteration's result and the loop moves on. Suspensions, pauses, interruptions,
 and cancellations are never converted into results.
 
+### When a failure ends the attempt
+
+A failure that `onError` does not handle ends the attempt. With the default
+`onFailure: pause`, the run is not failed: it is suspended with kind
+`awaiting-host` (reason `blocked`), keeping everything committed so far, and
+resumes from its latest checkpoint once the host fixes the cause, such as a
+provider outage, an expired credential, or a broken tool. This covers
+exhausted model retries, output that is still invalid after repair, exhausted
+webhook retries, timeouts, and every other error that is not fatal. `run()`
+rejects with a `RunSuspendedError` whose `cause` is the original error.
+
+Before 0.10, such a run failed. Set `onFailure: fail` on the host for every
+run, or in a manifest's `policies`, to keep that behavior:
+
+```ts
+new AgentRuntime({ policies: { onFailure: "fail" }, ...dependencies });
+```
+
+```yaml
+policies:
+  onFailure: fail
+```
+
+Fatal errors fail the run whatever `onFailure` says:
+
+- manifest and conversation-message validation errors;
+- a completed step whose definition changed (`MANIFEST_CHANGED`);
+- a rejected approval with `onReject: fail`;
+- an MCP tool-integrity violation;
+- any error with `fatal: true`, such as a `RunFatalError` a host throws from an
+  adapter or hook to refuse an operation on policy grounds.
+
+```ts
+import { RunFatalError } from "@clearideas/agent-runtime";
+
+authorizeDestination: async (url) => {
+  if (!allowed(url))
+    throw new RunFatalError(`Destination ${url.host} is not allowed`);
+},
+```
+
+## Run limits
+
+Run limits stop a runaway run. Every run has `DEFAULT_RUN_LIMITS`, set far
+above what normal runs use; the host's defaults
+(`new AgentRuntime({ limits })`), the manifest's `limits`, and limits granted
+on a resume replace them, in that order:
+
+```yaml
+limits:
+  maxTotalTokens: 2000000
+  maxRunActiveMs: 3600000
+  maxTurnsPerPrompt: 100
+  maxEstimatedCost: 5
+  sandbox:
+    maxCommands: 300
+```
+
+A step execution is one run of a step that does work: a top-level step, or
+one loop iteration's child. A loop is not one; it is bounded by the run's
+limits and `maxLoopIterations`.
+
+| Limit                       | Default       | Counts                                                                    |
+| --------------------------- | ------------- | ------------------------------------------------------------------------- |
+| `maxTotalTokens`            | 25,000,000    | model tokens reported across the run                                      |
+| `maxStepTokens`             | none          | model tokens reported by one step execution                               |
+| `maxEstimatedCost`          | none          | `estimatedCost` adapters report across the run, in the adapters' currency |
+| `maxRunActiveMs`            | 24 hours      | execution time across all attempts                                        |
+| `maxStepActiveMs`           | 4 hours       | execution time of one step execution, across attempts                     |
+| `maxRecoveries`             | 100           | resumes after a failure, an interruption, a takeover, or an error block   |
+| `maxResumesWithoutProgress` | 10            | consecutive recoveries that commit no new checkpoint (a crash loop)       |
+| `maxTurnsPerPrompt`         | 500           | model requests of one prompt step execution                               |
+| `maxLoopIterations`         | 10,000        | iterations of one loop step execution                                     |
+| `maxArtifacts`              | 10,000        | artifacts the run records                                                 |
+| `maxArtifactBytes`          | 10 GiB        | bytes of artifacts the run records                                        |
+| `maxCheckpointBytes`        | 64 MiB        | serialized size of one checkpoint                                         |
+| `sandbox.*`                 | host's values | run-sandbox usage; see [Workspaces](./workspaces.md#sandbox-usage-limits) |
+
+Resumes that answer an approval, a child run, a token budget, a granted limit,
+or a pause are not recoveries and never count against a limit.
+
+Reaching a limit blocks the run (kind `awaiting-host`, `details.cause:
+"limit"`) at a point it can resume from: time limits abort the attempt,
+token, artifact, and size limits are checked at each checkpoint, and loop and
+turn limits before the next iteration or model request. The run resumes once
+a higher limit is granted: change the manifest's `limits` (a resume accepts
+it), or pass `limits` on the resume request, which is kept for later attempts
+too. See
+[Granting higher limits](./persistence-and-recovery.md#granting-higher-limits).
+
+Hosts can cap any limit with `new AgentRuntime({ enforcedLimits })`: a
+ceiling that no manifest or resume request can exceed. CLI and
+`agent-runtime serve` hosts set `limits` and `enforcedLimits` in their runtime
+module; `serve` also accepts them per served model.
+
+The explicit token budget (`budget.maxTotalTokens` on a run request, suspension
+kind `awaiting-budget`) is separate: it requires every model call to report
+usage and runs steps sequentially, while `limits.maxTotalTokens` counts the
+usage models report and changes nothing else.
+
 ## Approvals
 
 `onReject` decides what a rejected approval does:
@@ -202,15 +304,16 @@ no run record is created. Custom executors contribute checks by implementing
 
 ## What still stops a run
 
-| Condition                                                 | Outcome                                                   |
-| --------------------------------------------------------- | --------------------------------------------------------- |
-| A required connection, workspace, or model is unavailable | the run fails; it can be resumed after the cause is fixed |
-| A host or manifest policy denies an operation             | the run fails                                             |
-| The token budget is used up                               | the run is suspended; resume with a higher budget         |
-| An approval is pending, or a host pauses the run          | the run is suspended                                      |
-| An execution engine times out or shuts down               | the run is interrupted; resume continues it               |
-| A person cancels the run                                  | the run is cancelled                                      |
-| A strategy of `fail`, or a limit with no mitigation       | the run fails                                             |
+| Condition                                                          | Outcome                                                               |
+| ------------------------------------------------------------------ | --------------------------------------------------------------------- |
+| A required connection, workspace, or model is unavailable at start | the run does not start; a resume is refused and the run is unchanged  |
+| A step fails with an error that is not fatal                       | the run is blocked (`awaiting-host`); resume after fixing the cause   |
+| A run limit is reached                                             | the run is blocked (`awaiting-host`); resume with a higher limit      |
+| A fatal error, or any failure under `onFailure: fail`              | the run fails                                                         |
+| The token budget is used up                                        | the run is suspended (`awaiting-budget`); resume with a higher budget |
+| An approval is pending, or a host pauses the run                   | the run is suspended                                                  |
+| An execution engine times out or shuts down                        | the run is interrupted; resume continues it                           |
+| A person cancels the run                                           | the run is cancelled                                                  |
 
 See [Persistence and recovery](./persistence-and-recovery.md#run-states) for the
 run states.

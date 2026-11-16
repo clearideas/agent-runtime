@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { AgentRuntime, AgentRuntimeError } from "./agent-runtime.js";
-import { MemoryRunStore } from "./testing/index.js";
+import { CollectingEventSink, MemoryRunStore } from "./testing/index.js";
 const manifest = {
   schemaVersion: "1.0" as const,
   steps: [{ id: "work", type: "prompt" as const, prompt: "Work" }],
@@ -18,6 +18,7 @@ describe("durable diagnostics", () => {
     );
     const runtime = new AgentRuntime({
       runStore: store,
+      policies: { onFailure: "fail" },
       stepExecutors: [
         {
           type: "prompt",
@@ -31,6 +32,49 @@ describe("durable diagnostics", () => {
       error,
     );
     expect(store.failures.get("failed")?.error).toMatchObject({
+      code: "PROVIDER_UNAVAILABLE",
+      retryable: true,
+      details: { suggestedAction: "Try again later." },
+    });
+  });
+  it("keeps the classification and recovery hint when a failure pauses the run", async () => {
+    const store = new MemoryRunStore();
+    const events = new CollectingEventSink();
+    const error = new AgentRuntimeError(
+      "Unavailable",
+      "PROVIDER_UNAVAILABLE",
+      true,
+      "Try again later.",
+    );
+    const runtime = new AgentRuntime({
+      runStore: store,
+      eventSinks: [events],
+      policies: { onFailure: "pause" },
+      stepExecutors: [
+        {
+          type: "prompt",
+          execute: async () => {
+            throw error;
+          },
+        },
+      ],
+    });
+    await expect(
+      runtime.run({ manifest, runId: "paused" }),
+    ).rejects.toMatchObject({
+      reason: "blocked",
+      cause: error,
+      message: "Run blocked: Unavailable",
+    });
+    expect((await store.loadRun("paused"))?.status).toBe("suspended");
+    // The step's failure event says the run was blocked, not failed.
+    expect(
+      events.events.find((event) => event.type === "step.failed")?.data,
+    ).toMatchObject({ paused: true });
+    expect(
+      (await store.loadLatestCheckpoint("paused"))?.ledger?.blocked,
+    ).toMatchObject({
+      cause: "error",
       code: "PROVIDER_UNAVAILABLE",
       retryable: true,
       details: { suggestedAction: "Try again later." },

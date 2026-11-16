@@ -20,6 +20,9 @@ npx agent-runtime connections inspect ./agent-runtime.config.yaml --format yaml
 npx agent-runtime run ./agent.yaml --config ./agent-runtime.config.yaml --store ./.agent-runtime
 npx agent-runtime run ./agent.yaml --max-total-tokens 100000 --store ./.agent-runtime
 npx agent-runtime resume run_123 --max-total-tokens 150000 --store ./.agent-runtime
+npx agent-runtime resume run_123 --limits ./raised-limits.yaml --store ./.agent-runtime
+npx agent-runtime restart run_123 --list --store ./.agent-runtime
+npx agent-runtime restart run_123 --from review --run-id run_124 --store ./.agent-runtime
 npx agent-runtime inspect run_123 --store ./.agent-runtime
 npx agent-runtime events ./.agent-runtime/events.jsonl --run run_123 --tail 20
 npx agent-runtime examples run variables --stream
@@ -29,6 +32,17 @@ npx agent-runtime serve --server-config ./agent-runtime.server.yaml
 ```
 
 Options accept `--name value` or `--name=value`.
+
+A run that reaches one of its limits, or whose step fails with an error that is
+not fatal, is blocked rather than failed; the pretty view prints why. A
+runtime module can export `limits` (replacing default run limits) and
+`enforcedLimits` (ceilings) for every run.
+`--limits` grants higher limits from a JSON or YAML file (for example
+`maxTotalTokens: 50000000`) for that attempt and later ones. `inspect` shows
+the run, its latest checkpoint (including `ledger.blocked`), and its restart
+points. `restart` starts a new run from a completed step of another run: the
+last one by default, or the one `--from` names by step path, execution key, or
+checkpoint sequence.
 
 `--stream` shows model text on stdout and lifecycle progress on stderr. Use
 `--format ndjson` for a machine-readable stream containing event and result

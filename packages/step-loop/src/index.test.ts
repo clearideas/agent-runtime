@@ -9,6 +9,7 @@ import type {
 } from "@clearideas/agent-runtime-contracts";
 import {
   AgentRuntime,
+  RunSuspendedError,
   type StepExecutor,
 } from "@clearideas/agent-runtime-core";
 import {
@@ -417,5 +418,372 @@ describe("LoopStepExecutor", () => {
       },
       "ok c",
     ]);
+  });
+});
+
+describe("LoopStepExecutor resuming a child that was mid-step", () => {
+  const at = "2026-07-22T12:00:00.000Z";
+  const message = (id: string) => ({
+    id,
+    type: "message" as const,
+    role: "assistant" as const,
+    content: [{ type: "text" as const, text: id }],
+    createdAt: at,
+  });
+
+  /**
+   * A child that, for one chosen item, commits half its work through a
+   * nested checkpoint and then suspends, the way a prompt step does after a
+   * tool result when the run pauses or runs out of token budget.
+   */
+  const pausingChild = (pauseOn: (variables: VariableState) => boolean) => {
+    const calls: string[] = [];
+    let paused = false;
+    const executor: StepExecutor = {
+      type: "prompt",
+      execute: async ({ variables, resume, checkpoint, executionKey }) => {
+        const item = String(variables.item);
+        const label = `${item}${variables.outer ? `@${String(variables.outer)}` : ""}`;
+        if (resume?.continuation) {
+          calls.push(`${label}:resumed`);
+          expect(resume.continuation).toEqual({ type: "fake", label });
+          expect(resume.transcript?.map((entry) => entry.id)).toEqual([
+            `${label}-half`,
+          ]);
+          return {
+            output: `done ${label}`,
+            transcript: [...resume.transcript!, message(`${label}-done`)],
+            metadata: { executionKey: executionKey ?? null },
+          };
+        }
+        calls.push(`${label}:started`);
+        if (!paused && pauseOn(variables)) {
+          paused = true;
+          await checkpoint!({
+            state: { ...variables },
+            continuation: { type: "fake", label },
+            transcript: [message(`${label}-half`)],
+          });
+          throw new RunSuspendedError("paused");
+        }
+        return {
+          output: `done ${label}`,
+          transcript: [message(`${label}-done`)],
+          metadata: { executionKey: executionKey ?? null },
+        };
+      },
+    };
+    return { calls, executor };
+  };
+
+  it("resumes the paused child in its iteration without replaying earlier ones", async () => {
+    const { calls, executor } = pausingChild((v) => v.item === "beta");
+    const loop: LoopStep = {
+      id: "each",
+      type: "loop",
+      outputVariable: "results",
+      loop: { source: "items", itemVariable: "item" },
+      steps: [{ id: "work", type: "prompt", prompt: "{{ item }}" }],
+    };
+    const store = new MemoryRunStore();
+    const definition = manifest(loop, { items: ["alpha", "beta", "gamma"] });
+    await expect(
+      createRunner(store, executor).run({ runId: "r", manifest: definition }),
+    ).rejects.toBeInstanceOf(RunSuspendedError);
+    const saved = store.checkpoints.get("r")!.at(-1)!;
+    expect(saved.cursor).toMatchObject({
+      stepPath: "each/work",
+      loopIteration: 2,
+      childIndex: 0,
+    });
+    expect(saved.continuation).toMatchObject({
+      type: "loop",
+      iterationIndex: 1,
+      child: { continuation: { type: "fake", label: "beta" } },
+    });
+
+    const result = await createRunner(store, executor).run({
+      runId: "r",
+      resume: true,
+    });
+    expect(calls).toEqual([
+      "alpha:started",
+      "beta:started",
+      "beta:resumed",
+      "gamma:started",
+    ]);
+    expect(result.output).toEqual(["done alpha", "done beta", "done gamma"]);
+    expect(result.transcript.map((entry) => entry.id)).toEqual([
+      "alpha-done",
+      "beta-half",
+      "beta-done",
+      "gamma-done",
+    ]);
+  });
+
+  it("frames nested loops at every level", async () => {
+    const { calls, executor } = pausingChild(
+      (v) => v.outer === "2" && v.item === "b",
+    );
+    const loop: LoopStep = {
+      id: "outer",
+      type: "loop",
+      outputVariable: "results",
+      loop: { source: "rows", itemVariable: "outer", outputMode: "array" },
+      steps: [
+        {
+          id: "inner",
+          type: "loop",
+          loop: { source: "cells", itemVariable: "item" },
+          steps: [{ id: "work", type: "prompt", prompt: "{{ item }}" }],
+        },
+      ],
+    };
+    const store = new MemoryRunStore();
+    const definition = manifest(loop, { rows: ["1", "2"], cells: ["a", "b"] });
+    await expect(
+      createRunner(store, executor).run({ runId: "n", manifest: definition }),
+    ).rejects.toBeInstanceOf(RunSuspendedError);
+    const result = await createRunner(store, executor).run({
+      runId: "n",
+      resume: true,
+    });
+    expect(calls).toEqual([
+      "a@1:started",
+      "b@1:started",
+      "a@2:started",
+      "b@2:started",
+      "b@2:resumed",
+    ]);
+    expect(result.transcript.map((entry) => entry.id)).toEqual([
+      "a@1-done",
+      "b@1-done",
+      "a@2-done",
+      "b@2-half",
+      "b@2-done",
+    ]);
+  });
+
+  it("gives each iteration its own execution key", async () => {
+    const keys: string[] = [];
+    const executor: StepExecutor = {
+      type: "prompt",
+      execute: async ({ executionKey }) => {
+        keys.push(executionKey!);
+        return { output: "ok" };
+      },
+    };
+    const loop: LoopStep = {
+      id: "each",
+      type: "loop",
+      loop: { source: "items", itemVariable: "item" },
+      steps: [{ id: "work", type: "prompt", prompt: "{{ item }}" }],
+    };
+    await createRunner(new MemoryRunStore(), executor).run({
+      manifest: manifest(loop, { items: ["x", "y"] }),
+    });
+    expect(keys).toEqual(["each[0]/work", "each[1]/work"]);
+  });
+
+  it("marks each completed child as a restart point", async () => {
+    const executor: StepExecutor = {
+      type: "prompt",
+      execute: async () => ({ output: "ok" }),
+    };
+    const loop: LoopStep = {
+      id: "each",
+      type: "loop",
+      loop: { source: "items", itemVariable: "item" },
+      steps: [{ id: "work", type: "prompt", prompt: "{{ item }}" }],
+    };
+    const store = new MemoryRunStore();
+    await createRunner(store, executor).run({
+      runId: "boundaries",
+      manifest: manifest(loop, { items: ["x", "y"] }),
+    });
+    expect(
+      store.checkpoints
+        .get("boundaries")!
+        .flatMap((checkpoint) =>
+          checkpoint.boundary ? [checkpoint.boundary] : [],
+        ),
+    ).toEqual([
+      { stepPath: "each/work", executionKey: "each[0]/work", stepIndex: 0 },
+      { stepPath: "each/work", executionKey: "each[1]/work", stepIndex: 0 },
+      { stepPath: "each", executionKey: "each", stepIndex: 0 },
+    ]);
+  });
+
+  it("reports a saved position it cannot recognize and starts over", async () => {
+    const { executor } = pausingChild((v) => v.item === "beta");
+    const loop: LoopStep = {
+      id: "each",
+      type: "loop",
+      loop: { source: "items", itemVariable: "item" },
+      steps: [{ id: "work", type: "prompt", prompt: "{{ item }}" }],
+    };
+    const store = new MemoryRunStore();
+    const definition = manifest(loop, { items: ["alpha", "beta"] });
+    await expect(
+      createRunner(store, executor).run({ runId: "old", manifest: definition }),
+    ).rejects.toBeInstanceOf(RunSuspendedError);
+    // The shape written before loops framed their children.
+    const saved = store.checkpoints.get("old")!.at(-1)!;
+    saved.continuation = { type: "fake", label: "beta" };
+    saved.activeStepTranscript = [];
+    saved.transcript = [];
+    const events: string[] = [];
+    const runner = new AgentRuntime({
+      runStore: store,
+      stepExecutors: [new LoopStepExecutor(), executor],
+      idGenerator: new SequenceIdGenerator(),
+      eventSinks: [
+        {
+          emit: (event) => {
+            if (event.type === "diagnostic")
+              events.push(String(event.data?.code));
+          },
+        },
+      ],
+    });
+    const result = await runner.run({ runId: "old", resume: true });
+    expect(events).toContain("LOOP_RESUME_STATE_UNRECOGNIZED");
+    expect(result.transcript.map((entry) => entry.id)).toEqual([
+      "alpha-done",
+      "beta-done",
+    ]);
+  });
+});
+
+describe("LoopStepExecutor iteration limit", () => {
+  it("suspends at maxLoopIterations and continues from the next iteration when more are granted", async () => {
+    const seen: string[] = [];
+    const executor: StepExecutor = {
+      type: "prompt",
+      execute: async ({ variables }) => {
+        seen.push(String(variables.item));
+        return { output: String(variables.item) };
+      },
+    };
+    const loop: LoopStep = {
+      id: "each",
+      type: "loop",
+      loop: { source: "items", itemVariable: "item" },
+      steps: [{ id: "work", type: "prompt", prompt: "{{ item }}" }],
+    };
+    const store = new MemoryRunStore();
+    const definition: AgentManifest = {
+      ...manifest(loop, { items: ["a", "b", "c", "d", "e"] }),
+      limits: { maxLoopIterations: 2 },
+    };
+    await expect(
+      createRunner(store, executor).run({ runId: "cap", manifest: definition }),
+    ).rejects.toMatchObject({
+      reason: "blocked",
+      details: {
+        cause: "limit",
+        limit: "maxLoopIterations",
+        used: 2,
+        value: 2,
+      },
+    });
+    expect(seen).toEqual(["a", "b"]);
+    const result = await createRunner(store, executor).run({
+      runId: "cap",
+      resume: true,
+      limits: { maxLoopIterations: 100 },
+    });
+    expect(seen).toEqual(["a", "b", "c", "d", "e"]);
+    expect(result.output).toEqual(["a", "b", "c", "d", "e"]);
+  });
+});
+
+describe("LoopStepExecutor restart points", () => {
+  it("restarts a new run from an iteration's completed child", async () => {
+    const seen: string[] = [];
+    const executor: StepExecutor = {
+      type: "prompt",
+      execute: async ({ variables, runId }) => {
+        seen.push(`${runId}:${String(variables.item)}`);
+        return { output: String(variables.item).toUpperCase() };
+      },
+    };
+    const loop: LoopStep = {
+      id: "each",
+      type: "loop",
+      outputVariable: "results",
+      loop: { source: "items", itemVariable: "item" },
+      steps: [{ id: "work", type: "prompt", prompt: "{{ item }}" }],
+    };
+    const store = new MemoryRunStore();
+    const definition = manifest(loop, { items: ["a", "b", "c", "d"] });
+    await createRunner(store, executor).run({
+      runId: "source",
+      manifest: definition,
+    });
+    const point = (
+      await store.listCheckpoints("source", { boundaries: true })
+    ).find((summary) => summary.boundary?.executionKey === "each[1]/work")!;
+    const result = await createRunner(store, executor).run({
+      runId: "restart",
+      manifest: definition,
+      seed: (await store.loadCheckpoint("source", point.sequence))!,
+    });
+    expect(seen.filter((entry) => entry.startsWith("restart:"))).toEqual([
+      "restart:c",
+      "restart:d",
+    ]);
+    expect(result.output).toEqual(["A", "B", "C", "D"]);
+  });
+});
+
+describe("LoopStepExecutor step execution limits", () => {
+  it("applies step limits to each iteration's child, not to the whole loop", async () => {
+    const tokensFor: Record<string, number> = { a: 40, b: 40, c: 60 };
+    const executor: StepExecutor = {
+      type: "prompt",
+      execute: async ({ variables, checkpoint }) => {
+        const item = String(variables.item);
+        const transcript = [
+          {
+            id: `reply-${item}`,
+            type: "message" as const,
+            role: "assistant" as const,
+            content: [{ type: "text" as const, text: item }],
+            createdAt: "2026-07-22T00:00:00.000Z",
+            usage: { totalTokens: tokensFor[item]! },
+          },
+        ];
+        await checkpoint?.({ state: { ...variables }, transcript });
+        return { output: item, transcript };
+      },
+    };
+    const loop: LoopStep = {
+      id: "each",
+      type: "loop",
+      loop: { source: "items", itemVariable: "item" },
+      steps: [{ id: "work", type: "prompt", prompt: "{{ item }}" }],
+    };
+    const store = new MemoryRunStore();
+    const definition: AgentManifest = {
+      ...manifest(loop, { items: ["a", "b", "c"] }),
+      limits: { maxStepTokens: 50 },
+    };
+    // a and b stay under 50 each although the loop passes 80; c does not.
+    await expect(
+      createRunner(store, executor).run({
+        runId: "steps",
+        manifest: definition,
+      }),
+    ).rejects.toMatchObject({
+      reason: "blocked",
+      details: {
+        cause: "limit",
+        limit: "maxStepTokens",
+        used: 60,
+        value: 50,
+        stepId: "each[2]/work",
+      },
+    });
   });
 });

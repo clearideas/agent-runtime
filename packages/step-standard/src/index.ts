@@ -16,6 +16,8 @@ import type {
 } from "@clearideas/agent-runtime-core";
 import {
   compilePromptTemplate,
+  createErrorSuspension,
+  createLimitSuspension,
   RunCancelledError,
   RunSuspendedError,
   withoutMessagesView,
@@ -731,10 +733,12 @@ export class WebhookStepExecutor implements StepExecutor<WebhookStep> {
     if (context.step.idempotencyKey !== undefined) {
       headers.set("Idempotency-Key", context.step.idempotencyKey);
     } else {
+      // The execution key distinguishes loop iterations and is stable when an
+      // execution resumes; for a top-level step it is the step id.
       setHeader(
         headers,
         "Idempotency-Key",
-        `${context.runId}:${context.step.id}`,
+        `${context.runId}:${context.executionKey ?? context.step.id}`,
       );
     }
     let body: string | undefined;
@@ -1019,6 +1023,46 @@ export class CodeStepExecutor implements StepExecutor<CodeStep> {
       sandbox: "run",
       workspaces: [...(context.step.workspaces ?? [])],
     });
+    // A code command changes workspaces in ways that cannot be judged safe
+    // to repeat. When the run waits for its host on failures (`onFailure:
+    // pause`, the default) and the previous attempt stopped while this code
+    // ran, pause once so the host can inspect (or restart from the previous
+    // step); the next resume runs it again. Under `fail` it runs again.
+    const reportInterruption =
+      context.policies?.onFailure !== "fail" && context.checkpoint != null;
+    const saved = context.resume?.continuation;
+    const ownSaved =
+      saved?.type === "code" && saved.stepId === context.step.id
+        ? saved.phase
+        : undefined;
+    if (reportInterruption && ownSaved === "started") {
+      await context.checkpoint!({
+        state: { ...context.variables },
+        continuation: {
+          type: "code",
+          stepId: context.step.id,
+          phase: "reported",
+        },
+      });
+      throw createErrorSuspension({
+        error: {
+          code: "STEP_INTERRUPTED_IN_DOUBT",
+          message: `Code step ${context.step.id} was interrupted while it ran in the run sandbox; its workspace changes may be partly applied. Inspect the workspace, then resume to run it again, or restart the run from the previous step.`,
+          retryable: true,
+        },
+        stepId: context.step.id,
+      });
+    }
+    if (reportInterruption) {
+      await context.checkpoint!({
+        state: { ...context.variables },
+        continuation: {
+          type: "code",
+          stepId: context.step.id,
+          phase: "started",
+        },
+      });
+    }
     const session = await context.runSandbox();
     let result;
     try {
@@ -1042,9 +1086,30 @@ export class CodeStepExecutor implements StepExecutor<CodeStep> {
       if ((error as { code?: unknown }).code === "sandbox_command_timeout") {
         throw new SandboxTimeoutError(timeoutMs);
       }
+      const limit = (
+        error as {
+          limit?: { name?: unknown; used?: unknown; value?: unknown };
+        }
+      ).limit;
+      if (
+        typeof limit?.name === "string" &&
+        typeof limit.used === "number" &&
+        typeof limit.value === "number"
+      ) {
+        // A sandbox usage limit suspends the run until the host grants more.
+        throw createLimitSuspension({
+          limit: limit.name,
+          used: limit.used,
+          value: limit.value,
+          stepId: context.step.id,
+        });
+      }
       throw error;
     }
     const { record } = result;
+    const notPersisted = result.notPersisted?.length
+      ? (JSON.parse(JSON.stringify(result.notPersisted)) as JsonValue)
+      : undefined;
     await context.emit("code.execution.completed", {
       exitCode: record.exitCode,
       succeeded: record.exitCode === 0,
@@ -1053,6 +1118,13 @@ export class CodeStepExecutor implements StepExecutor<CodeStep> {
       sandbox: "run",
       commandId: record.id,
     });
+    if (notPersisted !== undefined) {
+      await context.emit("diagnostic", {
+        code: "WORKSPACE_CHANGES_NOT_SAVED",
+        message: `Code step ${context.step.id} changed workspace files that were not saved.`,
+        notPersisted,
+      });
+    }
     if (record.exitCode !== 0) {
       throw new SandboxExecutionError(context.step.id, record.exitCode);
     }
@@ -1070,6 +1142,7 @@ export class CodeStepExecutor implements StepExecutor<CodeStep> {
         hasOutput: output !== undefined,
         sandbox: "run",
         command: JSON.parse(JSON.stringify(record)) as JsonValue,
+        ...(notPersisted !== undefined ? { notPersisted } : {}),
       },
     };
   }

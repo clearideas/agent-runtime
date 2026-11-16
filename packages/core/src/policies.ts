@@ -55,6 +55,7 @@ export const mergeExecutionPolicies = (
     if (layer.toolCallLimit !== undefined)
       next.toolCallLimit = layer.toolCallLimit;
     if (layer.onError !== undefined) next.onError = layer.onError;
+    if (layer.onFailure !== undefined) next.onFailure = layer.onFailure;
     if (layer.modelRetry)
       next.modelRetry = {
         ...(result.modelRetry ?? {}),

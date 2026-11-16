@@ -1,6 +1,7 @@
 import type {
   JsonObject,
   JsonValue,
+  RunSandboxUsageLimits,
   WorkspaceMode,
 } from "@clearideas/agent-runtime-contracts";
 import type {
@@ -103,18 +104,65 @@ export const DEFAULT_RUN_SANDBOX_LIMITS: RunSandboxLimits = {
   cpuCount: 1,
   processLimit: 128,
   workspaceTmpfsMb: 1_024,
-  commandTimeoutMs: 60_000,
-  maxCommandTimeoutMs: 900_000,
-  maxCommandsPerRun: 200,
-  maxTotalSandboxSeconds: 900,
+  commandTimeoutMs: 300_000,
+  maxCommandTimeoutMs: 3_600_000,
+  maxCommandsPerRun: 2_000,
+  maxTotalSandboxSeconds: 14_400,
   maxStdoutBytes: 1_048_576,
   maxStderrBytes: 262_144,
   maxArgs: 64,
   maxArgBytes: 4_096,
   maxTotalStagedBytes: 256 * 1_048_576,
-  maxOutputFiles: 50,
-  maxOutputBytes: 50 * 1_048_576,
+  maxOutputFiles: 500,
+  maxOutputBytes: 500 * 1_048_576,
 };
+
+/**
+ * Narrow host limits to the usage limits a run requested. The host's values
+ * are ceilings: a run can lower a limit, never raise it. The command and
+ * sandbox-second budgets are resolved by `runSandboxBudget`.
+ */
+export const narrowRunSandboxLimits = (
+  host: RunSandboxLimits,
+  requested: RunSandboxUsageLimits | undefined,
+): RunSandboxLimits => {
+  if (!requested) return host;
+  const narrowed = { ...host };
+  const apply = (key: keyof RunSandboxLimits, value: number | undefined) => {
+    if (value !== undefined && value > 0)
+      narrowed[key] = Math.min(host[key], value);
+  };
+  apply("maxCommandTimeoutMs", requested.maxCommandTimeoutMs);
+  apply("commandTimeoutMs", requested.commandTimeoutMs);
+  apply("maxStdoutBytes", requested.maxStdoutBytes);
+  apply("maxStderrBytes", requested.maxStderrBytes);
+  apply("maxOutputFiles", requested.maxOutputFiles);
+  apply("maxOutputBytes", requested.maxOutputBytes);
+  narrowed.commandTimeoutMs = Math.min(
+    narrowed.commandTimeoutMs,
+    narrowed.maxCommandTimeoutMs,
+  );
+  return narrowed;
+};
+
+/**
+ * A run's command and sandbox-second budget: the run's own limits, capped at
+ * the host's, or the host's when the run sets none. Reaching it blocks the
+ * run for its host, which may grant more up to its own values.
+ */
+export const runSandboxBudget = (
+  host: RunSandboxLimits,
+  requested: RunSandboxUsageLimits | undefined,
+): { maxCommands: number; maxSeconds: number } => ({
+  maxCommands: Math.min(
+    host.maxCommandsPerRun,
+    requested?.maxCommands ?? host.maxCommandsPerRun,
+  ),
+  maxSeconds: Math.min(
+    host.maxTotalSandboxSeconds,
+    requested?.maxSeconds ?? host.maxTotalSandboxSeconds,
+  ),
+});
 
 export interface RunSandboxPolicy {
   commands: Record<string, RunSandboxCommandEntry>;

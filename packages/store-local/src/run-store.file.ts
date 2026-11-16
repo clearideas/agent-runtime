@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { access, mkdir, open, unlink } from "node:fs/promises";
+import { access, mkdir, open, readdir, unlink } from "node:fs/promises";
 import path from "node:path";
 
 import type {
@@ -9,19 +9,24 @@ import type {
 import type {
   CompletedRunRecord,
   ResumeRunOptions,
+  RunCheckpointSummary,
   RunRecord,
   RunStore,
 } from "@clearideas/agent-runtime-core";
+import { summarizeCheckpoint } from "@clearideas/agent-runtime-core";
 
 import { readTextWithRetry, renameWithRetry } from "./file-retry.js";
 import { safePathComponent } from "./path-component.js";
 import type {
   FailedRunRecord,
   InterruptedRunRecord,
+  RunStoreRetentionOptions,
 } from "./run-store.memory.js";
 
 const RUN_FILE = "run.json";
 const CHECKPOINT_FILE = "checkpoint.json";
+/** Step-completion checkpoints (restart points), one file per sequence. */
+const BOUNDARY_DIRECTORY = "checkpoints";
 
 const pathExists = async (filePath: string): Promise<boolean> => {
   try {
@@ -79,10 +84,13 @@ export class FileRunStore implements RunStore {
   readonly #rootDirectory: string;
   readonly #runLocks = new Map<string, Promise<void>>();
 
-  constructor(rootDirectory: string) {
+  readonly #maxNested: number;
+
+  constructor(rootDirectory: string, options: RunStoreRetentionOptions = {}) {
     if (!rootDirectory.trim())
       throw new Error("FileRunStore requires a root directory.");
     this.#rootDirectory = path.resolve(rootDirectory);
+    this.#maxNested = options.maxNestedRestartPoints ?? 10;
   }
 
   async createRun(record: RunRecord): Promise<void> {
@@ -100,6 +108,42 @@ export class FileRunStore implements RunStore {
 
   async loadLatestCheckpoint(runId: string): Promise<RunCheckpoint | null> {
     return readJson<RunCheckpoint>(this.#checkpointFile(runId));
+  }
+
+  async listCheckpoints(
+    runId: string,
+    options: { boundaries?: boolean } = {},
+  ): Promise<RunCheckpointSummary[]> {
+    const retained = new Map<number, RunCheckpoint>();
+    for (const entry of await this.#boundarySequences(runId)) {
+      const checkpoint = await readJson<RunCheckpoint>(
+        this.#boundaryFile(runId, entry.sequence, entry.nested),
+      );
+      if (checkpoint) retained.set(checkpoint.sequence, checkpoint);
+    }
+    const latest = await this.loadLatestCheckpoint(runId);
+    if (latest && (!options.boundaries || latest.boundary))
+      retained.set(latest.sequence, latest);
+    return [...retained.values()]
+      .sort((left, right) => left.sequence - right.sequence)
+      .map(summarizeCheckpoint);
+  }
+
+  async loadCheckpoint(
+    runId: string,
+    sequence: number,
+  ): Promise<RunCheckpoint | null> {
+    const latest = await this.loadLatestCheckpoint(runId);
+    if (latest?.sequence === sequence) return latest;
+    if (!Number.isSafeInteger(sequence) || sequence < 1) return null;
+    const entry = (await this.#boundarySequences(runId)).find(
+      (candidate) => candidate.sequence === sequence,
+    );
+    return entry
+      ? readJson<RunCheckpoint>(
+          this.#boundaryFile(runId, entry.sequence, entry.nested),
+        )
+      : null;
   }
 
   async resumeRun(
@@ -121,6 +165,7 @@ export class FileRunStore implements RunStore {
       const attempt = (existing.attempt ?? 1) + 1;
       await writeJsonAtomically(this.#runFile(runId), {
         ...existing,
+        ...(options?.manifest ? { manifest: options.manifest } : {}),
         status: "running",
         attempt,
         updatedAt: resumedAt,
@@ -161,6 +206,25 @@ export class FileRunStore implements RunStore {
         throw new Error(
           `First checkpoint for run ${checkpoint.runId} must have sequence 1`,
         );
+      }
+      // A restart point is kept after later checkpoints replace the latest.
+      if (checkpoint.boundary) {
+        const nested = checkpoint.boundary.stepPath.includes("/");
+        await writeJsonAtomically(
+          this.#boundaryFile(checkpoint.runId, checkpoint.sequence, nested),
+          checkpoint,
+        );
+        // Bounded retention: all top-level restart points, recent nested ones.
+        if (nested) {
+          const stale = (await this.#boundarySequences(checkpoint.runId))
+            .filter((entry) => entry.nested)
+            .sort((left, right) => right.sequence - left.sequence)
+            .slice(this.#maxNested);
+          for (const entry of stale)
+            await unlink(
+              this.#boundaryFile(checkpoint.runId, entry.sequence, true),
+            ).catch(() => undefined);
+        }
       }
       await writeJsonAtomically(
         this.#checkpointFile(checkpoint.runId),
@@ -341,5 +405,33 @@ export class FileRunStore implements RunStore {
 
   #checkpointFile(runId: string): string {
     return path.join(this.#runDirectory(runId), CHECKPOINT_FILE);
+  }
+
+  #boundaryFile(runId: string, sequence: number, nested: boolean): string {
+    return path.join(
+      this.#runDirectory(runId),
+      BOUNDARY_DIRECTORY,
+      `${String(sequence).padStart(12, "0")}${nested ? ".nested" : ""}.json`,
+    );
+  }
+
+  async #boundarySequences(
+    runId: string,
+  ): Promise<Array<{ sequence: number; nested: boolean }>> {
+    try {
+      return (
+        await readdir(path.join(this.#runDirectory(runId), BOUNDARY_DIRECTORY))
+      )
+        .map((name) => /^(\d{12})(\.nested)?\.json$/u.exec(name))
+        .filter((match): match is RegExpExecArray => match !== null)
+        .map((match) => ({
+          sequence: Number(match[1]),
+          nested: match[2] !== undefined,
+        }))
+        .sort((left, right) => left.sequence - right.sequence);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return [];
+      throw error;
+    }
   }
 }

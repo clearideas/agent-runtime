@@ -35,6 +35,10 @@ const withoutAttachment = (store: WorkspaceStore): WorkspaceStore => {
     ...(store.delete
       ? { delete: (path, options) => store.delete!(path, options) }
       : {}),
+    ...(store.commit
+      ? { commit: (point, options) => store.commit!(point, options) }
+      : {}),
+    ...(store.version ? { version: (options) => store.version!(options) } : {}),
   };
 };
 

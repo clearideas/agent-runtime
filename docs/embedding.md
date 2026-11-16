@@ -231,7 +231,9 @@ runtime-provided capabilities, including the step's resolved `policies`.
 Return output, a state patch, transcript items, artifacts, and metadata. Set
 `endRun: true` to complete the run after this step. Implement
 `preflight(step, host)` to report missing host configuration before a run
-starts.
+starts. Executors that run child steps and checkpoint their own progress pass
+a `ChildExecutionFrame` to `executeChild`, so a child paused mid-step resumes
+where it was (see [Step executors](./reference.md#step-executors)).
 
 Custom step types require a corresponding manifest contract extension. Use
 namespaced `extensions` for optional host metadata.

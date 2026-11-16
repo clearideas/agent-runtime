@@ -148,7 +148,9 @@ const applyEvent = (state, event, effects) => {
       effects.push({ type: "step", stepId });
       break;
     case "step.failed":
-      step(state, stepId).state = "failed";
+      // With paused: true the failure blocked the run, which waits for its
+      // host; the step runs again when the run resumes.
+      step(state, stepId).state = data.paused ? "paused" : "failed";
       step(state, stepId).error = data.error ?? null;
       effects.push({ type: "step", stepId });
       break;

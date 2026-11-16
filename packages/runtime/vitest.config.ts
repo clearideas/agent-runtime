@@ -5,7 +5,6 @@ export default defineConfig({
     environment: "node",
     include: ["src/**/*.test.ts"],
   },
-  resolve: {
-    tsconfigPaths: true,
-  },
+  // No tsconfigPaths: this package's tsconfig `paths` point at declaration
+  // files for type checking only. Tests resolve the built workspace packages.
 });

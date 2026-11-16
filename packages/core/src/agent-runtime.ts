@@ -12,6 +12,12 @@ import type {
   RunCheckpoint,
   RunBudgetState,
   RunError,
+  RunBlocked,
+  RunCheckpointBoundary,
+  RunCheckpointFingerprints,
+  RunCheckpointWorkspace,
+  RunLedger,
+  RunLimits,
   RunEvent,
   AgentStep,
   AgentVariableOverride,
@@ -25,10 +31,14 @@ import type {
   StepResult,
   TranscriptItem,
   VariableState,
+  WorkspaceChange,
 } from "@clearideas/agent-runtime-contracts";
 import {
+  RUN_CHECKPOINT_CONTRACT_VERSION,
+  RUN_CHECKPOINT_CONTRACT_VERSIONS,
   agentRunBudgetSchema,
   agentManifestSchema,
+  runLimitsSchema,
   parseAgentRunManifest,
   parseRunCheckpoint,
   valueMatchesAgentVariableType,
@@ -45,6 +55,7 @@ import type {
   IdGenerator,
   AgentManifestSource,
   ModelAdapter,
+  NotPersistedChange,
   ResolvedWorkspace,
   RunRecord,
   RunSandboxProvider,
@@ -81,6 +92,14 @@ import {
   type HistorySelection,
 } from "./messages.js";
 import { mergeExecutionPolicies, resolveStepPolicies } from "./policies.js";
+import {
+  RunLedgerTracker,
+  resolveRunLimits,
+  seededLedger,
+  transcriptTokens,
+  sandboxUsageFromCheckpoint,
+  type EffectiveRunLimits,
+} from "./limits.js";
 import { applyStatePatch, snapshotState } from "./state.js";
 
 const countManifestSteps = (steps: readonly AgentStep[]): number => {
@@ -125,6 +144,8 @@ export interface StepExecutionContext {
   /** Opens (once per run) and returns the run sandbox session. */
   runSandbox?: (() => Promise<RunSandboxSession>) | undefined;
   tokenBudget?: TokenBudgetContext | undefined;
+  /** The run's effective limits. */
+  limits?: EffectiveRunLimits | undefined;
   /** Effective policies: host defaults, then manifest, then step, then host-enforced. */
   policies?: ExecutionPolicies | undefined;
   /** The host's context summarizer, when it supplies one. */
@@ -135,18 +156,34 @@ export interface StepExecutionContext {
    */
   history?: StepHistoryContext | undefined;
   emit(type: string, data?: JsonObject): Promise<RunEvent>;
+  /**
+   * Stable identity of this step execution within the run: the step path,
+   * with the iteration of each enclosing loop (for example `each[2]/fetch`).
+   * The same execution keeps its key when it resumes.
+   */
+  executionKey?: string;
   /** Present when this step is resuming from a nested checkpoint. */
   resume?: {
     cursor: ExecutionCursor;
     continuation?: JsonObject;
     transcript?: TranscriptItem[];
     artifacts?: ArtifactRef[];
+    /**
+     * Facts about the previous attempt the step should tell its model once,
+     * such as workspace changes that could not be saved.
+     */
+    notices?: string[];
   };
-  /** Execute a registered child step without committing the parent step. */
+  /**
+   * Execute a registered child step without committing the parent step. A
+   * parent that checkpoints its own progress (such as a loop) passes a frame,
+   * so the child's mid-step checkpoints carry the parent's state too.
+   */
   executeChild?(
     step: AgentStep,
     variables: Readonly<VariableState>,
     stepPath: string,
+    frame?: ChildExecutionFrame,
   ): Promise<StepExecutionResult>;
   /** Commit resumable state while a nested step remains active. */
   checkpoint?(input: NestedCheckpointInput): Promise<void>;
@@ -191,7 +228,51 @@ export interface NestedCheckpointInput {
   transcript?: TranscriptItem[];
   /** Cumulative artifacts produced by this step since it began or resumed. */
   artifacts?: ArtifactRef[];
+  /**
+   * Set by a parent when a nested step has just completed: the checkpoint is
+   * a step commit point and a restart point.
+   */
+  boundary?: { stepPath: string; executionKey?: string };
 }
+
+/** A child step's share of its parent's restored state. */
+export interface ChildResumeState {
+  continuation?: JsonObject;
+  /** Transcript the child produced before the checkpoint. */
+  transcript?: TranscriptItem[];
+  /** Artifacts the child produced before the checkpoint. */
+  artifacts?: ArtifactRef[];
+}
+
+/**
+ * What a parent step supplies when it executes a child. Without a frame, a
+ * child's mid-step checkpoint would replace the parent's own resumable state.
+ */
+export interface ChildExecutionFrame {
+  /**
+   * Wrap a child's nested checkpoint in the parent's resumable state: the
+   * parent's continuation (embedding the child's), cursor, accumulated
+   * transcript, and artifacts.
+   */
+  checkpoint(nested: NestedCheckpointInput): NestedCheckpointInput;
+  /**
+   * Present when the child is resuming. With a frame, a child resumes only
+   * from this, never from the run's raw latest checkpoint.
+   */
+  resume?: ChildResumeState;
+  /** Distinguishes repeated executions of one child, such as a loop iteration. */
+  key?: string;
+}
+
+/** The execution key of a child step, from its parent's key and frame. */
+export const childExecutionKey = (
+  parentKey: string,
+  childId: string,
+  frame?: Pick<ChildExecutionFrame, "key">,
+): string =>
+  frame?.key !== undefined
+    ? `${parentKey}[${frame.key}]/${childId}`
+    : `${parentKey}/${childId}`;
 
 /** What a step executor can check before a run starts. */
 export interface StepPreflightContext {
@@ -262,6 +343,16 @@ export interface AgentRuntimeDependencies {
    * cannot override them. Use them for limits an agent must not raise.
    */
   enforcedPolicies?: ExecutionPolicies;
+  /**
+   * Host default run limits, replacing values of `DEFAULT_RUN_LIMITS`; the
+   * manifest and limits granted on resume override them.
+   */
+  limits?: RunLimits;
+  /**
+   * Host ceilings on run limits, applied after the manifest and any limits
+   * granted on resume: they can only lower a limit. A ceiling alone applies.
+   */
+  enforcedLimits?: RunLimits;
   /** Observes, changes, or replaces context summarization. */
   summarizer?: ContextSummarizerAdapter;
   /** Conversation messages: signing, media authorization, limits, and compaction. */
@@ -283,6 +374,11 @@ export interface RunRequest {
   execution?: AgentRunExecution;
   /** Replaces the persisted cumulative token limit for this run or resume attempt. */
   budget?: AgentRunBudget;
+  /**
+   * Raise (or lower) run limits for this attempt and every later one, for
+   * example to resume a run blocked by a limit. Host ceilings still apply.
+   */
+  limits?: RunLimits;
   /** Conversation history for an agent that declares messages. */
   messages?: ConversationMessageInput[];
   /** The runtime's signature over a leading prefix of `messages`. */
@@ -295,6 +391,15 @@ export interface RunRequest {
   signal?: AbortSignal;
   /** Resume from the latest committed checkpoint for runId. */
   resume?: boolean;
+  /**
+   * Start a new run from a step-completion checkpoint of another run (one
+   * with `boundary`), for example to restart from the last known good step.
+   * The new run reuses the checkpoint's state, results, and transcript,
+   * starts with fresh usage, and passes the checkpoint's workspace tokens to
+   * the workspace provider as `restoreFrom`. Not combined with resume,
+   * variables, or messages.
+   */
+  seed?: RunCheckpoint;
   /** Allow recovery to supersede a run still marked running. Host orchestration must prove ownership expired. */
   allowRunningTakeover?: boolean;
 }
@@ -317,6 +422,10 @@ interface ChildExecutionInput {
   latestCheckpoint: RunCheckpoint | null;
   stepResults: Readonly<StepResult[]>;
   checkpoint: (input: NestedCheckpointInput) => Promise<void>;
+  /** The frame the parent executor supplied for this child. */
+  frame?: ChildExecutionFrame | undefined;
+  /** This child's execution key. */
+  executionKey: string;
 }
 
 interface TopLevelStepOutcome {
@@ -385,13 +494,64 @@ export class RunSuspendedError extends Error {
   readonly reason: string;
   readonly details: JsonObject | undefined;
 
-  constructor(reason: string, details?: JsonObject) {
-    super(`Run suspended: ${reason}`);
+  constructor(
+    reason: string,
+    details?: JsonObject,
+    options?: { message?: string; cause?: unknown },
+  ) {
+    super(
+      options?.message ?? `Run suspended: ${reason}`,
+      options?.cause !== undefined ? { cause: options.cause } : undefined,
+    );
     this.name = "RunSuspendedError";
     this.reason = reason;
     this.details = details;
   }
 }
+
+/**
+ * An error that must end the run as failed even when the run's `onFailure`
+ * policy would pause it: a security or policy violation, or a problem no
+ * resume can fix. Hosts throw it from adapters and hooks (for example, a
+ * destination that is not authorized).
+ */
+export class RunFatalError extends Error {
+  readonly code: string;
+  readonly fatal = true;
+
+  constructor(message: string, code = "RUN_FATAL") {
+    super(message);
+    this.name = "RunFatalError";
+    this.code = code;
+  }
+}
+
+const FATAL_ERROR_CODES = new Set([
+  "MANIFEST_PREFLIGHT_FAILED",
+  "MANIFEST_CHANGED",
+  "RUN_FATAL",
+]);
+const FATAL_ERROR_NAMES = new Set([
+  "ApprovalRejectedError",
+  "McpToolIntegrityError",
+  "MessagesValidationError",
+]);
+
+/**
+ * Fatal errors fail the run whatever its `onFailure` policy: manifest and
+ * message validation, a rejected approval, tool-integrity violations, and
+ * any error marked `fatal: true` (see `RunFatalError`).
+ */
+export const isFatalRunError = (error: unknown): boolean => {
+  if (!(error instanceof Error)) return false;
+  const marked = error as Error & { fatal?: unknown; code?: unknown };
+  return (
+    marked.fatal === true ||
+    FATAL_ERROR_NAMES.has(error.name) ||
+    (typeof marked.code === "string" && FATAL_ERROR_CODES.has(marked.code)) ||
+    (typeof marked.code === "string" && marked.code.startsWith("MESSAGES_"))
+  );
+};
 
 export const isRunSuspendedError = (
   error: unknown,
@@ -413,7 +573,18 @@ export const createRunPauseRequest = (
 ): RunSuspendedError => new RunSuspendedError(RUN_PAUSED_REASON, details);
 
 export type RunSuspensionKind =
-  "awaiting-input" | "awaiting-child" | "awaiting-budget" | "paused" | "other";
+  | "awaiting-input"
+  | "awaiting-child"
+  | "awaiting-budget"
+  | "awaiting-host"
+  | "paused"
+  | "other";
+
+/**
+ * Suspension reason for a run that needs its host: a limit was reached, or
+ * a step failed with an error that is not fatal. Details carry a `cause`.
+ */
+export const RUN_BLOCKED_REASON = "blocked";
 
 /** Classify a suspension reason for hosts and user interfaces. */
 export const suspensionKind = (reason: string): RunSuspensionKind => {
@@ -424,12 +595,69 @@ export const suspensionKind = (reason: string): RunSuspensionKind => {
       return "awaiting-child";
     case "token-budget":
       return "awaiting-budget";
+    case RUN_BLOCKED_REASON:
+      return "awaiting-host";
     case RUN_PAUSED_REASON:
       return "paused";
     default:
       return "other";
   }
 };
+
+/**
+ * The suspension for a step that failed with an error the host can fix (a
+ * provider outage, a credential, an interrupted operation). The run resumes
+ * at its latest checkpoint once the host acts.
+ */
+export const createErrorSuspension = (input: {
+  error: RunError;
+  stepId?: string | undefined;
+  /** The original error, kept as the suspension's `cause`. */
+  cause?: unknown;
+}): RunSuspendedError =>
+  new RunSuspendedError(
+    RUN_BLOCKED_REASON,
+    {
+      cause: "error",
+      error: {
+        code: input.error.code,
+        message: input.error.message,
+        ...(input.error.retryable !== undefined
+          ? { retryable: input.error.retryable }
+          : {}),
+        ...(input.error.details ? { details: input.error.details } : {}),
+      },
+      ...(input.stepId ? { stepId: input.stepId } : {}),
+    },
+    {
+      message: `Run blocked: ${input.error.message}`,
+      ...(input.cause !== undefined ? { cause: input.cause } : {}),
+    },
+  );
+
+/**
+ * The suspension thrown when a run reaches one of its limits. The run resumes
+ * once a higher limit is granted (`RunRequest.limits` or the manifest).
+ */
+export const createLimitSuspension = (input: {
+  limit: string;
+  used: number;
+  value: number;
+  stepId?: string | undefined;
+}): RunSuspendedError =>
+  new RunSuspendedError(
+    RUN_BLOCKED_REASON,
+    {
+      cause: "limit",
+      limit: input.limit,
+      used: input.used,
+      value: input.value,
+      ...(input.stepId ? { stepId: input.stepId } : {}),
+    },
+    {
+      message: `Run blocked: it reached its ${input.limit} limit (${input.used} of ${input.value}).`,
+    },
+  );
 
 /**
  * Infrastructure stopped the attempt (an execution timeout, a shutdown, a
@@ -514,6 +742,334 @@ export const defaultManifestHasher: ManifestHasher = {
       .map((value) => value.toString(16).padStart(2, "0"))
       .join("")}`;
   },
+};
+
+const sha256Hex = async (value: string): Promise<string> => {
+  const digest = await crypto.subtle.digest(
+    "SHA-256",
+    new TextEncoder().encode(value),
+  );
+  return `sha256:${[...new Uint8Array(digest)]
+    .map((byte) => byte.toString(16).padStart(2, "0"))
+    .join("")}`;
+};
+
+/** A step without the fields a resume may change: policies and descriptions. */
+const fingerprintedStep = (step: AgentStep): JsonValue => {
+  const {
+    policies: _policies,
+    name: _name,
+    description: _description,
+    metadata: _metadata,
+    ...rest
+  } = step;
+  return (
+    step.type === "loop"
+      ? { ...rest, steps: step.steps.map(fingerprintedStep) }
+      : rest
+  ) as JsonValue;
+};
+
+/**
+ * Fingerprints that decide which manifest changes a resume accepts. `global`
+ * covers manifest fields that completed steps depend on; `steps` has one
+ * entry per top-level step, over everything but its policies and
+ * descriptions. Limits, policies, the default model, and descriptive fields
+ * are not fingerprinted, so they may change on any resume.
+ */
+export const fingerprintManifest = async (
+  manifest: AgentManifest,
+): Promise<RunCheckpointFingerprints> => ({
+  global: await sha256Hex(
+    stableStringify({
+      variables: manifest.variables ?? null,
+      connections: manifest.connections ?? null,
+      workspaces: manifest.workspaces ?? null,
+      messages: manifest.messages ?? null,
+      extensions: manifest.extensions ?? null,
+    }),
+  ),
+  steps: await Promise.all(
+    manifest.steps.map((step) =>
+      sha256Hex(stableStringify(fingerprintedStep(step))),
+    ),
+  ),
+});
+
+/**
+ * What resuming (or restarting) from a checkpoint with a given manifest
+ * would do, decided before anything runs:
+ *
+ * - `unchanged`: the manifest is the one the checkpoint was written with.
+ * - `accepted`: only fields a resume may change differ (limits, policies,
+ *   descriptions, the default model) or steps with no completed work.
+ * - `restarts-step`: the step that was in progress changed; it runs again
+ *   from its start, repeating its completed work.
+ * - `refused`: a completed step, or a manifest-wide field completed steps
+ *   depend on, changed; restart from an earlier step or start a new run.
+ */
+export interface ManifestChangeAssessment {
+  outcome: "unchanged" | "accepted" | "restarts-step" | "refused";
+  /** Top-level steps whose definitions differ, in manifest order. */
+  changedSteps: string[];
+  /** Variables, connections, workspaces, messages, or extensions differ. */
+  globalChanged: boolean;
+  /** The step that restarts, or the first completed step that changed. */
+  step?: string;
+  /** Why, in one sentence. */
+  reason: string;
+}
+
+const classifyManifestChange = (input: {
+  manifest: AgentManifest;
+  checkpoint: RunCheckpoint;
+  current: RunCheckpointFingerprints;
+  hashMatches: boolean;
+}): ManifestChangeAssessment => {
+  const { checkpoint, current, manifest } = input;
+  const saved = checkpoint.fingerprints;
+  if (!saved) {
+    return input.hashMatches
+      ? {
+          outcome: "unchanged",
+          changedSteps: [],
+          globalChanged: false,
+          reason: "The manifest is the one the checkpoint was written with.",
+        }
+      : {
+          outcome: "refused",
+          changedSteps: [],
+          globalChanged: false,
+          reason:
+            "The checkpoint predates step fingerprints, so only the same manifest can resume it.",
+        };
+  }
+  const changedSteps = manifest.steps.flatMap((step, index) =>
+    saved.steps[index] !== current.steps[index] ? [step.id] : [],
+  );
+  if (current.steps.length < saved.steps.length)
+    changedSteps.push(
+      ...saved.steps
+        .slice(current.steps.length)
+        .map((_, offset) => `#${current.steps.length + offset + 1}`),
+    );
+  const globalChanged = saved.global !== current.global;
+  const base = { changedSteps, globalChanged };
+  if (globalChanged) {
+    return {
+      outcome: "refused",
+      ...base,
+      reason:
+        "It changes variables, connections, workspaces, messages, or extensions, which completed steps depend on.",
+    };
+  }
+  const cursor = checkpoint.cursor.stepIndex;
+  for (let index = 0; index < cursor; index += 1) {
+    if (saved.steps[index] !== current.steps[index]) {
+      const id = manifest.steps[index]?.id ?? `#${index + 1}`;
+      return {
+        outcome: "refused",
+        ...base,
+        step: id,
+        reason: `Step ${id} already completed and its definition changed.`,
+      };
+    }
+  }
+  const midStep =
+    checkpoint.continuation != null ||
+    (checkpoint.activeStepTranscript?.length ?? 0) > 0 ||
+    (checkpoint.activeStepArtifacts?.length ?? 0) > 0 ||
+    checkpoint.cursor.stepPath != null;
+  if (
+    cursor < manifest.steps.length &&
+    midStep &&
+    saved.steps[cursor] !== current.steps[cursor]
+  ) {
+    const step = manifest.steps[cursor]!;
+    if (checkpoint.continuation?.type === "loop") {
+      return {
+        outcome: "refused",
+        ...base,
+        step: step.id,
+        reason: `Loop step ${step.id} changed while it was in progress, and its saved state reflects iterations already run.`,
+      };
+    }
+    return {
+      outcome: "restarts-step",
+      ...base,
+      step: step.id,
+      reason: `Step ${step.id} was in progress and changed; it runs again from its start.`,
+    };
+  }
+  if (changedSteps.length === 0 && input.hashMatches) {
+    return {
+      outcome: "unchanged",
+      ...base,
+      reason: "The manifest is the one the checkpoint was written with.",
+    };
+  }
+  return {
+    outcome: "accepted",
+    ...base,
+    reason:
+      changedSteps.length > 0
+        ? `Only steps with no completed work changed (${changedSteps.join(", ")}).`
+        : "Only fields a resume may change differ, such as limits or policies.",
+  };
+};
+
+/**
+ * Assess, without running anything, what resuming or restarting from
+ * `checkpoint` with `manifest` would do. A host uses it to show the
+ * consequences of an edit before the user commits to it.
+ */
+export const assessManifestChange = async (
+  checkpoint: RunCheckpoint,
+  manifest: AgentManifest,
+  options: { manifestHasher?: ManifestHasher } = {},
+): Promise<ManifestChangeAssessment> => {
+  const parsed = agentManifestSchema.parse(manifest);
+  return classifyManifestChange({
+    manifest: parsed,
+    checkpoint: parseRunCheckpoint(checkpoint),
+    current: await fingerprintManifest(parsed),
+    hashMatches:
+      checkpoint.manifestHash ===
+      (await (options.manifestHasher ?? defaultManifestHasher).hash(parsed)),
+  });
+};
+
+/**
+ * Apply the assessment when a run resumes or restarts: refuse, or drop the
+ * changed in-progress step's partial work so it runs again from its start.
+ */
+const reconcileManifestChange = (input: {
+  runId: string;
+  manifest: AgentManifest;
+  checkpoint: RunCheckpoint;
+  current: RunCheckpointFingerprints;
+  hashMatches: boolean;
+}): { checkpoint: RunCheckpoint; restartedStep?: string } => {
+  const { checkpoint, runId } = input;
+  const assessment = classifyManifestChange(input);
+  if (assessment.outcome === "refused") {
+    if (!checkpoint.fingerprints)
+      throw new Error(`Manifest does not match checkpoint for run ${runId}`);
+    const advice = assessment.globalChanged
+      ? "Start a new run, or restore those fields."
+      : "Restart the run from a step before it, or restore the step.";
+    throw new AgentRuntimeError(
+      `Manifest does not match checkpoint for run ${runId}: ${assessment.reason[0]!.toLowerCase()}${assessment.reason.slice(1, -1)}. ${advice}`,
+      "MANIFEST_CHANGED",
+    );
+  }
+  if (assessment.outcome !== "restarts-step") return { checkpoint };
+  const {
+    continuation: _continuation,
+    activeStepTranscript,
+    activeStepArtifacts,
+    ...rest
+  } = checkpoint;
+  return {
+    checkpoint: {
+      ...rest,
+      cursor: { stepIndex: checkpoint.cursor.stepIndex },
+      transcript: withoutActiveTail(
+        checkpoint.transcript,
+        activeStepTranscript,
+      ),
+      artifacts: withoutActiveTail(checkpoint.artifacts, activeStepArtifacts),
+    },
+    restartedStep: assessment.step!,
+  };
+};
+
+/** Validate a seed: a step-completion checkpoint of some run. */
+const parseSeed = (input: RunCheckpoint): RunCheckpoint => {
+  const seed = parseRunCheckpoint(input);
+  if (!seed.boundary) {
+    throw new AgentRuntimeError(
+      "A run can only be seeded from a step-completion checkpoint (one with a boundary); list them with RunStore.listCheckpoints(runId, { boundaries: true }).",
+      "SEED_INVALID",
+    );
+  }
+  return seed;
+};
+
+/** The workspace tokens a seed hands to the workspace provider. */
+const restoreTokens = (
+  seed: RunCheckpoint,
+): Record<string, string> | undefined => {
+  const tokens = Object.fromEntries(
+    Object.entries(seed.workspaces ?? {}).flatMap(([alias, entry]) =>
+      entry.token ? [[alias, entry.token]] : [],
+    ),
+  );
+  return Object.keys(tokens).length > 0 ? tokens : undefined;
+};
+
+/**
+ * A seed re-sequenced as the first checkpoint of a new run: same position,
+ * state, and content, with fresh usage and a record of where it came from.
+ */
+const seededCheckpoint = (input: {
+  runId: string;
+  source: RunCheckpoint;
+  seed: RunCheckpoint;
+  id: string;
+  fingerprints: RunCheckpointFingerprints;
+  runtimeVersion: string;
+  createdAt: string;
+}): RunCheckpoint => {
+  const {
+    ledger: _ledger,
+    budget: _budget,
+    metadata,
+    workspaces,
+    ...rest
+  } = structuredClone(input.source);
+  const {
+    sandboxBudget: _sandboxBudget,
+    workspaceSync: _workspaceSync,
+    ...keptMetadata
+  } = metadata ?? {};
+  const tokens = Object.fromEntries(
+    Object.entries(workspaces ?? {}).flatMap(([alias, entry]) =>
+      entry.token
+        ? [
+            [
+              alias,
+              {
+                token: entry.token,
+                ...(entry.stepPath ? { stepPath: entry.stepPath } : {}),
+              },
+            ],
+          ]
+        : [],
+    ),
+  );
+  return {
+    ...rest,
+    id: input.id,
+    runId: input.runId,
+    sequence: 1,
+    attempt: 1,
+    contractVersion: RUN_CHECKPOINT_CONTRACT_VERSION,
+    runtimeVersion: input.runtimeVersion,
+    ledger: { ...seededLedger(input.source), progress: 1 },
+    fingerprints: input.fingerprints,
+    ...(Object.keys(tokens).length > 0 ? { workspaces: tokens } : {}),
+    createdAt: input.createdAt,
+    metadata: {
+      ...keptMetadata,
+      seededFrom: {
+        runId: input.seed.runId,
+        checkpointId: input.seed.id,
+        checkpointSequence: input.seed.sequence,
+        stepPath: input.seed.boundary!.stepPath,
+      },
+    },
+  };
 };
 
 /** A classified adapter failure. Retrying still requires an idempotent operation. */
@@ -723,7 +1279,11 @@ const assertRecoverableCheckpoint = (input: {
   ) {
     throw new Error(`Checkpoint attempt for run ${runId} is not recoverable`);
   }
-  if (checkpoint.contractVersion !== "1.0") {
+  if (
+    !(RUN_CHECKPOINT_CONTRACT_VERSIONS as readonly string[]).includes(
+      checkpoint.contractVersion,
+    )
+  ) {
     throw new Error(
       `Unsupported checkpoint contract version ${checkpoint.contractVersion}`,
     );
@@ -779,6 +1339,87 @@ const assertRecoverableCheckpoint = (input: {
       );
     }
   }
+};
+
+/**
+ * Fold later changes into earlier ones, one entry per path, relative to the
+ * state at the previous commit point.
+ */
+export const mergeWorkspaceChanges = (
+  earlier: readonly WorkspaceChange[],
+  later: readonly WorkspaceChange[],
+): WorkspaceChange[] => {
+  const merged = new Map(earlier.map((change) => [change.path, change]));
+  for (const change of later) {
+    const before = merged.get(change.path);
+    if (before?.action === "created" && change.action === "deleted") {
+      merged.delete(change.path);
+    } else if (before?.action === "created") {
+      merged.set(change.path, { ...change, action: "created" });
+    } else if (before?.action === "deleted" && change.action === "created") {
+      merged.set(change.path, { ...change, action: "modified" });
+    } else {
+      merged.set(change.path, { ...change });
+    }
+  }
+  return [...merged.values()];
+};
+
+/** The durable record of why a blocked run waits for its host. */
+const blockedRecord = (error: RunSuspendedError, at: string): RunBlocked => {
+  const details = error.details ?? {};
+  const number = (value: JsonValue | undefined) =>
+    typeof value === "number" && Number.isFinite(value) ? value : undefined;
+  if (details.cause === "limit") {
+    const limit = String(details.limit ?? "limit");
+    const used = number(details.used);
+    const value = number(details.value);
+    return {
+      cause: "limit",
+      code: limit,
+      message: `The run reached its ${limit} limit${
+        value !== undefined ? ` of ${value}` : ""
+      }${used !== undefined ? ` (used ${used})` : ""}. Grant a higher limit to resume.`,
+      ...(used !== undefined ? { used } : {}),
+      ...(value !== undefined ? { value } : {}),
+      ...(typeof details.stepId === "string" ? { stepId: details.stepId } : {}),
+      at,
+    };
+  }
+  const runError =
+    details.error != null && typeof details.error === "object"
+      ? (details.error as JsonObject)
+      : {};
+  return {
+    cause: "error",
+    code: String(runError.code ?? "AGENT_EXECUTION_FAILED"),
+    message: String(runError.message ?? error.message),
+    ...(typeof runError.retryable === "boolean"
+      ? { retryable: runError.retryable }
+      : {}),
+    ...(runError.details != null &&
+    typeof runError.details === "object" &&
+    !Array.isArray(runError.details)
+      ? { details: runError.details }
+      : {}),
+    ...(typeof details.stepId === "string" ? { stepId: details.stepId } : {}),
+    at,
+  };
+};
+
+/** What a resuming step should be told about its previous attempt. */
+const resumeNotices = (checkpoint: RunCheckpoint | null): string[] => {
+  const sync = checkpoint?.metadata?.workspaceSync;
+  if (
+    sync == null ||
+    typeof sync !== "object" ||
+    Array.isArray(sync) ||
+    sync.failed !== true
+  )
+    return [];
+  return [
+    `Some workspace changes from the previous attempt could not be saved when its sandbox closed (${String(sync.error ?? "unknown error")}). Workspace files may not match what earlier tool results show; check them before relying on them.`,
+  ];
 };
 
 const withoutActiveTail = <T>(complete: T[], active: T[] | undefined): T[] =>
@@ -998,6 +1639,31 @@ export class AgentRuntime {
   readonly #activeRunIds = new Set<string>();
   readonly #runSandboxOpenings = new Map<string, Promise<RunSandboxSession>>();
   readonly #runSandboxSessions = new Map<string, RunSandboxSession>();
+  /**
+   * Cumulative sandbox usage for each active run, restored from the latest
+   * checkpoint. Carried into every checkpoint, including those saved before
+   * an attempt reopens its sandbox, so usage never resets across attempts.
+   */
+  readonly #runSandboxBudgets = new Map<string, SandboxBudgetState>();
+  /** The checkpoint each active run most recently committed or resumed from. */
+  readonly #lastCheckpoints = new Map<string, RunCheckpoint>();
+  /** Each active run's durable usage and its effective limits. */
+  readonly #runLedgers = new Map<string, RunLedgerTracker>();
+  readonly #runLimits = new Map<string, EffectiveRunLimits>();
+  readonly #runLimitControllers = new Map<string, AbortController>();
+  readonly #runTimers = new Map<string, Set<ReturnType<typeof setTimeout>>>();
+  readonly #runFingerprints = new Map<string, RunCheckpointFingerprints>();
+  /** Resolved workspace bindings, commit tokens, and pending changes per run. */
+  readonly #runWorkspaces = new Map<string, readonly ResolvedWorkspace[]>();
+  readonly #runWorkspaceState = new Map<
+    string,
+    Record<string, RunCheckpointWorkspace>
+  >();
+  readonly #runPendingNotPersisted = new Map<
+    string,
+    Map<string, NotPersistedChange[]>
+  >();
+  readonly #runInputs = new Map<string, Record<string, { token: string }>>();
   /** Each active run's effective conversation history. */
   readonly #runMessages = new Map<string, RunMessagesState>();
 
@@ -1030,10 +1696,11 @@ export class AgentRuntime {
         request.execution ||
         request.budget ||
         request.messages ||
-        request.messagesSignature
+        request.messagesSignature ||
+        request.seed
       ) {
         throw new Error(
-          "agentRunManifest cannot be combined with resume, manifest, manifestReference, variables, runId, execution, budget, messages, or messagesSignature",
+          "agentRunManifest cannot be combined with resume, seed, manifest, manifestReference, variables, runId, execution, budget, messages, or messagesSignature",
         );
       }
       const agentRunManifest = parseAgentRunManifest(request.agentRunManifest);
@@ -1059,6 +1726,17 @@ export class AgentRuntime {
     }
     if (normalizedRequest.resume && !normalizedRequest.runId) {
       throw new Error("A runId is required to resume a run");
+    }
+    if (
+      normalizedRequest.seed &&
+      (normalizedRequest.resume ||
+        normalizedRequest.variables != null ||
+        normalizedRequest.messages != null ||
+        normalizedRequest.messagesSignature != null)
+    ) {
+      throw new Error(
+        "A seeded run takes its state and history from the seed; it cannot be combined with resume, variables, or messages",
+      );
     }
     if (normalizedRequest.resume && normalizedRequest.variables != null) {
       throw new Error(
@@ -1093,6 +1771,18 @@ export class AgentRuntime {
       this.#runTokenBudgets.delete(runId);
       this.#runSandboxOpenings.delete(runId);
       this.#runSandboxSessions.delete(runId);
+      this.#runSandboxBudgets.delete(runId);
+      this.#lastCheckpoints.delete(runId);
+      this.#runLedgers.delete(runId);
+      this.#runLimits.delete(runId);
+      this.#runFingerprints.delete(runId);
+      this.#runWorkspaces.delete(runId);
+      this.#runWorkspaceState.delete(runId);
+      this.#runPendingNotPersisted.delete(runId);
+      this.#runInputs.delete(runId);
+      this.#runLimitControllers.delete(runId);
+      for (const timer of this.#runTimers.get(runId) ?? []) clearTimeout(timer);
+      this.#runTimers.delete(runId);
       this.#runMessages.delete(runId);
     }
   }
@@ -1130,8 +1820,18 @@ export class AgentRuntime {
   }
 
   async #run(
-    request: RunRequest & { runId: string },
+    input: RunRequest & { runId: string },
   ): Promise<AgentExecutionResult> {
+    // Time limits abort the attempt through this controller with a limit
+    // suspension; the host's own signal still pauses, interrupts, or cancels.
+    const limitController = new AbortController();
+    this.#runLimitControllers.set(input.runId, limitController);
+    const request: RunRequest & { runId: string; signal: AbortSignal } = {
+      ...input,
+      signal: input.signal
+        ? AbortSignal.any([input.signal, limitController.signal])
+        : limitController.signal,
+    };
     const runId = request.runId;
     const existingRecord = request.resume
       ? await this.#dependencies.runStore.loadRun(runId)
@@ -1155,16 +1855,23 @@ export class AgentRuntime {
     const requestedBudget = request.budget
       ? agentRunBudgetSchema.parse(request.budget)
       : undefined;
-    const latestCheckpoint = request.resume
+    let latestCheckpoint = request.resume
       ? await this.#dependencies.runStore.loadLatestCheckpoint(runId)
       : null;
     if (request.resume && !latestCheckpoint) {
       throw new Error(`Run ${runId} has no checkpoint to resume`);
     }
+    const seed = request.seed ? parseSeed(request.seed) : undefined;
     const workspaces = await resolveAgentWorkspaces(
       manifest,
       this.#dependencies.workspaces,
-      { runId, ...(request.signal ? { signal: request.signal } : {}) },
+      {
+        runId,
+        ...(request.signal ? { signal: request.signal } : {}),
+        ...(seed && restoreTokens(seed)
+          ? { restoreFrom: restoreTokens(seed)! }
+          : {}),
+      },
     );
     const usesRunSandbox =
       workspaces.length > 0 || stepsUseRunSandbox(manifest.steps);
@@ -1184,6 +1891,48 @@ export class AgentRuntime {
       });
     }
     await this.#preflight(manifest);
+    const fingerprints = await fingerprintManifest(manifest);
+    this.#runFingerprints.set(runId, fingerprints);
+    let restartedStep: string | undefined;
+    if (latestCheckpoint) {
+      const reconciled = reconcileManifestChange({
+        runId,
+        manifest,
+        checkpoint: latestCheckpoint,
+        current: fingerprints,
+        hashMatches:
+          latestCheckpoint.manifestHash ===
+          (await this.#manifestHasher.hash(manifest)),
+      });
+      latestCheckpoint = reconciled.checkpoint;
+      restartedStep = reconciled.restartedStep;
+    }
+    if (seed) {
+      const reconciled = reconcileManifestChange({
+        runId,
+        manifest,
+        checkpoint: seed,
+        current: fingerprints,
+        hashMatches:
+          seed.manifestHash === (await this.#manifestHasher.hash(manifest)),
+      });
+      restartedStep = reconciled.restartedStep;
+      latestCheckpoint = seededCheckpoint({
+        runId,
+        source: reconciled.checkpoint,
+        seed,
+        id: this.#ids.generateId("checkpoint"),
+        fingerprints,
+        runtimeVersion: this.#dependencies.runtimeVersion ?? RUNTIME_VERSION,
+        createdAt: this.#clock.now().toISOString(),
+      });
+      assertRecoverableCheckpoint({
+        checkpoint: latestCheckpoint,
+        runId,
+        manifest,
+        runAttempt: 1,
+      });
+    }
     if (latestCheckpoint && existingRecord) {
       assertRecoverableCheckpoint({
         checkpoint: latestCheckpoint,
@@ -1192,19 +1941,57 @@ export class AgentRuntime {
         runAttempt: existingRecord.attempt ?? 1,
       });
     }
-    if (
-      latestCheckpoint &&
-      latestCheckpoint.manifestHash !==
-        (await this.#manifestHasher.hash(manifest))
-    ) {
-      throw new Error(`Manifest does not match checkpoint for run ${runId}`);
+
+    if (latestCheckpoint) this.#lastCheckpoints.set(runId, latestCheckpoint);
+    const restoredSandboxUsage = sandboxUsageFromCheckpoint(latestCheckpoint);
+    if (restoredSandboxUsage)
+      this.#runSandboxBudgets.set(runId, {
+        commandsUsed: restoredSandboxUsage.commands,
+        sandboxSecondsUsed: restoredSandboxUsage.seconds,
+      });
+    this.#runWorkspaces.set(runId, workspaces);
+    this.#runWorkspaceState.set(
+      runId,
+      structuredClone(latestCheckpoint?.workspaces ?? {}),
+    );
+    if (latestCheckpoint?.inputs) {
+      this.#runInputs.set(runId, structuredClone(latestCheckpoint.inputs));
+    } else if (!request.resume) {
+      // The version of each read-only input the run starts from, when the
+      // store can name one.
+      const inputs: Record<string, { token: string }> = {};
+      for (const workspace of workspaces) {
+        if (workspace.mode !== "read" || !workspace.store.version) continue;
+        const token = await workspace.store.version({ signal: request.signal });
+        if (token) inputs[workspace.alias] = { token };
+      }
+      this.#runInputs.set(runId, inputs);
     }
+    const ledger = new RunLedgerTracker({
+      checkpoint: latestCheckpoint,
+      now: () => this.#clock.now().getTime(),
+    });
+    ledger.grant(
+      request.limits ? runLimitsSchema.parse(request.limits) : undefined,
+    );
+    this.#runLedgers.set(runId, ledger);
+    this.#runLimits.set(
+      runId,
+      resolveRunLimits(manifest, {
+        defaults: this.#dependencies.limits,
+        granted: ledger.granted,
+        ceilings: this.#dependencies.enforcedLimits,
+      }),
+    );
 
     const effectiveBudget = requestedBudget ?? latestCheckpoint?.budget;
     if (effectiveBudget) {
-      const consumedTokens =
-        latestCheckpoint?.budget?.consumedTokens ??
-        consumedTokensFromTranscript(latestCheckpoint?.transcript ?? []);
+      // A seeded run starts its budget fresh; its inherited transcript was
+      // paid for by the run it came from.
+      const consumedTokens = seed
+        ? 0
+        : (latestCheckpoint?.budget?.consumedTokens ??
+          consumedTokensFromTranscript(latestCheckpoint?.transcript ?? []));
       this.#runTokenBudgets.set(
         runId,
         new RunTokenBudget({
@@ -1216,24 +2003,25 @@ export class AgentRuntime {
 
     // The conversation history is validated, verified, and its media
     // ingested before any run state exists; resume restores it instead.
-    const prepared = request.resume
-      ? undefined
-      : await prepareSuppliedHistory({
-          runId,
-          manifest,
-          messages: request.messages,
-          signature: request.messagesSignature,
-          scope: request.messagesScope,
-          options: this.#dependencies.messages ?? {},
-          artifacts: this.#dependencies.artifacts,
-          strategy:
-            this.#historyPolicies(manifest).context?.strategy ?? "prune",
-          describeModel: this.#dependencies.model?.describeModel
-            ? async (model) =>
-                (await this.#dependencies.model!.describeModel!(model)) ??
-                undefined
-            : undefined,
-        });
+    const prepared =
+      request.resume || seed
+        ? undefined
+        : await prepareSuppliedHistory({
+            runId,
+            manifest,
+            messages: request.messages,
+            signature: request.messagesSignature,
+            scope: request.messagesScope,
+            options: this.#dependencies.messages ?? {},
+            artifacts: this.#dependencies.artifacts,
+            strategy:
+              this.#historyPolicies(manifest).context?.strategy ?? "prune",
+            describeModel: this.#dependencies.model?.describeModel
+              ? async (model) =>
+                  (await this.#dependencies.model!.describeModel!(model)) ??
+                  undefined
+              : undefined,
+          });
     if (prepared) {
       this.#runMessages.set(runId, {
         history: structuredClone(prepared.history),
@@ -1296,21 +2084,58 @@ export class AgentRuntime {
           }
         : existingRecord?.messages
           ? { messages: structuredClone(existingRecord.messages) }
-          : {}),
+          : seed && latestCheckpoint?.messages
+            ? {
+                messages: {
+                  supplied: structuredClone(latestCheckpoint.messages.history),
+                  signedCount: latestCheckpoint.messages.signedCount,
+                  ...(latestCheckpoint.messages.scope != null
+                    ? { scope: latestCheckpoint.messages.scope }
+                    : {}),
+                },
+              }
+            : {}),
       createdAt: startedAt,
       updatedAt: startedAt,
     };
 
     let uncommittedSteps: AgentStep[] = [];
+    /** The top-level step whose failure ended the attempt, when known. */
+    let failedStepId: string | undefined;
+    /** Whether a failure blocks the run (onFailure: pause) instead of failing it. */
+    const failurePauses = (error: unknown) =>
+      !isAbortError(request.signal) &&
+      !isRunCancelledError(error) &&
+      !isFatalRunError(error) &&
+      mergeExecutionPolicies(
+        this.#dependencies.policies,
+        manifest.policies,
+        this.#dependencies.enforcedPolicies,
+      ).onFailure !== "fail";
     if (!request.resume) {
       await this.#dependencies.runStore.createRun(record);
       this.#runAttempts.set(runId, 1);
+      if (seed && latestCheckpoint) {
+        // The seed, re-sequenced for this run, is its first checkpoint.
+        await this.#dependencies.runStore.saveCheckpoint(latestCheckpoint);
+        this.#checkpointSequences.set(runId, latestCheckpoint.sequence);
+        this.#lastCheckpoints.set(runId, latestCheckpoint);
+      }
     } else {
+      // A manifest the host supplied may differ from the stored one (within
+      // the fingerprint rules); the store keeps it for later resumes.
+      const suppliedManifest =
+        request.manifest != null || request.manifestReference != null;
       const attempt = await this.#dependencies.runStore.resumeRun(
         runId,
         this.#clock.now().toISOString(),
-        request.allowRunningTakeover
-          ? { allowRunningTakeover: true }
+        request.allowRunningTakeover || suppliedManifest
+          ? {
+              ...(request.allowRunningTakeover
+                ? { allowRunningTakeover: true }
+                : {}),
+              ...(suppliedManifest ? { manifest } : {}),
+            }
           : undefined,
       );
       this.#runAttempts.set(runId, attempt);
@@ -1321,6 +2146,18 @@ export class AgentRuntime {
       await this.#emit(runId, request.resume ? "run.resumed" : "run.started", {
         manifestId: manifest.id ?? null,
         startStepIndex,
+        ...(seed
+          ? {
+              seededFrom: {
+                runId: seed.runId,
+                checkpointSequence: seed.sequence,
+                stepPath: seed.boundary!.stepPath,
+                ...(seed.boundary!.executionKey
+                  ? { executionKey: seed.boundary!.executionKey }
+                  : {}),
+              },
+            }
+          : {}),
         ...(prepared
           ? {
               messages: {
@@ -1334,6 +2171,23 @@ export class AgentRuntime {
             }
           : {}),
       });
+      if (restartedStep) {
+        await this.#emit(
+          runId,
+          "diagnostic",
+          {
+            code: "STEP_RESTARTED_AFTER_MANIFEST_CHANGE",
+            message: `Step ${restartedStep} changed while it was in progress; it runs again from its start.`,
+          },
+          restartedStep,
+        );
+      }
+      for (const notice of resumeNotices(latestCheckpoint)) {
+        await this.#emit(runId, "diagnostic", {
+          code: "WORKSPACE_SYNC_FAILED_PREVIOUSLY",
+          message: notice,
+        });
+      }
       for (const workspace of workspaces) {
         await this.#emit(runId, "workspace.bound", {
           workspace: workspace.binding.ref,
@@ -1345,6 +2199,18 @@ export class AgentRuntime {
           attachable: workspace.store.attachable != null,
         });
       }
+      if (request.resume) {
+        await this.#enforceResumeLimits({
+          runId,
+          attempt: record.attempt ?? 1,
+          previousStatus: existingRecord!.status,
+          checkpoint: latestCheckpoint!,
+          granted: request.limits !== undefined,
+          stepsRemain:
+            latestCheckpoint!.cursor.stepIndex < manifest.steps.length,
+        });
+      }
+      this.#startRunTimer(runId);
       const runSandbox = this.#dependencies.runSandbox
         ? () =>
             this.#openRunSandbox({
@@ -1354,7 +2220,7 @@ export class AgentRuntime {
               signal: request.signal,
             })
         : undefined;
-      if (!request.resume) {
+      if (!request.resume && !seed) {
         await this.#checkpoint({
           runId,
           manifest,
@@ -1444,6 +2310,14 @@ export class AgentRuntime {
                 "step.failed",
                 {
                   error: toRunError(wrapped.cause) as unknown as JsonValue,
+                  // The first failure decides whether the run is blocked.
+                  ...(failurePauses(
+                    failures[0] instanceof TopLevelStepExecutionError
+                      ? failures[0].cause
+                      : failures[0],
+                  )
+                    ? { paused: true }
+                    : {}),
                 },
                 wrapped.step.id,
               );
@@ -1451,6 +2325,8 @@ export class AgentRuntime {
           }
           uncommittedSteps = [];
           const first = failures[0];
+          if (first instanceof TopLevelStepExecutionError)
+            failedStepId = first.step.id;
           throw first instanceof TopLevelStepExecutionError
             ? first.cause
             : first;
@@ -1477,6 +2353,9 @@ export class AgentRuntime {
         const nextStepIndex = endingOutcome
           ? manifest.steps.length
           : (wave.stepIndexes.at(-1) ?? -1) + 1;
+        this.#runLedgers.get(runId)?.endStep();
+        const lastIndex = wave.stepIndexes.at(-1)!;
+        const lastStep = manifest.steps[lastIndex]!;
         await this.#checkpoint({
           runId,
           manifest,
@@ -1485,6 +2364,11 @@ export class AgentRuntime {
           stepResults,
           transcript,
           artifacts,
+          boundary: {
+            stepPath: lastStep.id,
+            stepIndex: lastIndex,
+            executionKey: lastStep.id,
+          },
         });
         for (const outcome of outcomes) {
           if (outcome.handledError) {
@@ -1602,6 +2486,21 @@ export class AgentRuntime {
       if (isRunSuspendedError(error)) {
         await this.#closeRunSandboxQuietly(runId, "suspended");
         const suspendedAt = this.#clock.now().toISOString();
+        if (error.reason === RUN_BLOCKED_REASON) {
+          // Suspension carries no details in the run store: the checkpoint
+          // is where a host reads why the run is waiting for it.
+          const blocked = blockedRecord(error, suspendedAt);
+          await this.#commitCheckpointCopy(runId, (copy) => {
+            copy.ledger = {
+              ...(copy.ledger ?? {
+                tokens: 0,
+                activeMs: 0,
+                artifacts: { count: 0, bytes: 0 },
+              }),
+              blocked,
+            };
+          }).catch(() => undefined);
+        }
         await this.#dependencies.runStore.suspendRun(
           runId,
           suspendedAt,
@@ -1658,6 +2557,54 @@ export class AgentRuntime {
       }
       const cancelled =
         isAbortError(request.signal) || isRunCancelledError(error);
+      if (failurePauses(error)) {
+        // Not fatal: the run waits for its host to fix the cause, keeping
+        // everything committed so far.
+        const suspension = createErrorSuspension({
+          error: runError,
+          stepId: failedStepId ?? uncommittedSteps[0]?.id,
+          cause: error,
+        });
+        await this.#closeRunSandboxQuietly(runId, "suspended");
+        const suspendedAt = this.#clock.now().toISOString();
+        const blocked = blockedRecord(suspension, suspendedAt);
+        await this.#commitCheckpointCopy(runId, (copy) => {
+          copy.ledger = {
+            ...(copy.ledger ?? {
+              tokens: 0,
+              activeMs: 0,
+              artifacts: { count: 0, bytes: 0 },
+            }),
+            blocked,
+          };
+        }).catch(() => undefined);
+        await this.#dependencies.runStore.suspendRun(
+          runId,
+          suspendedAt,
+          this.#runAttempts.get(runId) ?? 1,
+        );
+        try {
+          for (const step of uncommittedSteps) {
+            await this.#emit(
+              runId,
+              "step.failed",
+              { error: runError as unknown as JsonValue, paused: true },
+              step.id,
+            );
+          }
+          await this.#emit(runId, "run.suspended", {
+            reason: suspension.reason,
+            kind: suspensionKind(suspension.reason),
+            details: suspension.details!,
+          });
+        } finally {
+          this.#eventSequences.delete(runId);
+          this.#eventTails.delete(runId);
+          this.#checkpointSequences.delete(runId);
+          this.#runAttempts.delete(runId);
+        }
+        throw suspension;
+      }
       await this.#closeRunSandboxQuietly(
         runId,
         cancelled ? "cancelled" : "failed",
@@ -1719,6 +2666,7 @@ export class AgentRuntime {
       throw new Error(`Manifest step ${input.stepIndex} does not exist`);
     }
 
+    let stopStepTimer = (): void => undefined;
     try {
       const selection = this.#historySelection(input.runId, step);
       const stepVariables = withMessagesView(
@@ -1741,8 +2689,21 @@ export class AgentRuntime {
         { stepIndex: input.stepIndex },
         step.id,
       );
-      const checkpointNested = (nested: NestedCheckpointInput) =>
-        input.checkpointEnabled
+      // A step execution's time and tokens are limited; a loop is not one:
+      // each of its children is. Only a step running alone is tracked in
+      // the ledger across attempts.
+      const isExecution = step.type !== "loop";
+      if (isExecution) {
+        if (input.checkpointEnabled)
+          this.#runLedgers.get(input.runId)?.startStep(step.id);
+        stopStepTimer = this.#startStepTimer(input.runId, step.id);
+      }
+      const checkpointNested = (nested: NestedCheckpointInput) => {
+        if (isExecution)
+          this.#runLedgers
+            .get(input.runId)
+            ?.setStepTokens(step.id, transcriptTokens(nested.transcript ?? []));
+        return input.checkpointEnabled
           ? this.#checkpoint({
               runId: input.runId,
               manifest: input.manifest,
@@ -1762,8 +2723,17 @@ export class AgentRuntime {
                 : {}),
               activeStepTranscript: nested.transcript ?? [],
               activeStepArtifacts: nested.artifacts ?? [],
+              ...(nested.boundary
+                ? {
+                    boundary: {
+                      ...nested.boundary,
+                      stepIndex: input.stepIndex,
+                    },
+                  }
+                : {}),
             })
           : Promise.resolve();
+      };
 
       const executed = await executor.execute({
         runId: input.runId,
@@ -1784,6 +2754,7 @@ export class AgentRuntime {
         workspaces: input.workspaces,
         runSandbox: input.runSandbox,
         tokenBudget: this.#runTokenBudgets.get(input.runId),
+        limits: this.#runLimits.get(input.runId),
         summarizer: this.#dependencies.summarizer,
         policies: resolveStepPolicies(
           this.#dependencies.policies,
@@ -1814,10 +2785,14 @@ export class AgentRuntime {
                       ),
                     }
                   : {}),
+                ...(resumeNotices(input.latestCheckpoint).length > 0
+                  ? { notices: resumeNotices(input.latestCheckpoint) }
+                  : {}),
               },
             }
           : {}),
-        executeChild: (childStep, childVariables, childPath) =>
+        executionKey: step.id,
+        executeChild: (childStep, childVariables, childPath, frame) =>
           this.#executeChild({
             runId: input.runId,
             manifest: input.manifest,
@@ -1831,6 +2806,8 @@ export class AgentRuntime {
             latestCheckpoint: input.latestCheckpoint,
             stepResults: input.stepResults,
             checkpoint: checkpointNested,
+            frame,
+            executionKey: childExecutionKey(step.id, childStep.id, frame),
           }),
         ...(input.checkpointEnabled ? { checkpoint: checkpointNested } : {}),
         evaluateCondition: (expression, conditionVariables) =>
@@ -1900,6 +2877,8 @@ export class AgentRuntime {
         };
       }
       throw new TopLevelStepExecutionError(step, error);
+    } finally {
+      stopStepTimer();
     }
   }
 
@@ -2125,19 +3104,33 @@ export class AgentRuntime {
       input.step.id,
       input.stepPath,
     );
+    // A framed child resumes only from the state its parent hands back.
     const cursorPath = input.latestCheckpoint?.cursor.stepPath;
-    const isResumingPath =
-      input.latestCheckpoint?.cursor.stepIndex === input.parentStepIndex &&
-      (cursorPath === input.stepPath ||
-        cursorPath?.startsWith(`${input.stepPath}/`) === true);
+    const isResumingPath = input.frame
+      ? input.frame.resume !== undefined
+      : input.latestCheckpoint?.cursor.stepIndex === input.parentStepIndex &&
+        (cursorPath === input.stepPath ||
+          cursorPath?.startsWith(`${input.stepPath}/`) === true);
 
+    // Each child that does work is a step execution with its own time and
+    // token limits; a nested loop is bounded through its children.
+    const isExecution = input.step.type !== "loop";
+    const ledger = this.#runLedgers.get(input.runId);
+    let stopStepTimer = (): void => undefined;
     let result: StepExecutionResult;
     try {
+      if (isExecution) {
+        ledger?.startStep(input.executionKey);
+        stopStepTimer = this.#startStepTimer(input.runId, input.executionKey);
+      }
       result = this.#withoutMessagesResult(
         input.manifest,
         await this.#executeChildStep(executor, input, isResumingPath),
       );
+      if (isExecution) ledger?.endStep(input.executionKey);
+      stopStepTimer();
     } catch (error) {
+      stopStepTimer();
       if (
         isControlFlowError(error, input.signal) ||
         resolveStepPolicies(
@@ -2148,6 +3141,7 @@ export class AgentRuntime {
         ).onError !== "continue"
       )
         throw error;
+      if (isExecution) ledger?.endStep(input.executionKey);
       const handledError = toRunError(error);
       await this.#emit(
         input.runId,
@@ -2183,12 +3177,51 @@ export class AgentRuntime {
     input: ChildExecutionInput,
     isResumingPath: boolean,
   ): Promise<StepExecutionResult> {
+    // The child's checkpoints carry its own cursor, then pass through the
+    // frame its parent supplied, so the parent's state is never replaced.
+    const checkpoint = (nested: NestedCheckpointInput): Promise<void> => {
+      if (input.step.type !== "loop")
+        this.#runLedgers
+          .get(input.runId)
+          ?.setStepTokens(
+            input.executionKey,
+            transcriptTokens(nested.transcript ?? []),
+          );
+      const own: NestedCheckpointInput = {
+        ...nested,
+        state: withoutMessagesView(input.manifest, nested.state),
+        cursor: {
+          stepId: input.step.id,
+          stepPath: input.stepPath,
+          ...(nested.cursor ?? {}),
+        },
+      };
+      return input.checkpoint(input.frame ? input.frame.checkpoint(own) : own);
+    };
+    const resume = !isResumingPath
+      ? undefined
+      : input.frame
+        ? input.frame.resume
+        : input.latestCheckpoint
+          ? {
+              ...(input.latestCheckpoint.continuation
+                ? { continuation: input.latestCheckpoint.continuation }
+                : {}),
+              ...(input.latestCheckpoint.activeStepTranscript
+                ? { transcript: input.latestCheckpoint.activeStepTranscript }
+                : {}),
+              ...(input.latestCheckpoint.activeStepArtifacts
+                ? { artifacts: input.latestCheckpoint.activeStepArtifacts }
+                : {}),
+            }
+          : undefined;
     return executor.execute({
       runId: input.runId,
       manifest: input.manifest,
       step: input.step,
       stepIndex: input.parentStepIndex,
       stepPath: input.stepPath,
+      executionKey: input.executionKey,
       variables: snapshotState({ ...input.variables }),
       stepResults: structuredClone(input.stepResults),
       signal: input.signal,
@@ -2201,6 +3234,7 @@ export class AgentRuntime {
       workspaces: input.workspaces,
       runSandbox: input.runSandbox,
       tokenBudget: this.#runTokenBudgets.get(input.runId),
+      limits: this.#runLimits.get(input.runId),
       summarizer: this.#dependencies.summarizer,
       history: this.#historyContext(
         input.runId,
@@ -2208,46 +3242,42 @@ export class AgentRuntime {
       ),
       emit: (type, data) =>
         this.#emit(input.runId, type, data, input.step.id, input.stepPath),
-      ...(isResumingPath && input.latestCheckpoint
+      ...(resume
         ? {
             resume: {
-              cursor: input.latestCheckpoint.cursor,
-              ...(input.latestCheckpoint.continuation
-                ? { continuation: input.latestCheckpoint.continuation }
+              cursor: input.latestCheckpoint?.cursor ?? {
+                stepIndex: input.parentStepIndex,
+              },
+              ...(resume.continuation
+                ? { continuation: structuredClone(resume.continuation) }
                 : {}),
-              ...(input.latestCheckpoint.activeStepTranscript
-                ? {
-                    transcript: structuredClone(
-                      input.latestCheckpoint.activeStepTranscript,
-                    ),
-                  }
+              ...(resume.transcript
+                ? { transcript: structuredClone(resume.transcript) }
                 : {}),
-              ...(input.latestCheckpoint.activeStepArtifacts
-                ? {
-                    artifacts: structuredClone(
-                      input.latestCheckpoint.activeStepArtifacts,
-                    ),
-                  }
+              ...(resume.artifacts
+                ? { artifacts: structuredClone(resume.artifacts) }
+                : {}),
+              ...(resumeNotices(input.latestCheckpoint).length > 0
+                ? { notices: resumeNotices(input.latestCheckpoint) }
                 : {}),
             },
           }
         : {}),
-      executeChild: (childStep, childVariables, childPath) =>
+      executeChild: (childStep, childVariables, childPath, frame) =>
         this.#executeChild({
           ...input,
           step: childStep,
           stepPath: childPath,
           variables: childVariables,
+          checkpoint,
+          frame,
+          executionKey: childExecutionKey(
+            input.executionKey,
+            childStep.id,
+            frame,
+          ),
         }),
-      checkpoint: (nested) =>
-        input.checkpoint({
-          ...nested,
-          cursor: {
-            stepId: input.step.id,
-            stepPath: input.stepPath,
-            ...(nested.cursor ?? {}),
-          },
-        }),
+      checkpoint,
       evaluateCondition: (expression, conditionVariables) =>
         this.#evaluateCondition(expression, conditionVariables),
       policies: resolveStepPolicies(
@@ -2441,16 +3471,42 @@ export class AgentRuntime {
     activeStepArtifacts?: ArtifactRef[];
     cursor?: ExecutionCursor;
     continuation?: JsonObject;
+    /** A step just completed: commit workspaces and mark a restart point. */
+    boundary?: RunCheckpointBoundary;
   }): Promise<void> {
     const checkpointSequence =
       (this.#checkpointSequences.get(input.runId) ?? 0) + 1;
+    this.#collectWorkspaceChanges(input.runId);
+    if (input.boundary)
+      await this.#commitWorkspaces(
+        input.runId,
+        input.boundary,
+        checkpointSequence,
+      );
+    const workspaceState = this.#runWorkspaceState.get(input.runId);
+    const inputs = this.#runInputs.get(input.runId);
+    const sandboxBudget = this.#sandboxBudget(input.runId);
+    const tracker = this.#runLedgers.get(input.runId);
+    tracker?.setSandbox(
+      sandboxBudget
+        ? {
+            commands: sandboxBudget.commandsUsed,
+            seconds: sandboxBudget.sandboxSecondsUsed,
+          }
+        : undefined,
+    );
+    const ledger = tracker?.observe({
+      sequence: checkpointSequence,
+      transcript: input.transcript,
+      artifacts: input.artifacts,
+    });
     const checkpoint: RunCheckpoint = {
       id: this.#ids.generateId("checkpoint"),
       runId: input.runId,
       sequence: checkpointSequence,
       attempt: this.#runAttempts.get(input.runId) ?? 1,
       manifestHash: await this.#manifestHasher.hash(input.manifest),
-      contractVersion: "1.0",
+      contractVersion: RUN_CHECKPOINT_CONTRACT_VERSION,
       runtimeVersion: this.#dependencies.runtimeVersion ?? RUNTIME_VERSION,
       cursor: input.cursor ?? { stepIndex: input.nextStepIndex },
       state: structuredClone(input.variables),
@@ -2472,23 +3528,60 @@ export class AgentRuntime {
       ...(this.#runMessages.has(input.runId)
         ? { messages: structuredClone(this.#runMessages.get(input.runId)!) }
         : {}),
-      ...(this.#runSandboxSessions.has(input.runId)
+      ...(this.#sandboxBudget(input.runId)
         ? {
             metadata: {
-              sandboxBudget: {
-                ...this.#runSandboxSessions.get(input.runId)!.budget(),
-              },
+              sandboxBudget: { ...this.#sandboxBudget(input.runId)! },
             },
           }
         : {}),
+      ...(ledger ? { ledger } : {}),
+      ...(this.#runFingerprints.has(input.runId)
+        ? { fingerprints: this.#runFingerprints.get(input.runId)! }
+        : {}),
+      ...(workspaceState && Object.keys(workspaceState).length > 0
+        ? { workspaces: structuredClone(workspaceState) }
+        : {}),
+      ...(inputs && Object.keys(inputs).length > 0
+        ? { inputs: structuredClone(inputs) }
+        : {}),
+      ...(input.boundary ? { boundary: { ...input.boundary } } : {}),
       createdAt: this.#clock.now().toISOString(),
     };
+    const maxCheckpointBytes = this.#runLimits.get(
+      input.runId,
+    )?.maxCheckpointBytes;
+    if (maxCheckpointBytes !== undefined) {
+      const bytes = new TextEncoder().encode(
+        JSON.stringify(checkpoint),
+      ).byteLength;
+      if (bytes > maxCheckpointBytes) {
+        throw createLimitSuspension({
+          limit: "maxCheckpointBytes",
+          used: bytes,
+          value: maxCheckpointBytes,
+        });
+      }
+    }
     await this.#dependencies.runStore.saveCheckpoint(checkpoint);
     this.#checkpointSequences.set(input.runId, checkpointSequence);
+    this.#lastCheckpoints.set(input.runId, checkpoint);
     await this.#emit(input.runId, "checkpoint.saved", {
       checkpointId: checkpoint.id,
       nextStepIndex: checkpoint.cursor.stepIndex,
     });
+    this.#enforceUsageLimits(input.runId, checkpoint.cursor.stepId);
+  }
+
+  /** Current cumulative sandbox usage: the open session's, else the restored value. */
+  #sandboxBudget(runId: string): SandboxBudgetState | undefined {
+    const session = this.#runSandboxSessions.get(runId);
+    if (session) {
+      const budget = session.budget();
+      this.#runSandboxBudgets.set(runId, budget);
+      return budget;
+    }
+    return this.#runSandboxBudgets.get(runId);
   }
 
   #openRunSandbox(input: {
@@ -2505,7 +3598,7 @@ export class AgentRuntime {
         new Error("This run has no RunSandboxProvider configured"),
       );
     }
-    const budget = sandboxBudgetFromCheckpoint(input.latestCheckpoint);
+    const budget = this.#runSandboxBudgets.get(input.runId);
     const opening = provider
       .open({
         runId: input.runId,
@@ -2517,6 +3610,10 @@ export class AgentRuntime {
           ? { artifacts: this.#dependencies.artifacts }
           : {}),
         ...(budget ? { budget } : {}),
+        ...(this.#runLimits.get(input.runId)?.sandbox &&
+        Object.keys(this.#runLimits.get(input.runId)!.sandbox).length > 0
+          ? { limits: { ...this.#runLimits.get(input.runId)!.sandbox } }
+          : {}),
         ...(input.signal ? { signal: input.signal } : {}),
       })
       .then((session) => {
@@ -2533,9 +3630,17 @@ export class AgentRuntime {
     reason: "completed" | "failed" | "cancelled" | "suspended",
   ): Promise<void> {
     const session = this.#runSandboxSessions.get(runId);
+    if (session) this.#runSandboxBudgets.set(runId, session.budget());
     this.#runSandboxSessions.delete(runId);
     this.#runSandboxOpenings.delete(runId);
-    if (session) await session.close(reason);
+    if (session) {
+      try {
+        await session.close(reason);
+      } finally {
+        // The final sync may have copied back changes for the next commit point.
+        this.#collectWorkspaceChanges(runId, session);
+      }
+    }
   }
 
   async #closeRunSandboxQuietly(
@@ -2545,13 +3650,330 @@ export class AgentRuntime {
     try {
       await this.#closeRunSandbox(runId, reason);
     } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
       try {
         await this.#emit(runId, "diagnostic", {
           code: "SANDBOX_CLOSE_FAILED",
-          message: error instanceof Error ? error.message : String(error),
+          message,
         });
       } catch {
         // The run outcome is already decided; sandbox cleanup is best effort.
+      }
+      // A resumable run must not lose the fact that its workspace may be
+      // behind its transcript: record it durably on the latest checkpoint.
+      if (reason !== "cancelled") {
+        await this.#recordWorkspaceSyncFailure(runId, message).catch(
+          () => undefined,
+        );
+      }
+    }
+  }
+
+  /** Move changes the open sandbox copied back into each workspace's pending list. */
+  #collectWorkspaceChanges(
+    runId: string,
+    session: RunSandboxSession | undefined = this.#runSandboxSessions.get(
+      runId,
+    ),
+  ): void {
+    const taken = session?.takeChanges?.();
+    if (!taken) return;
+    const state = this.#runWorkspaceState.get(runId) ?? {};
+    const notSaved = this.#runPendingNotPersisted.get(runId) ?? new Map();
+    for (const [alias, { changes, notPersisted }] of Object.entries(taken)) {
+      if (changes.length > 0) {
+        const entry = state[alias] ?? {};
+        entry.pending = mergeWorkspaceChanges(entry.pending ?? [], changes);
+        if (entry.pending.length === 0) delete entry.pending;
+        state[alias] = entry;
+      }
+      if (notPersisted.length > 0)
+        notSaved.set(alias, [...(notSaved.get(alias) ?? []), ...notPersisted]);
+    }
+    this.#runWorkspaceState.set(runId, state);
+    this.#runPendingNotPersisted.set(runId, notSaved);
+  }
+
+  /**
+   * A step commit point: offer each read-write workspace that changed since
+   * the previous one to its store, and record the token the store returns.
+   */
+  async #commitWorkspaces(
+    runId: string,
+    boundary: RunCheckpointBoundary,
+    checkpointSequence: number,
+  ): Promise<void> {
+    const state = this.#runWorkspaceState.get(runId) ?? {};
+    const notSaved = this.#runPendingNotPersisted.get(runId) ?? new Map();
+    for (const workspace of this.#runWorkspaces.get(runId) ?? []) {
+      if (workspace.mode !== "read_write") continue;
+      const entry = state[workspace.alias] ?? {};
+      const changes = entry.pending ?? [];
+      const notPersisted = notSaved.get(workspace.alias) ?? [];
+      if (changes.length === 0 && notPersisted.length === 0) continue;
+      const committed = await workspace.store.commit?.({
+        runId,
+        attempt: this.#runAttempts.get(runId) ?? 1,
+        alias: workspace.alias,
+        stepPath: boundary.stepPath,
+        ...(boundary.executionKey
+          ? { executionKey: boundary.executionKey }
+          : {}),
+        checkpointSequence,
+        changes: structuredClone(changes),
+        notPersisted: structuredClone(notPersisted),
+      });
+      delete entry.pending;
+      if (committed?.token) {
+        entry.token = committed.token;
+        entry.stepPath = boundary.stepPath;
+        entry.sequence = checkpointSequence;
+      }
+      state[workspace.alias] = entry;
+      notSaved.delete(workspace.alias);
+      await this.#emit(
+        runId,
+        "workspace.committed",
+        {
+          alias: workspace.alias,
+          workspace: workspace.binding.ref,
+          stepPath: boundary.stepPath,
+          ...(boundary.executionKey
+            ? { executionKey: boundary.executionKey }
+            : {}),
+          checkpointSequence,
+          created: changes.filter((change) => change.action === "created")
+            .length,
+          modified: changes.filter((change) => change.action === "modified")
+            .length,
+          deleted: changes.filter((change) => change.action === "deleted")
+            .length,
+          notPersisted: notPersisted.length,
+          ...(committed?.token ? { token: committed.token } : {}),
+        },
+        boundary.stepPath.split("/").at(-1),
+        boundary.stepPath,
+      );
+    }
+    this.#runWorkspaceState.set(runId, state);
+  }
+
+  /**
+   * Commit a copy of the latest checkpoint, same cursor and content, with the
+   * current ledger and whatever `patch` adds. Used to make facts about the
+   * attempt durable (a failed final sync, a resume, a block) without moving
+   * the run's position.
+   */
+  async #commitCheckpointCopy(
+    runId: string,
+    patch: (copy: RunCheckpoint) => void,
+  ): Promise<RunCheckpoint | undefined> {
+    const last = this.#lastCheckpoints.get(runId);
+    if (!last) return undefined;
+    const sequence =
+      Math.max(this.#checkpointSequences.get(runId) ?? 0, last.sequence) + 1;
+    const budget = this.#sandboxBudget(runId);
+    this.#runLedgers.get(runId)?.setSandbox(
+      budget
+        ? {
+            commands: budget.commandsUsed,
+            seconds: budget.sandboxSecondsUsed,
+          }
+        : undefined,
+    );
+    const ledger = this.#runLedgers.get(runId)?.snapshot();
+    // A copy is not a restart point of its own: the checkpoint it copies is.
+    const {
+      metadata: lastMetadata,
+      boundary: _boundary,
+      ...rest
+    } = structuredClone(last);
+    const {
+      workspaceSync: _workspaceSync,
+      sandboxBudget: _sandboxBudget,
+      ...keptMetadata
+    } = lastMetadata ?? {};
+    const metadata: JsonObject = {
+      ...keptMetadata,
+      ...(budget ? { sandboxBudget: { ...budget } } : {}),
+    };
+    const copy: RunCheckpoint = {
+      ...rest,
+      // Unique within the run without relying on the id generator: the base
+      // checkpoint's id is unique, and so is the sequence.
+      id: `${last.id.replace(/:copy-\d+$/u, "")}:copy-${sequence}`,
+      sequence,
+      attempt: this.#runAttempts.get(runId) ?? 1,
+      contractVersion: RUN_CHECKPOINT_CONTRACT_VERSION,
+      createdAt: this.#clock.now().toISOString(),
+      ...(ledger ? { ledger } : {}),
+      ...(this.#runFingerprints.has(runId)
+        ? { fingerprints: this.#runFingerprints.get(runId)! }
+        : {}),
+      ...(Object.keys(metadata).length > 0 ? { metadata } : {}),
+    };
+    patch(copy);
+    await this.#dependencies.runStore.saveCheckpoint(copy);
+    this.#checkpointSequences.set(runId, sequence);
+    this.#lastCheckpoints.set(runId, copy);
+    return copy;
+  }
+
+  /** Record a failed final workspace sync on the latest checkpoint. */
+  async #recordWorkspaceSyncFailure(
+    runId: string,
+    error: string,
+  ): Promise<void> {
+    const at = this.#clock.now().toISOString();
+    await this.#commitCheckpointCopy(runId, (copy) => {
+      copy.metadata = {
+        ...(copy.metadata ?? {}),
+        workspaceSync: { failed: true, error, at },
+      };
+    });
+  }
+
+  /**
+   * Checks made when an attempt resumes: the number of resumes, and the
+   * crash-loop guard, which counts consecutive resumes of a run that failed,
+   * was interrupted, or was blocked by an error without committing any new
+   * checkpoint since. The count is committed before the attempt does
+   * anything else, so a crash cannot lose it.
+   */
+  async #enforceResumeLimits(input: {
+    runId: string;
+    attempt: number;
+    previousStatus: RunRecord["status"];
+    checkpoint: RunCheckpoint;
+    /** Limits were granted with this resume; they must be durable at once. */
+    granted: boolean;
+    stepsRemain: boolean;
+  }): Promise<void> {
+    const limits = this.#runLimits.get(input.runId)!;
+    const ledger = this.#runLedgers.get(input.runId)!;
+    // A recovery is a resume after a failure, an interruption, a takeover,
+    // or an error block. Answering an approval, a child run, a budget, a
+    // granted limit, or a pause is not.
+    const afterTrouble =
+      input.previousStatus !== "suspended" ||
+      input.checkpoint.ledger?.blocked?.cause === "error";
+    let count = 0;
+    if (afterTrouble) {
+      ledger.recordRecovery();
+      // Progress is the latest real checkpoint; the copies the runtime
+      // commits to record a resume or a block do not count.
+      const progress = ledger.progress ?? input.checkpoint.sequence;
+      const previous = ledger.stalledResumes;
+      count =
+        previous && previous.sequence === progress ? previous.count + 1 : 1;
+      ledger.stalledResumes = { count, sequence: progress };
+    }
+    // One write makes both the crash-loop count and any granted limits
+    // durable before the attempt can fail.
+    if (afterTrouble || input.granted)
+      await this.#commitCheckpointCopy(input.runId, () => undefined);
+    if (
+      limits.maxRecoveries !== undefined &&
+      ledger.recoveries > limits.maxRecoveries
+    ) {
+      throw createLimitSuspension({
+        limit: "maxRecoveries",
+        used: ledger.recoveries,
+        value: limits.maxRecoveries,
+      });
+    }
+    if (
+      limits.maxResumesWithoutProgress !== undefined &&
+      count > limits.maxResumesWithoutProgress
+    ) {
+      throw createLimitSuspension({
+        limit: "maxResumesWithoutProgress",
+        used: count,
+        value: limits.maxResumesWithoutProgress,
+      });
+    }
+    // A run already over a usage limit does not spend more before the next
+    // checkpoint would notice.
+    if (input.stepsRemain) this.#enforceUsageLimits(input.runId);
+  }
+
+  /** Abort the attempt with a limit suspension after `delayMs`. */
+  #limitTimer(
+    runId: string,
+    delayMs: number,
+    suspension: () => RunSuspendedError,
+  ): () => void {
+    const controller = this.#runLimitControllers.get(runId);
+    if (!controller) return () => undefined;
+    const timer = setTimeout(
+      () => controller.abort(suspension()),
+      Math.max(0, Math.min(delayMs, 2_147_483_647)),
+    );
+    (timer as { unref?: () => void }).unref?.();
+    const timers = this.#runTimers.get(runId) ?? new Set();
+    timers.add(timer);
+    this.#runTimers.set(runId, timers);
+    return () => {
+      clearTimeout(timer);
+      timers.delete(timer);
+    };
+  }
+
+  #startRunTimer(runId: string): void {
+    const limit = this.#runLimits.get(runId)?.maxRunActiveMs;
+    const ledger = this.#runLedgers.get(runId)!;
+    if (limit === undefined) return;
+    const remaining = limit - ledger.activeMs;
+    const suspension = () =>
+      createLimitSuspension({
+        limit: "maxRunActiveMs",
+        used: Math.round(ledger.activeMs),
+        value: limit,
+      });
+    if (remaining <= 0) throw suspension();
+    this.#limitTimer(runId, remaining, suspension);
+  }
+
+  /** Start a step's active-time limit; returns the function that stops it. */
+  #startStepTimer(runId: string, key: string) {
+    const limit = this.#runLimits.get(runId)?.maxStepActiveMs;
+    const ledger = this.#runLedgers.get(runId);
+    if (limit === undefined || !ledger) return () => undefined;
+    const suspension = () =>
+      createLimitSuspension({
+        limit: "maxStepActiveMs",
+        used: Math.round(ledger.stepActiveMs(key)) || limit,
+        value: limit,
+        // The execution key names the exact execution, such as `each[2]/work`.
+        stepId: key,
+      });
+    const remaining = limit - ledger.stepActiveMs(key);
+    if (remaining <= 0) throw suspension();
+    return this.#limitTimer(runId, remaining, suspension);
+  }
+
+  /** Usage limits checked after each committed checkpoint. */
+  #enforceUsageLimits(runId: string, stepId?: string): void {
+    const limits = this.#runLimits.get(runId);
+    const ledger = this.#runLedgers.get(runId);
+    if (!limits || !ledger) return;
+    const checks: Array<[string, number, number | undefined]> = [
+      ["maxTotalTokens", ledger.tokens, limits.maxTotalTokens],
+      ["maxStepTokens", ledger.stepTokens, limits.maxStepTokens],
+      ["maxEstimatedCost", ledger.estimatedCost, limits.maxEstimatedCost],
+      ["maxArtifacts", ledger.artifacts.count, limits.maxArtifacts],
+      ["maxArtifactBytes", ledger.artifacts.bytes, limits.maxArtifactBytes],
+    ];
+    for (const [limit, used, value] of checks) {
+      if (value !== undefined && used > value) {
+        throw createLimitSuspension({
+          limit,
+          used,
+          value,
+          ...(limit === "maxStepTokens" && (ledger.stepKey ?? stepId)
+            ? { stepId: ledger.stepKey ?? stepId }
+            : {}),
+        });
       }
     }
   }

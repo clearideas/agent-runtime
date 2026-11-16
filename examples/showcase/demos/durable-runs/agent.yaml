@@ -3,7 +3,8 @@ id: quarterly-report
 name: Quarterly report
 description: >-
   Draft a quarterly revenue report from read-only data, wait for a person to
-  approve it, then publish it. The run can pause for as long as it needs.
+  approve it, then publish it. The run can pause for as long as it needs, and
+  each completed step is a point a new run can restart from.
 
 model:
   ref: default
@@ -29,6 +30,15 @@ workspaces:
 limits:
   maxToolCallsPerIteration: 8
   providerTimeoutMs: 120000
+
+policies:
+  # A failure a resume can fix, such as a model provider outage, blocks the
+  # run for the host instead of failing it. This is the default.
+  onFailure: pause
+  # Retry a failing provider briefly before giving up on this attempt.
+  modelRetry:
+    maxAttempts: 2
+    initialDelayMs: 500
 
 steps:
   - id: draft

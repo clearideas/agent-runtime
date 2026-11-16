@@ -920,7 +920,9 @@ describe.skipIf(!available)(
           },
           sandbox: {
             driver: "bubblewrap",
-            shell: { enabled: true, modes: ["read_write"], timeoutMs: 1_000 },
+            // Long enough for the probing command on a loaded machine; the
+            // sleep below still times out.
+            shell: { enabled: true, modes: ["read_write"], timeoutMs: 4_000 },
             // Eight commands actually execute below; attempts rejected at admission cost nothing.
             limits: { maxCommandsPerRun: 8 },
           },
@@ -1038,7 +1040,7 @@ describe.skipIf(!available)(
             ].join("; "),
           }),
           call("scratch__read_file", { path: "leak" }),
-          call("scratch__shell", { command: "sleep 5" }),
+          call("scratch__shell", { command: "sleep 30" }),
           call("scratch__write_file", { path: "../escape.md", content: "x" }),
           call("scratch__delete_file", { path: "missing.md" }),
           call("scratch__write_file", { path: "ok.md", content: "fine" }),
@@ -1049,12 +1051,32 @@ describe.skipIf(!available)(
             shell: (results[5]?.output as { stdout: string }).stdout,
           })),
         ]);
-        const { run, events } = await runWith(manifest, model);
-        const result = await run;
-        const output = result.output as {
-          results: Array<{ name: string; ok?: boolean; error?: string }>;
-          search: unknown;
-          shell: string;
+        const { run, events, store } = await runWith(manifest, model);
+        // The eighth command uses up the sandbox budget: the run is blocked
+        // until the host grants more, instead of spending further turns.
+        await expect(run).rejects.toMatchObject({
+          reason: "blocked",
+          details: {
+            cause: "limit",
+            limit: "sandbox.maxCommands",
+            used: 8,
+            value: 8,
+          },
+        });
+        const blockedAt = await store.loadLatestCheckpoint("marketplace");
+        expect(blockedAt?.ledger?.blocked).toMatchObject({
+          cause: "limit",
+          code: "sandbox.maxCommands",
+        });
+        const results = (blockedAt?.transcript ?? []).flatMap((item) =>
+          item.content.flatMap((part) =>
+            part.type === "tool-result" ? [part.result] : [],
+          ),
+        );
+        const output = {
+          results: summary(results),
+          search: results[4]?.output,
+          shell: (results[5]?.output as { stdout: string }).stdout,
         };
         expect(output.results).toEqual([
           { name: "public__read_file", error: "workspace_path_invalid" }, // traversal
@@ -1068,7 +1090,6 @@ describe.skipIf(!available)(
           { name: "scratch__write_file", error: "workspace_path_invalid" },
           { name: "scratch__delete_file", error: "workspace_path_invalid" },
           { name: "scratch__write_file", ok: true },
-          { name: "scratch__write_file", error: "sandbox_budget_exhausted" },
         ]);
         expect(output.search).toEqual({
           matches: [{ path: "readme.md", line: 1, text: "public (.*)+ text" }],
@@ -1109,13 +1130,13 @@ describe.skipIf(!available)(
         );
         expect(timedOut).toMatchObject({
           kind: "shell",
-          argv: ["/bin/sh", "-c", "sleep 5"],
+          argv: ["/bin/sh", "-c", "sleep 30"],
         });
         expect(commandRecords(events)).toHaveLength(8);
         expect(
           events.find((event) => event.type === "sandbox.closed")?.data,
         ).toMatchObject({
-          reason: "completed",
+          reason: "suspended",
           commandsUsed: 8,
         });
       } finally {

@@ -30,6 +30,7 @@ import {
   defaultManifestHasher,
   isRunInterruptedError,
   isRunSuspendedError,
+  RUN_BLOCKED_REASON,
   resolveAgentVariables,
   RunInterruptedError,
   type ArtifactAuthorizationContext,
@@ -1031,8 +1032,14 @@ export class AgentServer {
             signal: input.signal,
           });
         } catch (error) {
-          if (!(isRunSuspendedError(error) && error.reason === "token-budget"))
-            throw error;
+          // A spent token budget or a reached run limit ends the reply early,
+          // like a length stop; other outcomes are errors.
+          const stopped =
+            isRunSuspendedError(error) &&
+            (error.reason === "token-budget" ||
+              (error.reason === RUN_BLOCKED_REASON &&
+                error.details?.cause === "limit"));
+          if (!stopped) throw error;
           finishReason = "length";
         } finally {
           // Requests refused before the run was created leave nothing to keep.
@@ -1412,6 +1419,8 @@ const modelOverlay = (
   ...(config.enforcedPolicies
     ? { enforcedPolicies: config.enforcedPolicies }
     : {}),
+  ...(config.limits ? { limits: config.limits } : {}),
+  ...(config.enforcedLimits ? { enforcedLimits: config.enforcedLimits } : {}),
   messages: { ...programmatic?.messages, ...messages },
 });
 

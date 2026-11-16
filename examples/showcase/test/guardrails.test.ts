@@ -73,8 +73,12 @@ test(
       "notes__search() ok",
       "scratch__list_files() ok",
       "scratch__list_files() ok",
-      "scratch__list_files() sandbox_budget_exhausted",
     ]);
+    // The next command would exceed the command budget, so the run is
+    // blocked for the host, which grants no more.
+    assert.equal(result.blocked.limit, "sandbox.maxCommands");
+    assert.equal(result.blocked.used, result.blocked.value);
+    assert.equal(eventsOf(messages, "run.suspended").length, 1);
 
     // The probe ran but found no secrets and could not reach the network.
     const probe = messages.find(
@@ -98,7 +102,6 @@ test(
     const ai = JSON.parse(askAi!.output.stdout);
     assert.deepEqual(ai.keys, []);
     assert.notEqual(ai.sent, true);
-    assert.match(result.output, /I could not get out/u);
     // The host hook, not the command policy, refused the second script.
     assert.equal(
       eventsOf(messages, "sandbox.command.completed").filter(
@@ -117,7 +120,7 @@ test(
     const messages = await runDemo(baseURL, "guardrails");
     const result = resultOf(messages);
     assert.equal(canaryOf(messages), true);
-    assert.match(result.output, /no sandbox on this machine/u);
+    assert.equal(result.blocked.limit, "sandbox.maxCommands");
     // Both scripts got out, but neither found a host API key.
     const hits = messages
       .filter((message) => message.kind === "canary" && message.path)

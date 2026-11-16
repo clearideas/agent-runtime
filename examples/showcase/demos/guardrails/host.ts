@@ -20,9 +20,11 @@ import {
   discoverMcpConnectionTools,
   FileAgentManifestSource,
   FileRunStore,
+  isRunSuspendedError,
   JexlConditionEvaluator,
   loadAgentRuntimeConfig,
   PromptStepExecutor,
+  RUN_BLOCKED_REASON,
   validateRuntimeConfiguration,
   type AgentManifest,
   type AgentRuntimeConfig,
@@ -427,14 +429,32 @@ export const guardrails: ShowcaseDemo = {
         mode: request.mode,
         sandbox: context.environment.sandbox.kind,
       });
-      const result = await runtime.run({
-        manifest,
-        runId,
-        variables: [{ key: "canaryUrl", value: canary.url }],
-        signal,
-      });
-      emit({ kind: "canary", hit, url: canary.url });
-      emit({ kind: "result", result: summarizeResult(result) });
+      try {
+        const result = await runtime.run({
+          manifest,
+          runId,
+          variables: [{ key: "canaryUrl", value: canary.url }],
+          signal,
+        });
+        emit({ kind: "canary", hit, url: canary.url });
+        emit({ kind: "result", result: summarizeResult(result) });
+      } catch (error) {
+        // ─── 4. The budget stops the flood ──────────────────────────────────
+        // An exhausted sandbox budget blocks the run: it is saved and waits
+        // for the host to grant more (RunRequest.limits) or give up. This
+        // host never grants more to an untrusted agent, so the run ends here.
+        if (
+          !isRunSuspendedError(error) ||
+          error.reason !== RUN_BLOCKED_REASON ||
+          error.details?.cause !== "limit"
+        )
+          throw error;
+        emit({ kind: "canary", hit, url: canary.url });
+        emit({
+          kind: "result",
+          result: toJson({ runId, output: null, blocked: error.details }),
+        });
+      }
     } finally {
       await canary.close();
       await vendor.close();

@@ -554,7 +554,8 @@ describe("conversation messages in AgentRuntime", () => {
         messages: history,
       }),
     ).rejects.toThrow(/summarizer unavailable/u);
-    expect(store.runs.get("strict")!.status).toBe("failed");
+    // Not fatal: the run waits for its host to restore the summarizer.
+    expect(store.runs.get("strict")!.status).toBe("suspended");
   });
 
   it("fails preflight when the history may be summarized and no compactor is configured", async () => {

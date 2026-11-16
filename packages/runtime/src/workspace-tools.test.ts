@@ -494,6 +494,26 @@ describe.skipIf(!hasPython)(
         "hi",
       );
 
+      // The model is told about changes that were not saved.
+      const hidden = await composed.tools!.executeTool(
+        {
+          id: "call-hidden",
+          name: "docs__shell",
+          input: { command: "echo x > .scratch" },
+        },
+        context,
+      );
+      expect(hidden.output).toMatchObject({
+        exitCode: 0,
+        notPersisted: [
+          expect.objectContaining({
+            alias: "docs",
+            path: ".scratch",
+            reason: "invalid-path",
+          }),
+        ],
+      });
+
       for (const path of ["", ".", "/", "\\"]) {
         await expect(
           composed.tools!.executeTool(
@@ -565,7 +585,7 @@ describe.skipIf(!hasPython)(
       await session.close("completed");
       expect(
         events.filter((event) => event.type === "sandbox.command.completed"),
-      ).toHaveLength(8);
+      ).toHaveLength(9);
       await (
         composed.tools as ToolAdapter & { close(): Promise<void> }
       ).close();

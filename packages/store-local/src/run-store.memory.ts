@@ -5,9 +5,11 @@ import type {
 import type {
   CompletedRunRecord,
   ResumeRunOptions,
+  RunCheckpointSummary,
   RunRecord,
   RunStore,
 } from "@clearideas/agent-runtime-core";
+import { summarizeCheckpoint } from "@clearideas/agent-runtime-core";
 
 export type FailedRunRecord = RunRecord & {
   status: "failed";
@@ -23,10 +25,53 @@ export type InterruptedRunRecord = RunRecord & {
 
 const clone = <T>(value: T): T => structuredClone(value);
 
+export interface RunStoreRetentionOptions {
+  /**
+   * Restart points inside steps (a completed child of a loop iteration) kept
+   * per run, most recent first. Every top-level restart point is kept.
+   * Defaults to 10.
+   */
+  maxNestedRestartPoints?: number;
+}
+
+const isNestedBoundary = (checkpoint: RunCheckpoint): boolean =>
+  checkpoint.boundary?.stepPath.includes("/") === true;
+
 /** In-process persistence for tests, embedded use, and short-lived local runs. */
 export class MemoryRunStore implements RunStore {
   readonly #runs = new Map<string, RunRecord>();
   readonly #checkpoints = new Map<string, RunCheckpoint>();
+  /** Step-completion checkpoints (restart points) per run, by sequence. */
+  readonly #boundaries = new Map<string, Map<number, RunCheckpoint>>();
+  readonly #maxNested: number;
+
+  constructor(options: RunStoreRetentionOptions = {}) {
+    this.#maxNested = options.maxNestedRestartPoints ?? 10;
+  }
+
+  async listCheckpoints(
+    runId: string,
+    options: { boundaries?: boolean } = {},
+  ): Promise<RunCheckpointSummary[]> {
+    const retained = new Map(this.#boundaries.get(runId) ?? []);
+    const latest = this.#checkpoints.get(runId);
+    if (latest && !options.boundaries) retained.set(latest.sequence, latest);
+    return [...retained.values()]
+      .sort((left, right) => left.sequence - right.sequence)
+      .map(summarizeCheckpoint);
+  }
+
+  async loadCheckpoint(
+    runId: string,
+    sequence: number,
+  ): Promise<RunCheckpoint | null> {
+    const latest = this.#checkpoints.get(runId);
+    const checkpoint =
+      latest?.sequence === sequence
+        ? latest
+        : this.#boundaries.get(runId)?.get(sequence);
+    return checkpoint ? clone(checkpoint) : null;
+  }
 
   async createRun(record: RunRecord): Promise<void> {
     if (this.#runs.has(record.runId)) {
@@ -63,6 +108,7 @@ export class MemoryRunStore implements RunStore {
     const attempt = (existing.attempt ?? 1) + 1;
     this.#runs.set(runId, {
       ...clone(existing),
+      ...(options?.manifest ? { manifest: clone(options.manifest) } : {}),
       status: "running",
       attempt,
       updatedAt: resumedAt,
@@ -103,6 +149,17 @@ export class MemoryRunStore implements RunStore {
       );
     }
     this.#checkpoints.set(checkpoint.runId, clone(checkpoint));
+    if (checkpoint.boundary) {
+      const boundaries = this.#boundaries.get(checkpoint.runId) ?? new Map();
+      boundaries.set(checkpoint.sequence, clone(checkpoint));
+      this.#boundaries.set(checkpoint.runId, boundaries);
+      // Bounded retention: all top-level restart points, recent nested ones.
+      const nested = [...boundaries.values()]
+        .filter(isNestedBoundary)
+        .sort((left, right) => right.sequence - left.sequence);
+      for (const stale of nested.slice(this.#maxNested))
+        boundaries.delete(stale.sequence);
+    }
   }
 
   async suspendRun(
@@ -231,6 +288,7 @@ export class MemoryRunStore implements RunStore {
     }
     this.#runs.delete(runId);
     this.#checkpoints.delete(runId);
+    this.#boundaries.delete(runId);
     return true;
   }
 

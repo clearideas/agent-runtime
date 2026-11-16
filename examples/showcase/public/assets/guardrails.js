@@ -15,8 +15,6 @@ const reason = (code, message = "") => {
   switch (code) {
     case "tool_not_authorized":
       return message || "refused by a host hook";
-    case "sandbox_budget_exhausted":
-      return "command budget used up";
     case "workspace_limit_exceeded":
       return "over the size limit";
     case "workspace_path_invalid":
@@ -199,12 +197,7 @@ const createBoard = (root) => {
     if (!tool || !view) return;
     const message = tool.error?.message ?? "";
     if (effect.type === "tool-denied") {
-      const layer =
-        effect.errorCode === "tool_not_authorized"
-          ? 2
-          : effect.errorCode === "sandbox_budget_exhausted"
-            ? 3
-            : 1;
+      const layer = effect.errorCode === "tool_not_authorized" ? 2 : 1;
       resolve(view, {
         layer,
         verdict: "blocked",
@@ -358,11 +351,20 @@ const createBoard = (root) => {
         case "run-finished":
         case "error":
           timer.stop();
+          // A call still waiting when the run was blocked is the one the
+          // sandbox's command budget refused.
+          if (state.suspension?.details?.cause === "limit")
+            for (const view of rows.values())
+              resolve(view, {
+                layer: 3,
+                verdict: "blocked",
+                label: "command budget used up",
+              });
           signal.dataset.state = counts.escaped ? "failed" : state.status;
           status.textContent =
             effect.type === "error"
               ? effect.message
-              : state.status !== "completed"
+              : !["completed", "suspended"].includes(state.status)
                 ? state.status
                 : counts.escaped
                   ? "Done: something got out"
@@ -407,9 +409,17 @@ const renderOutcome = () => {
   }
   const summary = h("div.markdown");
   renderMarkdown(summary, result.output ?? "");
+  const blocked = result.blocked
+    ? h(
+        "p",
+        {},
+        `The command budget stopped the flood. After ${result.blocked.used} of ${result.blocked.value} sandbox commands, Agent Runtime blocked the run: it is saved and waits for the host to grant more. This host never grants more to an untrusted agent, so the run ends here.`,
+      )
+    : null;
   const escaped = canary?.hit;
   resultBody.replaceChildren(
-    summary,
+    ...(result.output ? [summary] : []),
+    ...(blocked ? [blocked] : []),
     h(
       `p.canary.${escaped ? "escaped" : "held"}`,
       {},

@@ -108,6 +108,17 @@ Set manifest limits and enforce host ceilings that an agent cannot raise:
   second budgets, and output ceilings;
 - per-tenant concurrency and spend budgets.
 
+Every run has [run limits](./execution-policies.md#run-limits) against
+runaways (tokens, active time, recoveries, crash loops, turns, iterations,
+artifacts, checkpoint size), with defaults far above normal use. Change them
+for every run with `new AgentRuntime({ limits })`, add `maxEstimatedCost` if
+your adapters report cost, and set ceilings with `enforcedLimits`; manifests
+may change limits within the ceilings. Sandbox resources and usage ceilings
+stay in the sandbox configuration. A run that reaches a limit is blocked
+(`awaiting-host`) rather than failed: decide whether to grant more with
+`limits` on the resume request, and validate the grant against the tenant's
+ceilings first.
+
 Enforce billing and authorization limits in the host application or provider
 configuration.
 
@@ -161,8 +172,14 @@ failure with `onError: continue`; a step whose failure would make later steps
 meaningless should keep the default `fail`.
 
 Reconcile `interrupted` runs automatically: they were stopped by
-infrastructure, not by the agent. Review `failed` runs before resuming them,
-because the same step fails again unless its cause has changed.
+infrastructure, not by the agent. A step failure that is not fatal blocks the
+run (`awaiting-host`) instead of failing it, keeping its work: read
+`ledger.blocked` from the latest checkpoint, fix the cause, then resume, or
+[restart from an earlier step](./persistence-and-recovery.md#restart-from-a-step).
+Resuming without fixing anything counts toward the crash-loop guard. Review
+`failed` runs before resuming them, because the same step fails again unless
+its cause has changed. Throw `RunFatalError` from hosts' authorization hooks
+when a refusal should fail the run outright.
 
 Classify failures as retryable only when repeating the operation is safe.
 Webhook steps support an explicit idempotency key. Prompt tool calls receive a
@@ -182,7 +199,29 @@ manifest hash. Before rollout:
 2. verify old checkpoints can still be read;
 3. canary the new worker against representative manifests;
 4. retain the previous worker through the canary and rollback window;
-5. never resume an old checkpoint with a changed manifest.
+5. resume old checkpoints only with manifests the fingerprint rules accept
+   (changed limits, policies, or steps not yet reached); publish other
+   changes as a new definition or restart from a step before the change.
+
+### Upgrading to 0.10
+
+Runs behave differently in these ways; each can be turned back where noted.
+
+| Change                                                                                                 | Before 0.10                              | To keep the earlier behavior                              |
+| ------------------------------------------------------------------------------------------------------ | ---------------------------------------- | --------------------------------------------------------- |
+| A step failure that is not fatal blocks the run (`suspended`, kind `awaiting-host`)                    | the run failed                           | `policies: { onFailure: "fail" }` on the host or manifest |
+| Every run has [run limits](./execution-policies.md#run-limits) with anti-runaway defaults              | no limits beyond the manifest's          | raise values with the host's `limits` or the manifest     |
+| An exhausted sandbox command or seconds budget blocks the run                                          | the model got `sandbox_budget_exhausted` | raise the host's `sandbox.limits`                         |
+| A shell or configured command interrupted by a crash is not run again; the model is told               | it ran again                             | a custom `ToolAdapter.replaySafe` returning `true`        |
+| A code step interrupted in the run sandbox blocks the run once before running again                    | it ran again                             | `onFailure: fail`                                         |
+| A resume accepts a manifest with changed limits, policies, or steps not yet reached                    | any change was refused                   | compare manifests before resuming                         |
+| Higher sandbox defaults: 2,000 commands, 4 h, 5 min / 1 h command timeouts, 500 output files / 500 MiB | 200, 15 min, 60 s / 15 min, 50 / 50 MiB  | set the values in `sandbox.limits`                        |
+
+`run()` rejects a blocked run with a `RunSuspendedError` whose `cause` is the
+original error; hosts that checked for a failed status should also handle
+`suspended` with kind `awaiting-host`. Checkpoints are written with contract
+`1.1`, which earlier releases cannot read: once runs have checkpointed under
+0.10, rolling back cannot resume them.
 
 ## Diagnosing failures
 
@@ -202,7 +241,8 @@ output includes suspension reasons and webhook retry delays.
 ### Documentation consent client
 
 The documentation site builds with the public `@clearideas/consent-analytics`
-package. Its default production hostname is `agent-runtime.clearideas.com`, using
+package, installed from `vendor/` in this repository until its release
+candidate is available from every npm registry. Its default production hostname is `agent-runtime.clearideas.com`, using
 `ci-docs` to retain the existing reporting destination. The API registry must allow
 that hostname for `ci-docs`. A footer link opens cookie settings; the floating
 settings button stays automatic and is hidden while that link exists.

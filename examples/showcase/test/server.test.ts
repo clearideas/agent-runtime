@@ -96,7 +96,12 @@ test("live mode is refused without an isolated sandbox and a provider key", asyn
   const { baseURL } = await startShowcase(context, { sandbox: "unisolated" });
   const messages = await runDemo(baseURL, "repo-mechanic", { mode: "live" });
   const error = messages.find((message) => message.kind === "error");
-  assert.match(error?.error.message ?? "", /isolated sandbox/u);
+  // Without python3 (Windows without Python, say) the unisolated fallback
+  // is unavailable too, and the run is refused for having no sandbox.
+  assert.match(
+    error?.error.message ?? "",
+    /isolated sandbox|No sandbox is available/u,
+  );
 });
 
 const environment = (
