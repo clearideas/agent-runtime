@@ -12,11 +12,14 @@
   "description": "Self-hosted, animated demos of every Clear Ideas Agent Runtime feature set.",
   "scripts": {
     "start": "node server.ts",
+    "start:python": "uv run --project ../../python --all-extras python server.py",
     "launch": "node --env-file-if-exists=.env.local launcher/server.ts",
     "doctor": "node doctor.ts",
+    "doctor:python": "uv run --project ../../python --all-extras python doctor.py",
     "use-local-runtime": "node scripts/use-local-runtime.mjs",
     "type-check": "tsc -p tsconfig.json",
-    "test": "npm run type-check && node --test \"test/*.test.ts\""
+    "test": "npm run type-check && node --test \"test/*.test.ts\"",
+    "test:python": "npm run type-check && node scripts/test-python.mjs"
   },
   "dependencies": {
     "@clearideas/agent-runtime": "file:../../packages/agent-runtime",

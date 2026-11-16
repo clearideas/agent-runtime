@@ -40,6 +40,11 @@ npm install @clearideas/agent-runtime
 
 See [embedding](https://agent-runtime.clearideas.com/embedding) for a minimal host.
 
+The [Python runtime](python/README.md) implements the 0.9 contract. The
+TypeScript durability changes in this checkout introduce checkpoint contract
+1.1; the Python port has not yet adopted that contract. Keep their run stores
+separate until the cross-language compatibility gate passes.
+
 ## Run the showcase
 
 Explore eight end-to-end demos with workspaces, sandbox commands, approvals,

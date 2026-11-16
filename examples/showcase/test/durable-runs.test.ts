@@ -10,8 +10,8 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 
-import { createShowcaseApp } from "../server.ts";
 import {
+  createShowcaseApp,
   eventsOf,
   resultOf,
   runDemo,

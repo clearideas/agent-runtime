@@ -1,9 +1,22 @@
 import { h } from "./ui.js";
 
-/** Two short rows: which sandbox is in use, and which model modes work. */
+/**
+ * Short rows: which runtime serves the demos (the Python server reports it),
+ * which sandbox is in use, and which model modes work.
+ */
 export const environmentRows = (environment) => {
   const { sandbox, live } = environment;
   return [
+    ...(environment.runtime?.language === "python"
+      ? [
+          h(
+            "div.env-row",
+            {},
+            h("span", { text: "Runtime" }),
+            h("span.chip.ok", {}, h("i"), "Python"),
+          ),
+        ]
+      : []),
     h(
       "div.env-row",
       {},
