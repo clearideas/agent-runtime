@@ -204,3 +204,30 @@ test("diffs and trims changed lines with context", () => {
     ["same:d", "remove:e", "add:E", "same:f"],
   );
 });
+
+test("a failure that blocks the run leaves its step paused, not failed", () => {
+  const state = createRunState();
+  applyMessage(state, event("run.started"));
+  applyMessage(state, event("step.started", {}, "publish"));
+  applyMessage(
+    state,
+    event(
+      "step.failed",
+      { error: { message: "Provider down" }, paused: true },
+      "publish",
+    ),
+  );
+  applyMessage(
+    state,
+    event("run.suspended", {
+      reason: "blocked",
+      details: { cause: "error", stepId: "publish" },
+    }),
+  );
+  assert.equal(state.steps.get("publish").state, "paused");
+  assert.equal(state.status, "suspended");
+  assert.equal(
+    (state.suspension as { details: { cause: string } } | null)?.details.cause,
+    "error",
+  );
+});

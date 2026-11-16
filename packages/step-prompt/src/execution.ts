@@ -34,6 +34,7 @@ import type {
   VariableState,
 } from "@clearideas/agent-runtime-contracts";
 import {
+  createLimitSuspension,
   isRunSuspendedError,
   RunSuspendedError,
   type StepExecutionContext,
@@ -257,6 +258,12 @@ interface PendingModelResult {
   result: ModelResult;
   nextToolIndex: number;
   toolIdempotencyKeys: string[];
+  /**
+   * Set, and committed, just before a tool call executes; cleared when its
+   * result is recorded. Found on resume, it marks a call whose outcome is
+   * unknown.
+   */
+  startedToolIndex?: number;
 }
 
 interface RestoredContinuation {
@@ -313,6 +320,10 @@ const parsePromptContinuation = (
       },
       nextToolIndex: Number(value.nextToolIndex),
       toolIdempotencyKeys: [...value.toolIdempotencyKeys] as string[],
+      ...(Number.isSafeInteger(value.startedToolIndex) &&
+      Number(value.startedToolIndex) === Number(value.nextToolIndex)
+        ? { startedToolIndex: Number(value.startedToolIndex) }
+        : {}),
     },
   };
 };
@@ -400,6 +411,9 @@ export class PromptExecution {
   #usageEstimateReported = false;
   #compactionLimitReported = false;
   #reductions = 0;
+  #resumeNoticesRecorded = false;
+  /** Model requests this step execution made, across resumes. */
+  #turns = 0;
 
   constructor(context: PromptContext, deps: PromptExecutionDependencies) {
     this.#context = context;
@@ -435,6 +449,11 @@ export class PromptExecution {
     }
     const restored = parsePromptContinuation(context);
     this.#toolCallCount = restored?.toolCallCount ?? 0;
+    const savedTurns = context.resume?.continuation?.turns;
+    this.#turns =
+      typeof savedTurns === "number" && Number.isSafeInteger(savedTurns)
+        ? savedTurns
+        : 0;
     this.#pending = restored?.pending;
     this.#restoreProgress();
     await this.#prepare();
@@ -446,6 +465,9 @@ export class PromptExecution {
       if (!pending) {
         // A run cancelled during a tool call must not start another turn.
         if (context.signal?.aborted) throw abortReason(context.signal);
+        // Notes join the conversation between turns, never between a tool
+        // call and its result.
+        await this.#recordResumeNotices();
         this.#suspendIfExhausted();
         const finalize =
           this.#policy.toolCallLimit === "finalize" &&
@@ -455,7 +477,9 @@ export class PromptExecution {
         if (finalize) await this.#ensureFinalizeNotice();
         await this.#rebuild();
         this.#enforceInputLimits();
+        this.#suspendAtTurnLimit();
         const result = await this.#requestModel(finalize);
+        this.#turns += 1;
         pending = this.#pending = {
           result,
           nextToolIndex: 0,
@@ -500,9 +524,10 @@ export class PromptExecution {
       }
 
       this.#suspendIfExhausted();
+      // The last tool's checkpoint already records every result; resuming
+      // from it is the same as resuming from a "ready" checkpoint.
       await this.#executeToolCalls(pending);
       pending = this.#pending = undefined;
-      await this.#checkpointReady();
     }
 
     if (!finalResult)
@@ -2100,6 +2125,18 @@ export class PromptExecution {
     return usage;
   }
 
+  /** A runaway guard: suspend before a turn beyond `maxTurnsPerPrompt`. */
+  #suspendAtTurnLimit(): void {
+    const limit = this.#context.limits?.maxTurnsPerPrompt;
+    if (limit === undefined || this.#turns < limit) return;
+    throw createLimitSuspension({
+      limit: "maxTurnsPerPrompt",
+      used: this.#turns,
+      value: limit,
+      stepId: this.#step.id,
+    });
+  }
+
   #suspendIfExhausted(): void {
     const budget = this.#context.tokenBudget;
     if (!budget || budget.consumedTokens < budget.maxTotalTokens) return;
@@ -2108,6 +2145,32 @@ export class PromptExecution {
       consumedTokens: budget.consumedTokens,
       stepId: this.#step.id,
     });
+  }
+
+  /** Tell the model, once and durably, what the runtime learned on resume. */
+  async #recordResumeNotices(): Promise<void> {
+    if (this.#resumeNoticesRecorded) return;
+    this.#resumeNoticesRecorded = true;
+    const notices = this.#context.resume?.notices ?? [];
+    let recorded = false;
+    for (const notice of notices) {
+      const text = `[Agent Runtime] ${notice}`;
+      const present = this.#transcript.some(
+        (item) =>
+          contextMarker(item)?.reason === "resume-notice" &&
+          item.content.some(
+            (part) => part.type === "text" && part.text === text,
+          ),
+      );
+      if (present) continue;
+      this.#pushMarker(
+        { kind: "note", strategy: "none", reason: "resume-notice" },
+        "user",
+        text,
+      );
+      recorded = true;
+    }
+    if (recorded) await this.#checkpointReady();
   }
 
   // ─── Repairs ──────────────────────────────────────────────────────────────
@@ -2253,11 +2316,51 @@ export class PromptExecution {
             rejected: true,
             errorCode: rejection.code,
           });
+        } else if (
+          pending.startedToolIndex === toolIndex &&
+          !hasToolResultFor(this.#transcript, call.id) &&
+          context.tools!.replaySafe?.(call) === false
+        ) {
+          // The previous attempt stopped while this call was executing, and
+          // repeating it could apply its effect twice. Tell the model.
+          this.#toolCallCount += 1;
+          const item = this.#toolTranscript({
+            callId: call.id,
+            name: call.name,
+            error: {
+              code: "tool_call_interrupted",
+              message: `The previous attempt stopped while ${call.name} was running, so it may have been fully applied, partly applied, or not applied. Check the current state before running it again.`,
+              retryable: false,
+            },
+          });
+          this.#transcript.push(item);
+          this.#dirty = true;
+          delete pending.startedToolIndex;
+          pending.nextToolIndex = toolIndex + 1;
+          await this.#checkpointPending(pending);
+          await context.emit("diagnostic", {
+            code: "TOOL_CALL_IN_DOUBT",
+            toolCallId: call.id,
+            toolName: call.name,
+          });
+          await context.emit("model.tool.completed", {
+            toolCallId: call.id,
+            toolName: call.name,
+            failed: true,
+            errorCode: "tool_call_interrupted",
+          });
         } else {
           await context.emit("model.tool.started", {
             toolCallId: call.id,
             toolName: call.name,
           });
+          // Committed before execution when repeating the call is not safe:
+          // a resume that finds it without a result knows the outcome is
+          // unknown. Other calls are simply executed again on resume.
+          if (context.tools!.replaySafe?.(call) === false) {
+            pending.startedToolIndex = toolIndex;
+            await this.#checkpointPending(pending);
+          }
           const toolResult = await context.tools!.executeTool(call, {
             runId: context.runId,
             stepId: this.#step.id,
@@ -2271,8 +2374,10 @@ export class PromptExecution {
           const item = this.#toolTranscript(toolResult);
           this.#transcript.push(item);
           this.#dirty = true;
+          delete pending.startedToolIndex;
           pending.nextToolIndex = toolIndex + 1;
           this.#pendingReductions.push(item.id);
+          // One commit records the result and advances past the call.
           await this.#checkpointPending(pending);
           await context.emit("model.tool.completed", {
             toolCallId: call.id,
@@ -2281,6 +2386,7 @@ export class PromptExecution {
             ...(toolResult.error ? { errorCode: toolResult.error.code } : {}),
           });
           await this.#finishToolReductions();
+          continue;
         }
       }
       pending.nextToolIndex = toolIndex + 1;
@@ -2360,9 +2466,12 @@ export class PromptExecution {
       const item = this.#transcript.find(
         (entry) => entry.id === this.#pendingReductions[0],
       );
+      const before = this.#transcript.length;
       if (item) await this.#capToolResult(item);
       this.#pendingReductions.shift();
-      await this.#checkpointReady();
+      // A reduction that rewrote the result is committed; one that found it
+      // small enough is recorded by the next checkpoint.
+      if (this.#transcript.length !== before) await this.#checkpointReady();
     }
   }
 
@@ -2382,6 +2491,7 @@ export class PromptExecution {
         phase: pending ? "model-completed" : "ready",
         stepId: this.#step.id,
         toolCallCount: this.#toolCallCount,
+        turns: this.#turns,
         ...(pending
           ? {
               hasOutput: pending.result.output !== undefined,
@@ -2396,6 +2506,9 @@ export class PromptExecution {
               ) as JsonValue,
               toolIdempotencyKeys: pending.toolIdempotencyKeys,
               nextToolIndex: pending.nextToolIndex,
+              ...(pending.startedToolIndex !== undefined
+                ? { startedToolIndex: pending.startedToolIndex }
+                : {}),
             }
           : {}),
         pendingReductions: [...this.#pendingReductions],

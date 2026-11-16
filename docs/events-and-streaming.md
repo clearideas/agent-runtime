@@ -124,27 +124,39 @@ for an OpenTelemetry collector.
 
 The supported event families are:
 
-| Family      | Events                                                                                                                            |
-| ----------- | --------------------------------------------------------------------------------------------------------------------------------- |
-| Run         | `run.started`, `run.resumed`, `run.suspended`, `run.interrupted`, `run.completed`, `run.failed`, `run.cancelled`, `run.heartbeat` |
-| Step        | `step.started`, `step.skipped`, `step.completed`, `step.failed`                                                                   |
-| Model       | `model.started`, `model.text.delta`, `model.reasoning.delta`, `model.usage`, `model.completed`, `model.retry`                     |
-| Tool        | `model.tool.requested`, `model.tool.started`, `model.tool.completed`                                                              |
-| Context     | `context.reduced`                                                                                                                 |
-| Loop        | `loop.iteration.started`, `loop.iteration.completed`, `loop.iteration.skipped`, `loop.goal.met`                                   |
-| Standard    | approval, webhook, code execution, and sub-run lifecycle events                                                                   |
-| Storage     | `checkpoint.saved`, `artifact.created`                                                                                            |
-| Workspaces  | `workspace.bound`, `sandbox.opened`, `sandbox.command.started`, `sandbox.command.completed`, `sandbox.closed`                     |
-| Diagnostics | `diagnostic`                                                                                                                      |
+| Family      | Events                                                                                                                               |
+| ----------- | ------------------------------------------------------------------------------------------------------------------------------------ |
+| Run         | `run.started`, `run.resumed`, `run.suspended`, `run.interrupted`, `run.completed`, `run.failed`, `run.cancelled`, `run.heartbeat`    |
+| Step        | `step.started`, `step.skipped`, `step.completed`, `step.failed`                                                                      |
+| Model       | `model.started`, `model.text.delta`, `model.reasoning.delta`, `model.usage`, `model.completed`, `model.retry`                        |
+| Tool        | `model.tool.requested`, `model.tool.started`, `model.tool.completed`                                                                 |
+| Context     | `context.reduced`                                                                                                                    |
+| Loop        | `loop.iteration.started`, `loop.iteration.completed`, `loop.iteration.skipped`, `loop.goal.met`                                      |
+| Standard    | approval, webhook, code execution, and sub-run lifecycle events                                                                      |
+| Storage     | `checkpoint.saved`, `artifact.created`                                                                                               |
+| Workspaces  | `workspace.bound`, `workspace.committed`, `sandbox.opened`, `sandbox.command.started`, `sandbox.command.completed`, `sandbox.closed` |
+| Diagnostics | `diagnostic`                                                                                                                         |
 
 Notes on recent additions:
 
 - `run.suspended` carries `reason` and `kind` (`awaiting-input`,
-  `awaiting-child`, `awaiting-budget`, `paused`, or `other`);
+  `awaiting-child`, `awaiting-budget`, `awaiting-host`, `paused`, or `other`);
+  for `awaiting-host`, `details.cause` is `limit` (with `limit`, `used`, and
+  `value`) or `error` (with the error's code and message).
   `run.interrupted` carries `reason`. See
   [run states](./persistence-and-recovery.md#run-states).
+- `run.started` carries `seededFrom` when the run was
+  [restarted from a step](./persistence-and-recovery.md#restart-from-a-step).
 - `step.failed` with `handled: true` means an `onError: continue` policy
-  recorded the failure and the run continues.
+  recorded the failure and the run continues; with `paused: true`, the failure
+  blocked the run.
+- `workspace.committed` reports a step commit point for one read-write
+  workspace: the step, counts of created, modified, and deleted files, and the
+  store's token, if any. See
+  [Workspaces](./workspaces.md#step-commit-points).
+- Diagnostics from recovery: `LOOP_RESUME_STATE_UNRECOGNIZED`,
+  `STEP_RESTARTED_AFTER_MANIFEST_CHANGE`, `TOOL_CALL_IN_DOUBT`,
+  `WORKSPACE_CHANGES_NOT_SAVED`, `WORKSPACE_SYNC_FAILED_PREVIOUSLY`.
 - `model.started`, `model.completed`, and `model.usage` carry
   `purpose: "summarize"` for summarizer calls. Usage reported by a host
   summarizer adapter arrives as `model.usage` with `source: "host"`.

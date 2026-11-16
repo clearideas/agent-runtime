@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta
       name="description"
-      content="Pause an agent run for approval or a token budget, then resume it."
+      content="Pause an agent run for approval, a limit, or an outage, then resume it or restart it from a step."
     />
     <title>Durable Runs · Agent Runtime Showcase</title>
     <link rel="icon" type="image/x-icon" href="/assets/icons/favicon.ico" />
@@ -58,19 +58,42 @@
           An agent drafts a revenue report, then waits for a person to approve
           it. While it waits, the run is saved to disk and its sandbox is shut
           down. Approving resumes the run in a new attempt, with a new sandbox,
-          and the draft is still there.
+          and the draft is still there. A token limit or a provider outage
+          blocks the run instead of failing it. Every completed step is a
+          restart point with a snapshot of the reports folder, and each edit to
+          the agent is checked against what has already run.
         </p>
       </section>
 
       <div class="run-options">
         <label class="toggle">
-          <input id="token-budget" type="checkbox" />
+          <input id="token-limit" type="checkbox" />
           <span>
-            <strong>Token budget</strong>
-            <small id="budget-help"
-              >Also pause the run when it has used its token budget.</small
+            <strong>Token limit</strong>
+            <small id="limit-help"
+              >Grant only a few tokens: the run is blocked while drafting until
+              you raise the limit.</small
             >
           </span>
+        </label>
+
+        <label class="toggle">
+          <input id="outage" type="checkbox" />
+          <span>
+            <strong>Provider outage</strong>
+            <small
+              >The provider fails during Publish: the run is blocked, not
+              failed, until it is back.</small
+            >
+          </span>
+        </label>
+
+        <label class="field edit-field">
+          <span>Agent edit</span>
+          <select id="edit">
+            <option value="">As written</option>
+          </select>
+          <small id="edit-help">The agent as written in agent.yaml.</small>
         </label>
 
         <details class="more-options">
@@ -112,6 +135,13 @@
       </div>
 
       <section id="stage" aria-label="Live execution"></section>
+
+      <section class="card history-card" aria-labelledby="history-heading">
+        <header>
+          <h2 id="history-heading">Restart points</h2>
+        </header>
+        <div class="card-body" id="history-body"></div>
+      </section>
 
       <section class="card result-card" aria-labelledby="result-heading">
         <header>

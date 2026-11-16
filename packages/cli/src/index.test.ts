@@ -1947,6 +1947,87 @@ describe("runner CLI", () => {
     expect(stderr).toContain('Unknown model provider "test"');
   });
 
+  it("restarts a finished run from a completed step as a new run", async () => {
+    const file = path.join(directory, "restart-agent.json");
+    const runtime = path.join(directory, "restart-runtime.mjs");
+    const storeDirectory = path.join(directory, "restart-state");
+    await writeFile(
+      file,
+      JSON.stringify({
+        ...manifest,
+        model: { provider: "test", model: "local" },
+        steps: ["first", "second", "third"].map((id) => ({
+          id,
+          type: "prompt",
+          prompt: id,
+          outputVariable: id,
+        })),
+      }),
+    );
+    await writeFile(
+      runtime,
+      `
+      globalThis.restartPrompts ??= []
+      export const model = {
+        generate: async (request) => {
+          const text = JSON.stringify(request.messages)
+          const step = ['first', 'second', 'third'].find((id) => text.includes(id))
+          globalThis.restartPrompts.push(step)
+          return { output: step + '-result', transcript: [] }
+        }
+      }
+    `,
+    );
+    const options = [
+      "--store",
+      storeDirectory,
+      "--events",
+      "none",
+      "--runtime-module",
+      runtime,
+    ];
+    await expect(
+      runCli(["run", file, "--run-id", "original", ...options], io),
+    ).resolves.toBe(0);
+
+    stdout = "";
+    await expect(
+      runCli(["restart", "original", "--list", ...options], io),
+    ).resolves.toBe(0);
+    expect(stdout).toMatch(/first[\s\S]*second[\s\S]*third/u);
+
+    const prompts = (globalThis as { restartPrompts?: string[] })
+      .restartPrompts!;
+    prompts.length = 0;
+    stdout = "";
+    await expect(
+      runCli(
+        [
+          "restart",
+          "original",
+          "--from",
+          "second",
+          "--run-id",
+          "retry",
+          ...options,
+        ],
+        io,
+      ),
+    ).resolves.toBe(0);
+    expect(JSON.parse(stdout)).toMatchObject({
+      runId: "retry",
+      status: "completed",
+      stepCount: 3,
+    });
+    expect(prompts).toEqual(["third"]);
+
+    stderr = "";
+    await expect(
+      runCli(["restart", "original", "--from", "missing", ...options], io),
+    ).resolves.toBe(1);
+    expect(stderr).toContain("no restart point matching missing");
+  });
+
   it("resumes from the last committed step without replaying it", async () => {
     const file = path.join(directory, "resume-agent.json");
     const failingRuntime = path.join(directory, "failing-runtime.mjs");

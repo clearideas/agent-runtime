@@ -20,7 +20,9 @@ interface ListOutput {
   files: Array<{ path: string }>;
 }
 
-const money = (value: number) => `$${value.toLocaleString("en-US")}`;
+const dollars = (value: number) => `$${value.toLocaleString("en-US")}`;
+/** Rounded to thousands, as a revised Draft instruction asks: $453K. */
+const thousands = (value: number) => `$${Math.round(value / 1000)}K`;
 const percent = (value: number) =>
   `${value >= 0 ? "+" : "−"}${Math.abs(value).toFixed(1)}%`;
 
@@ -41,6 +43,7 @@ export const draftReport = (
   previous: string,
   current: Map<string, number>,
   prior: Map<string, number>,
+  money: (value: number) => string = dollars,
 ) => {
   const change = (now: number, before: number) =>
     before ? ((now - before) / before) * 100 : 0;
@@ -79,6 +82,10 @@ const draft = (request: ScriptRequest): ScriptTurn => {
   const quarter =
     /Prepare the draft (\S+) revenue report/u.exec(request.prompt)?.[1] ?? "Q3";
   const previous = `Q${((Number(quarter.slice(1)) + 2) % 4) + 1}`;
+  // Follows the instructions it is given, including an edited system prompt.
+  const money = request.system.includes("nearest thousand")
+    ? thousands
+    : dollars;
   switch (request.turn) {
     case 0:
       return {
@@ -108,7 +115,7 @@ const draft = (request: ScriptRequest): ScriptTurn => {
         outputOf<ReadOutput>(request.results[1])?.content,
       );
       const prior = parseCsv(outputOf<ReadOutput>(request.results[2])?.content);
-      const { content } = draftReport(quarter, previous, current, prior);
+      const { content } = draftReport(quarter, previous, current, prior, money);
       return {
         say: "Comparing the quarters and writing the draft.",
         call: {
@@ -122,7 +129,9 @@ const draft = (request: ScriptRequest): ScriptTurn => {
         outputOf<ReadOutput>(request.results[1])?.content,
       );
       const prior = parseCsv(outputOf<ReadOutput>(request.results[2])?.content);
-      return { output: draftReport(quarter, previous, current, prior).summary };
+      return {
+        output: draftReport(quarter, previous, current, prior, money).summary,
+      };
     }
   }
 };
@@ -139,10 +148,22 @@ const published = (request: ScriptRequest) => {
   } catch {
     // keep the default
   }
-  const content = draftText.replace(
+  let content = draftText.replace(
     "**Status:** Draft, awaiting approval",
     `**Status:** Approved by ${reviewer}`,
   );
+  // A revised Publish instruction asks for a one-line summary at the top.
+  if (request.system.includes("one-line summary")) {
+    const total =
+      /\| \*\*Total\*\* \| [^|]+ \| ([^|]+) \| \*\*([^*]+)\*\* \|/u.exec(
+        draftText,
+      );
+    if (total)
+      content = content.replace(
+        /^(# .+\n)/u,
+        `$1\n> Revenue ${total[1]!.trim()}, ${total[2]!.trim()} on the previous quarter.\n`,
+      );
+  }
   return { reviewer, content: `${content.trimEnd()}\n` };
 };
 

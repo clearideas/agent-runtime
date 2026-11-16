@@ -1,6 +1,8 @@
 import {
   AgentRuntimeError,
   MessagesValidationError,
+  RUN_BLOCKED_REASON,
+  isRunSuspendedError,
   type MessagesErrorCode,
 } from "@clearideas/agent-runtime-core";
 
@@ -88,9 +90,17 @@ const MESSAGES_ERROR_STATUS: Record<MessagesErrorCode, number> = {
  * or configuration detail.
  */
 export const fromRunError = (
-  error: unknown,
+  caught: unknown,
   options: { exposeErrors: boolean },
 ): ServerError => {
+  // A run blocked by an error keeps that error as its cause; report it as
+  // the failure it is. The run itself stays resumable in the store.
+  const error =
+    isRunSuspendedError(caught) &&
+    caught.reason === RUN_BLOCKED_REASON &&
+    caught.cause !== undefined
+      ? caught.cause
+      : caught;
   if (error instanceof ServerError) return error;
   if (error instanceof MessagesValidationError) {
     const status = MESSAGES_ERROR_STATUS[error.code] ?? 400;

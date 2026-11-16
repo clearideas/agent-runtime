@@ -623,6 +623,13 @@ export interface ExecutionPolicies {
   outputRepair?: OutputRepairPolicy;
   /** continue: record the error as the step output and run the next step. */
   onError?: "fail" | "continue";
+  /**
+   * What a step failure that is not fatal does to the run. `pause` (default)
+   * suspends it with kind `awaiting-host`, keeping its progress, resumable
+   * once the cause is fixed; `fail` ends the attempt as failed. Run-level:
+   * set it on the host or the manifest, not on a step.
+   */
+  onFailure?: "pause" | "fail";
 }
 
 export interface AgentStepBase {
@@ -841,6 +848,7 @@ export const executionPoliciesSchema: z.ZodType<ExecutionPolicies> =
       })
       .optional(),
     onError: z.enum(["fail", "continue"]).optional(),
+    onFailure: z.enum(["pause", "fail"]).optional(),
   });
 
 /** Policy fields that only a prompt step can use. */
@@ -1158,18 +1166,243 @@ export interface AgentManifest {
   steps: AgentStep[];
   /** Manifest-wide execution policy defaults; steps may override them. */
   policies?: ExecutionPolicies;
-  limits?: {
-    maxSteps?: number;
-    maxMessagesPerPrompt?: number;
-    maxInputBytes?: number;
-    maxOutputBytes?: number;
-    /** Total tool calls per prompt step execution, across model turns and resumes. */
-    maxToolCallsPerIteration?: number;
-    providerTimeoutMs?: number;
-  };
+  limits?: AgentManifestLimits;
   metadata?: JsonObject;
   extensions?: JsonObject;
 }
+
+/**
+ * Sandbox usage for one run. A manifest or a resume request may set these;
+ * the host's sandbox configuration is the ceiling and the default.
+ */
+export interface RunSandboxUsageLimits {
+  maxCommands?: number;
+  maxSeconds?: number;
+  commandTimeoutMs?: number;
+  maxCommandTimeoutMs?: number;
+  maxStdoutBytes?: number;
+  maxStderrBytes?: number;
+  maxOutputFiles?: number;
+  maxOutputBytes?: number;
+}
+
+/**
+ * Limits that stop a runaway run. `DEFAULT_RUN_LIMITS` applies to every run;
+ * the host's defaults, the manifest, and `RunRequest.limits` replace values,
+ * and the host's `enforcedLimits` cap them. Reaching one suspends the run
+ * with kind `awaiting-host`; it resumes once a higher limit is granted.
+ *
+ * A step execution is one run of a step that does work: a top-level step, or
+ * one loop iteration's child. A loop itself is bounded by the run's limits
+ * and `maxLoopIterations`.
+ */
+export interface RunLimits {
+  /** Model tokens reported across the run. */
+  maxTotalTokens?: number;
+  /** Model tokens reported by one step execution. */
+  maxStepTokens?: number;
+  /** Estimated cost adapters report (`ModelUsage.estimatedCost`) across the run. */
+  maxEstimatedCost?: number;
+  /** Active execution time across all attempts. */
+  maxRunActiveMs?: number;
+  /** Active execution time of one step execution, across attempts. */
+  maxStepActiveMs?: number;
+  /**
+   * Recoveries: resumes after a failure, an interruption, a takeover, or an
+   * error block. Resumes that answer an approval, a child run, a budget, a
+   * granted limit, or a pause do not count.
+   */
+  maxRecoveries?: number;
+  /** Consecutive recoveries that make no progress (no new checkpoint): a crash loop. */
+  maxResumesWithoutProgress?: number;
+  /** Model requests made by one prompt step execution. */
+  maxTurnsPerPrompt?: number;
+  /** Iterations of one loop step execution. */
+  maxLoopIterations?: number;
+  /** Artifacts recorded by the run. */
+  maxArtifacts?: number;
+  /** Bytes of artifacts recorded by the run. */
+  maxArtifactBytes?: number;
+  /** Serialized size of one checkpoint. */
+  maxCheckpointBytes?: number;
+  sandbox?: RunSandboxUsageLimits;
+}
+
+export interface AgentManifestLimits extends RunLimits {
+  maxSteps?: number;
+  maxMessagesPerPrompt?: number;
+  maxInputBytes?: number;
+  maxOutputBytes?: number;
+  /** Total tool calls per prompt step execution, across model turns and resumes. */
+  maxToolCallsPerIteration?: number;
+  providerTimeoutMs?: number;
+}
+
+/**
+ * Anti-runaway limits every run has unless its host or manifest sets others:
+ * high enough to be irrelevant to normal runs. `maxStepTokens` and
+ * `maxEstimatedCost` have no default.
+ */
+export const DEFAULT_RUN_LIMITS = {
+  maxTotalTokens: 25_000_000,
+  maxRunActiveMs: 24 * 60 * 60 * 1_000,
+  maxStepActiveMs: 4 * 60 * 60 * 1_000,
+  maxRecoveries: 100,
+  maxResumesWithoutProgress: 10,
+  maxTurnsPerPrompt: 500,
+  maxLoopIterations: 10_000,
+  maxArtifacts: 10_000,
+  maxArtifactBytes: 10 * 1024 * 1024 * 1024,
+  maxCheckpointBytes: 64 * 1024 * 1024,
+} as const satisfies RunLimits;
+
+const limitValue = z.number().int().positive().safe();
+
+export const runSandboxUsageLimitsSchema: z.ZodType<RunSandboxUsageLimits> =
+  z.strictObject({
+    maxCommands: limitValue.optional(),
+    maxSeconds: z.number().positive().optional(),
+    commandTimeoutMs: limitValue.optional(),
+    maxCommandTimeoutMs: limitValue.optional(),
+    maxStdoutBytes: limitValue.optional(),
+    maxStderrBytes: limitValue.optional(),
+    maxOutputFiles: limitValue.optional(),
+    maxOutputBytes: limitValue.optional(),
+  });
+
+const runLimitsShape = {
+  maxTotalTokens: limitValue.optional(),
+  maxStepTokens: limitValue.optional(),
+  maxEstimatedCost: z.number().positive().optional(),
+  maxRunActiveMs: limitValue.optional(),
+  maxStepActiveMs: limitValue.optional(),
+  maxRecoveries: limitValue.optional(),
+  maxResumesWithoutProgress: limitValue.optional(),
+  maxTurnsPerPrompt: limitValue.optional(),
+  maxLoopIterations: limitValue.optional(),
+  maxArtifacts: limitValue.optional(),
+  maxArtifactBytes: limitValue.optional(),
+  maxCheckpointBytes: limitValue.optional(),
+  sandbox: runSandboxUsageLimitsSchema.optional(),
+};
+
+export const runLimitsSchema: z.ZodType<RunLimits> =
+  z.strictObject(runLimitsShape);
+
+/**
+ * Durable usage of one run across its attempts, carried by every checkpoint.
+ * Limits are checked against it.
+ */
+export interface RunLedger {
+  /** Model tokens reported in the run's transcript, less inherited ones. */
+  tokens: number;
+  /** Active execution time summed across attempts. */
+  activeMs: number;
+  /** Estimated cost adapters reported, less inherited cost. */
+  estimatedCost?: number;
+  /** The step execution that is running, with its tokens and active time. */
+  step?: { key: string; tokens: number; activeMs: number };
+  /** Recoveries so far: resumes after a failure, interruption, takeover, or error block. */
+  recoveries?: number;
+  artifacts: { count: number; bytes: number };
+  /** Cumulative run-sandbox usage. */
+  sandbox?: { commands: number; seconds: number };
+  /**
+   * The sequence of the latest checkpoint that recorded progress. Copies the
+   * runtime commits to make facts durable (a resume, a block) do not move it.
+   */
+  progress?: number;
+  /** Consecutive resumes that made no progress, and the progress point they resumed. */
+  stalledResumes?: { count: number; sequence: number };
+  /** Limits granted through `RunRequest.limits`; they apply to later attempts too. */
+  granted?: RunLimits;
+  /**
+   * For a run seeded from another run's checkpoint: the usage its inherited
+   * transcript and artifacts represent, which does not count against this
+   * run's limits.
+   */
+  inherited?: {
+    tokens: number;
+    estimatedCost?: number;
+    artifacts: { count: number; bytes: number };
+  };
+  /**
+   * Present on the checkpoint committed when the run was blocked (suspended
+   * with kind `awaiting-host`): why, so a host can act on it.
+   */
+  blocked?: RunBlocked;
+}
+
+/** Why a run is waiting for its host: a limit was reached, or an error occurred. */
+export interface RunBlocked {
+  cause: "limit" | "error";
+  /** The limit name (for example `maxTotalTokens`) or the error code. */
+  code: string;
+  message: string;
+  /** For limits: usage and the limit value when the run was blocked. */
+  used?: number;
+  value?: number;
+  /** For errors: whether retrying may succeed, and classified details. */
+  retryable?: boolean;
+  details?: JsonObject;
+  stepId?: string;
+  at: string;
+}
+
+export const runLedgerSchema: z.ZodType<RunLedger> = z.strictObject({
+  tokens: z.number().int().nonnegative().safe(),
+  activeMs: z.number().nonnegative(),
+  estimatedCost: z.number().nonnegative().optional(),
+  step: z
+    .strictObject({
+      key: z.string().min(1),
+      tokens: z.number().int().nonnegative().safe(),
+      activeMs: z.number().nonnegative(),
+    })
+    .optional(),
+  recoveries: z.number().int().nonnegative().optional(),
+  artifacts: z.strictObject({
+    count: z.number().int().nonnegative(),
+    bytes: z.number().int().nonnegative().safe(),
+  }),
+  sandbox: z
+    .strictObject({
+      commands: z.number().int().nonnegative(),
+      seconds: z.number().nonnegative(),
+    })
+    .optional(),
+  progress: z.number().int().positive().safe().optional(),
+  stalledResumes: z
+    .strictObject({
+      count: z.number().int().nonnegative(),
+      sequence: z.number().int().positive(),
+    })
+    .optional(),
+  granted: z.lazy(() => runLimitsSchema).optional(),
+  inherited: z
+    .strictObject({
+      tokens: z.number().int().nonnegative().safe(),
+      estimatedCost: z.number().nonnegative().optional(),
+      artifacts: z.strictObject({
+        count: z.number().int().nonnegative(),
+        bytes: z.number().int().nonnegative().safe(),
+      }),
+    })
+    .optional(),
+  blocked: z
+    .strictObject({
+      cause: z.enum(["limit", "error"]),
+      code: z.string().min(1),
+      message: z.string(),
+      used: z.number().nonnegative().optional(),
+      value: z.number().nonnegative().optional(),
+      retryable: z.boolean().optional(),
+      details: jsonObjectSchema.optional(),
+      stepId: z.string().optional(),
+      at: z.iso.datetime({ offset: true }),
+    })
+    .optional(),
+});
 
 const validateSiblingStepIds = (
   steps: AgentStep[],
@@ -1244,6 +1477,13 @@ const validateStepPolicies = (
   steps.forEach((step, index) => {
     if (step.type === "loop") {
       validateStepPolicies(step.steps, context, [...path, index, "steps"]);
+    }
+    if (step.policies?.onFailure !== undefined) {
+      context.addIssue({
+        code: "custom",
+        message: `policies.onFailure applies to the whole run; set it in the manifest's policies, not on step ${step.id}.`,
+        path: [...path, index, "policies", "onFailure"],
+      });
     }
     if (step.type === "prompt" || !step.policies) return;
     for (const field of PROMPT_ONLY_POLICY_FIELDS) {
@@ -1418,6 +1658,7 @@ const agentManifestObjectSchema: z.ZodType<AgentManifest> = z
         maxOutputBytes: z.number().int().positive().optional(),
         maxToolCallsPerIteration: z.number().int().positive().optional(),
         providerTimeoutMs: z.number().int().positive().optional(),
+        ...runLimitsShape,
       })
       .strict()
       .optional(),
@@ -1603,8 +1844,59 @@ export interface RunCheckpoint {
   budget?: RunBudgetState;
   /** The run's effective conversation history, when the manifest declares messages. */
   messages?: RunMessagesState;
+  /** Durable usage across attempts (contract 1.1). */
+  ledger?: RunLedger;
+  /**
+   * Per workspace alias: the opaque token the workspace store returned at the
+   * latest step commit point, handed back when a run restarts from here.
+   */
+  workspaces?: Record<string, RunCheckpointWorkspace>;
+  /** Per read-only workspace alias: the input version token at run start. */
+  inputs?: Record<string, { token: string }>;
+  /** Fingerprints that decide which manifest changes a resume may accept. */
+  fingerprints?: RunCheckpointFingerprints;
+  /** Present on a checkpoint committed when a step completed: a restart point. */
+  boundary?: RunCheckpointBoundary;
   createdAt: string;
   metadata?: JsonObject;
+}
+
+/** Checkpoint contract versions this release reads; it writes the latest. */
+export const RUN_CHECKPOINT_CONTRACT_VERSIONS = ["1.0", "1.1"] as const;
+export const RUN_CHECKPOINT_CONTRACT_VERSION = "1.1" as const;
+
+/** One file change copied back to a workspace store. */
+export interface WorkspaceChange {
+  path: string;
+  action: "created" | "modified" | "deleted";
+  size?: number;
+  sha256?: string;
+}
+
+export interface RunCheckpointWorkspace {
+  /** The opaque token the store returned at the latest step commit point. */
+  token?: string;
+  /** The step whose completion produced the token. */
+  stepPath?: string;
+  /** The checkpoint that first recorded the token. */
+  sequence?: number;
+  /** Changes copied back since that commit point, for the next one. */
+  pending?: WorkspaceChange[];
+}
+
+export interface RunCheckpointFingerprints {
+  /** Manifest-wide fields that completed steps depend on. */
+  global: string;
+  /** One per top-level step, in manifest order. */
+  steps: string[];
+}
+
+export interface RunCheckpointBoundary {
+  /** The step that completed: a top-level step id, or a nested step path. */
+  stepPath: string;
+  stepIndex: number;
+  /** The completed execution, for example `each[2]/fetch`. */
+  executionKey?: string;
 }
 
 export interface RunError {
@@ -1947,6 +2239,43 @@ export const runCheckpointSchema = z.strictObject({
   continuation: jsonObjectSchema.optional(),
   budget: runBudgetStateSchema.optional(),
   messages: z.lazy(() => runMessagesStateSchema).optional(),
+  ledger: runLedgerSchema.optional(),
+  workspaces: z
+    .record(
+      z.string().min(1),
+      z.strictObject({
+        token: z.string().min(1).optional(),
+        stepPath: z.string().min(1).optional(),
+        sequence: z.number().int().positive().safe().optional(),
+        pending: z
+          .array(
+            z.strictObject({
+              path: z.string().min(1),
+              action: z.enum(["created", "modified", "deleted"]),
+              size: z.number().int().nonnegative().optional(),
+              sha256: z.string().optional(),
+            }),
+          )
+          .optional(),
+      }),
+    )
+    .optional(),
+  inputs: z
+    .record(z.string().min(1), z.strictObject({ token: z.string().min(1) }))
+    .optional(),
+  fingerprints: z
+    .strictObject({
+      global: z.string().min(1),
+      steps: z.array(z.string().min(1)),
+    })
+    .optional(),
+  boundary: z
+    .strictObject({
+      stepPath: z.string().min(1),
+      stepIndex: z.number().int().nonnegative(),
+      executionKey: z.string().min(1).optional(),
+    })
+    .optional(),
   createdAt: z.iso.datetime({ offset: true }),
   metadata: jsonObjectSchema.optional(),
 });
@@ -1984,6 +2313,7 @@ export type RunEventType =
   | "sandbox.command.started"
   | "sandbox.command.completed"
   | "sandbox.closed"
+  | "workspace.committed"
   | "sub-run.started"
   | "sub-run.completed"
   | "model.started"

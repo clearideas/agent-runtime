@@ -8,13 +8,16 @@ import type {
   JsonObject,
   JsonValue,
   MessagesSignature,
+  RunCheckpoint,
   RunEvent,
+  RunLimits,
   RunResult,
 } from "@clearideas/agent-runtime-contracts";
 import {
   messagesSignatureSchema,
   parseAgentVariableOverrides,
   parseConversationMessages,
+  runLimitsSchema,
 } from "@clearideas/agent-runtime-contracts";
 import {
   AgentRuntime,
@@ -84,9 +87,10 @@ Usage:
   agent-runtime validate <manifest.json|manifest.yaml> [--config <config.yaml>]
   agent-runtime config validate <config.json|config.yaml>
   agent-runtime connections inspect <config.json|config.yaml> [--connection <name>] [--runtime-module <local-js-file>] [--format <json|yaml>]
-  agent-runtime run <manifest.json|manifest.yaml> [--variables <overrides.json>] [--messages <messages.json|messages.yaml>] [--messages-scope <scope>] [--messages-out <file>] [--max-total-tokens <count>] [--config <config.yaml>] [--run-id <id>] [--store <path>] [--store-driver <file|sqlite>] [--events <file|none>] [--artifacts <directory|none>] [--runtime-module <local-js-file>] [--stream] [--format <json|pretty|ndjson>] [--show-reasoning]
+  agent-runtime run <manifest.json|manifest.yaml> [--variables <overrides.json>] [--messages <messages.json|messages.yaml>] [--messages-scope <scope>] [--messages-out <file>] [--max-total-tokens <count>] [--limits <limits.json|limits.yaml>] [--config <config.yaml>] [--run-id <id>] [--store <path>] [--store-driver <file|sqlite>] [--events <file|none>] [--artifacts <directory|none>] [--runtime-module <local-js-file>] [--stream] [--format <json|pretty|ndjson>] [--show-reasoning]
   agent-runtime run-manifest <run.json|run.yaml> [--messages-scope <scope>] [--messages-out <file>] [--config <config.yaml>] [--store <path>] [--store-driver <file|sqlite>] [--events <file|none>] [--artifacts <directory|none>] [--runtime-module <local-js-file>] [--stream] [--format <json|pretty|ndjson>] [--show-reasoning]
-  agent-runtime resume <run-id> [--max-total-tokens <count>] [--config <config.yaml>] [--store <path>] [--store-driver <file|sqlite>] [--events <file|none>] [--artifacts <directory|none>] [--runtime-module <local-js-file>] [--stream] [--format <json|pretty|ndjson>] [--show-reasoning]
+  agent-runtime resume <run-id> [--max-total-tokens <count>] [--limits <limits.json|limits.yaml>] [--config <config.yaml>] [--store <path>] [--store-driver <file|sqlite>] [--events <file|none>] [--artifacts <directory|none>] [--runtime-module <local-js-file>] [--stream] [--format <json|pretty|ndjson>] [--show-reasoning]
+  agent-runtime restart <run-id> [--from <step-path|execution-key|sequence>] [--list] [--run-id <new-id>] [--max-total-tokens <count>] [--limits <limits.json|limits.yaml>] [--config <config.yaml>] [--store <path>] [--store-driver <file|sqlite>] [--events <file|none>] [--artifacts <directory|none>] [--runtime-module <local-js-file>] [--stream] [--format <json|pretty|ndjson>] [--show-reasoning]
   agent-runtime inspect <run-id> [--store <path>] [--store-driver <file|sqlite>] [--runtime-module <local-js-file>]
   agent-runtime events <events.jsonl> [--run <run-id>] [--type <event-type>] [--tail <count>]
   agent-runtime examples list
@@ -458,7 +462,13 @@ const inspect = async (args: string[], io: CliIo): Promise<void> => {
     const run = await store.loadRun(runId);
     if (!run) throw new Error(`Run not found: ${runId}`);
     const checkpoint = await store.loadLatestCheckpoint(runId);
-    io.stdout(`${JSON.stringify({ run, checkpoint }, null, 2)}\n`);
+    // The steps a new run can restart from (agent-runtime restart --from).
+    const restartPoints = store.listCheckpoints
+      ? await store.listCheckpoints(runId, { boundaries: true })
+      : undefined;
+    io.stdout(
+      `${JSON.stringify({ run, checkpoint, ...(restartPoints ? { restartPoints } : {}) }, null, 2)}\n`,
+    );
   } finally {
     resolved.close();
   }
@@ -636,8 +646,26 @@ class CliStreamingEventSink implements EventSink {
           return `✓ run completed (${event.runId})`;
         case "run.failed":
           return `✗ run failed (${event.runId})`;
-        case "run.suspended":
+        case "run.suspended": {
+          const details =
+            event.data?.details != null &&
+            typeof event.data.details === "object" &&
+            !Array.isArray(event.data.details)
+              ? event.data.details
+              : {};
+          if (event.data?.kind === "awaiting-host" && details.cause === "limit")
+            return `Ⅱ run blocked (${event.runId}): reached ${String(details.limit)} (${String(details.used)} of ${String(details.value)}); grant a higher limit with agent-runtime resume ${event.runId} --limits <file>`;
+          if (event.data?.kind === "awaiting-host") {
+            const error =
+              details.error != null &&
+              typeof details.error === "object" &&
+              !Array.isArray(details.error)
+                ? details.error
+                : {};
+            return `Ⅱ run blocked (${event.runId}): ${String(error.code ?? "error")}: ${String(error.message ?? "")}; fix the cause, then agent-runtime resume ${event.runId}`;
+          }
           return `Ⅱ run suspended (${event.runId}): ${String(event.data?.reason ?? "awaiting input")}; resume with agent-runtime resume ${event.runId}`;
+        }
         case "run.interrupted":
           return `↯ run interrupted (${event.runId}): ${String(event.data?.reason ?? "interrupted")}; resume with agent-runtime resume ${event.runId}`;
         case "step.failed":
@@ -664,6 +692,28 @@ class CliStreamingEventSink implements EventSink {
  * Read `--messages`: a JSON or YAML array of messages, or `{ messages,
  * signature }` as written by `--messages-out`.
  */
+/** Run limits to grant, from a JSON or YAML file (`--limits`). */
+const readLimitsFile = async (file: string): Promise<RunLimits> => {
+  const source = await readFile(file, "utf8");
+  let value: unknown;
+  try {
+    value = file.endsWith(".json")
+      ? JSON.parse(source)
+      : (parseYamlDocument(source) as unknown);
+  } catch (error) {
+    throw new Error(
+      `Could not parse run limits ${file}: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
+  const parsed = runLimitsSchema.safeParse(value);
+  if (!parsed.success) {
+    throw new Error(
+      `Run limits in ${file} are invalid: ${parsed.error.issues.map((issue) => `${issue.path.join(".") || "limits"}: ${issue.message}`).join("; ")}`,
+    );
+  }
+  return parsed.data;
+};
+
 const readMessagesFile = async (
   file: string,
 ): Promise<{
@@ -709,12 +759,15 @@ const executionOptions = new Set([
   "format",
   "show-reasoning",
   "max-total-tokens",
+  "limits",
+  "from",
+  "list",
 ]);
 
-const executionFlags = new Set(["stream", "show-reasoning"]);
+const executionFlags = new Set(["stream", "show-reasoning", "list"]);
 
 const execute = async (
-  command: "run" | "run-manifest" | "resume",
+  command: "run" | "run-manifest" | "resume" | "restart",
   args: string[],
   io: CliIo,
   signal?: AbortSignal,
@@ -728,6 +781,22 @@ const execute = async (
         ? "agent run manifest path"
         : "run id",
   );
+  if (
+    command !== "restart" &&
+    (parsed.options.has("from") || parsed.options.has("list"))
+  ) {
+    throw new Error(
+      "--from and --list are only valid with the restart command.",
+    );
+  }
+  if (
+    command === "restart" &&
+    (parsed.options.has("variables") || parsed.options.has("messages"))
+  ) {
+    throw new Error(
+      "A restarted run takes its state and history from the step it restarts from; --variables and --messages are not valid with restart.",
+    );
+  }
   if (command === "resume" && parsed.options.has("run-id")) {
     throw new Error("--run-id is only valid with the run command.");
   }
@@ -753,10 +822,11 @@ const execute = async (
     command === "run-manifest" &&
     (parsed.options.has("variables") ||
       parsed.options.has("run-id") ||
-      parsed.options.has("max-total-tokens"))
+      parsed.options.has("max-total-tokens") ||
+      parsed.options.has("limits"))
   ) {
     throw new Error(
-      "--variables, --run-id, and --max-total-tokens cannot be combined with an agent run manifest; declare them in the agent run manifest.",
+      "--variables, --run-id, --max-total-tokens, and --limits cannot be combined with an agent run manifest; declare them in the agent run manifest or the agent manifest.",
     );
   }
 
@@ -783,13 +853,14 @@ const execute = async (
       command === "resume"
         ? target
         : (agentRunManifest?.runId ?? parsed.options.get("run-id"));
+    const sourceRunId = command === "restart" ? target : undefined;
     const maxTotalTokens = positiveSafeIntegerOption(
       parsed,
       "max-total-tokens",
     );
     const runtimeModulePath = parsed.options.get("runtime-module");
     const runtimeStore =
-      command === "resume"
+      command === "resume" || command === "restart"
         ? await loadHostRunStore(runtimeModulePath, {
             runId: target,
             storeDirectory,
@@ -810,6 +881,9 @@ const execute = async (
             ),
           )
         : undefined;
+    const grantedLimits = parsed.options.has("limits")
+      ? await readLimitsFile(path.resolve(parsed.options.get("limits")!))
+      : undefined;
     const suppliedMessages =
       command === "run" && parsed.options.has("messages")
         ? await readMessagesFile(path.resolve(parsed.options.get("messages")!))
@@ -836,6 +910,54 @@ const execute = async (
       const record = await store.loadRun(target);
       if (!record) throw new Error(`Run not found: ${target}`);
       manifest = record.manifest;
+    }
+
+    // restart: choose the step checkpoint to start the new run from.
+    let seed: RunCheckpoint | undefined;
+    if (sourceRunId) {
+      if (!store.listCheckpoints || !store.loadCheckpoint) {
+        throw new Error(
+          "This run store cannot list checkpoints, so runs cannot be restarted from a step.",
+        );
+      }
+      const points = await store.listCheckpoints(sourceRunId, {
+        boundaries: true,
+      });
+      if (parsed.options.has("list")) {
+        io.stdout(
+          points.length === 0
+            ? `No restart points for run ${sourceRunId}.\n`
+            : `${points
+                .map(
+                  (point) =>
+                    `${String(point.sequence).padStart(6)}  ${point.boundary?.executionKey ?? point.boundary?.stepPath ?? ""}  ${point.createdAt}`,
+                )
+                .join("\n")}\n`,
+        );
+        return;
+      }
+      const from = parsed.options.get("from");
+      const chosen = from
+        ? [...points]
+            .reverse()
+            .find(
+              (point) =>
+                point.boundary?.executionKey === from ||
+                point.boundary?.stepPath === from ||
+                String(point.sequence) === from,
+            )
+        : points.at(-1);
+      if (!chosen) {
+        throw new Error(
+          from
+            ? `Run ${sourceRunId} has no restart point matching ${from}; list them with agent-runtime restart ${sourceRunId} --list.`
+            : `Run ${sourceRunId} has no completed step to restart from.`,
+        );
+      }
+      seed =
+        (await store.loadCheckpoint(sourceRunId, chosen.sequence)) ?? undefined;
+      if (!seed)
+        throw new Error(`Checkpoint ${chosen.sequence} is no longer retained.`);
     }
 
     const eventsOption = parsed.options.get("events");
@@ -934,6 +1056,8 @@ const execute = async (
                 : {}),
               ...(messagesScope != null ? { messagesScope } : {}),
               ...(maxTotalTokens ? { budget: { maxTotalTokens } } : {}),
+              ...(grantedLimits ? { limits: grantedLimits } : {}),
+              ...(seed ? { seed } : {}),
               ...(signal ? { signal } : {}),
               ...(command === "resume" ? { resume: true } : {}),
             },
@@ -1272,6 +1396,7 @@ export const executeWorkerInvocation = async (
         : {}),
       ...(request.execution ? { execution: request.execution } : {}),
       ...(request.budget ? { budget: request.budget } : {}),
+      ...(request.limits ? { limits: request.limits } : {}),
       ...(options.signal ? { signal: options.signal } : {}),
       ...(invocation.action === "resume"
         ? {
@@ -1589,7 +1714,8 @@ export const runCli = async (
     else if (
       command === "run" ||
       command === "run-manifest" ||
-      command === "resume"
+      command === "resume" ||
+      command === "restart"
     ) {
       await execute(command, commandArgs, io, options.signal);
     } else if (command === "worker")

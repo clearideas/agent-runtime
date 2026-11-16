@@ -9,10 +9,13 @@ import type {
   JsonValue,
   SandboxCommandRecord,
   ToolCall,
+  WorkspaceChange,
 } from "@clearideas/agent-runtime-contracts";
 import type {
   AgentTool,
   ArtifactStore,
+  NotPersistedChange,
+  NotPersistedReason,
   ResolvedWorkspace,
   RunSandboxCommandRequest,
   RunSandboxCommandResult,
@@ -42,10 +45,13 @@ import {
   SandboxPolicyError,
   admitCommand,
   describeWorkspaceTools,
+  narrowRunSandboxLimits,
   resolveRunSandboxPolicy,
+  runSandboxBudget,
   type AdmittedCommand,
   type RunSandboxCommandEntry,
   type RunSandboxLimitOverrides,
+  type RunSandboxLimits,
   type RunSandboxPolicy,
   type RunSandboxShellPolicy,
 } from "./policy.js";
@@ -127,6 +133,8 @@ interface MountState {
   bytes: number;
   /** path → { size, sha256 } for read-write mounts. */
   baseline: Map<string, { size: number; sha256?: string }>;
+  /** path → reason for sandbox files already reported as not persisted. */
+  reported: Map<string, string>;
 }
 
 const sha256 = (data: Uint8Array): string =>
@@ -156,11 +164,18 @@ const isJsonObject = (value: unknown): value is JsonObject =>
 
 class RunSandboxExecutionError extends Error {
   readonly code: string;
+  /** For sandbox_budget_exhausted: the run limit that was reached. */
+  readonly limit: { name: string; used: number; value: number } | undefined;
 
-  constructor(code: string, message: string) {
+  constructor(
+    code: string,
+    message: string,
+    limit?: { name: string; used: number; value: number },
+  ) {
     super(message);
     this.name = "RunSandboxExecutionError";
     this.code = code;
+    this.limit = limit;
   }
 }
 
@@ -264,9 +279,15 @@ export class ProviderRunSandbox implements RunSandboxProvider {
         fileCount: 0,
         bytes: 0,
         baseline: new Map(),
+        reported: new Map(),
       });
     }
-    const spec = this.#spec(request.runId, attachments);
+    // Each run's usage limits narrow the host's; they can never raise them.
+    const policy: RunSandboxPolicy = {
+      ...this.#policy,
+      limits: narrowRunSandboxLimits(this.#policy.limits, request.limits),
+    };
+    const spec = this.#spec(request.runId, attachments, policy.limits);
     const handle = await this.#options.provider.create(
       spec,
       request.signal ? { signal: request.signal } : undefined,
@@ -274,7 +295,8 @@ export class ProviderRunSandbox implements RunSandboxProvider {
     const session = new ProviderRunSandboxSession({
       handle,
       provider: this.#options.provider,
-      policy: this.#policy,
+      policy,
+      runBudget: runSandboxBudget(this.#policy.limits, request.limits),
       helperCommand: this.#helperCommand,
       profiles: this.#profiles,
       allowedEnvironment: new Set(this.#options.allowedEnvironment ?? []),
@@ -345,14 +367,21 @@ export class ProviderRunSandbox implements RunSandboxProvider {
     }
   }
 
-  #spec(runId: string, attachments: SandboxAttachment[]): SandboxSpec {
-    const limits = this.#policy.limits;
+  #spec(
+    runId: string,
+    attachments: SandboxAttachment[],
+    limits: RunSandboxLimits = this.#policy.limits,
+  ): SandboxSpec {
     return {
       image: this.#options.image,
       workingDirectory: "/workspace",
       network: "none",
       limits: {
-        timeoutMs: limits.maxTotalSandboxSeconds * 1_000 + 60_000,
+        // A lifetime hint for providers, within the 24-hour resource ceiling.
+        timeoutMs: Math.min(
+          limits.maxTotalSandboxSeconds * 1_000 + 60_000,
+          86_400_000,
+        ),
         memoryMb: limits.memoryMb,
         cpuCount: limits.cpuCount,
         processLimit: limits.processLimit,
@@ -373,6 +402,8 @@ interface SessionInput {
   handle: SandboxHandle;
   provider: SandboxProvider;
   policy: RunSandboxPolicy;
+  /** The run's budget: its limits capped at the host's; reaching it blocks the run. */
+  runBudget: { maxCommands: number; maxSeconds: number };
   helperCommand: readonly string[];
   profiles: Map<string, SandboxRuntimeProfile>;
   allowedEnvironment: Set<string>;
@@ -392,6 +423,14 @@ class ProviderRunSandboxSession implements RunSandboxSession {
   #sequence = 0;
   #queue: Promise<unknown> = Promise.resolve();
   #closed = false;
+  /** Changes copied back since the last takeChanges(), per alias and path. */
+  #pending = new Map<
+    string,
+    {
+      changes: Map<string, WorkspaceChange>;
+      notPersisted: Map<string, NotPersistedChange>;
+    }
+  >();
 
   constructor(input: SessionInput) {
     this.id = input.handle.id;
@@ -408,6 +447,63 @@ class ProviderRunSandboxSession implements RunSandboxSession {
       commandsUsed: this.#commandsUsed,
       sandboxSecondsUsed: this.#sandboxSecondsUsed,
     };
+  }
+
+  takeChanges(): Record<
+    string,
+    { changes: WorkspaceChange[]; notPersisted: NotPersistedChange[] }
+  > {
+    const taken = Object.fromEntries(
+      [...this.#pending].map(([alias, pending]) => [
+        alias,
+        {
+          changes: [...pending.changes.values()],
+          notPersisted: [...pending.notPersisted.values()],
+        },
+      ]),
+    );
+    this.#pending.clear();
+    return taken;
+  }
+
+  /** Fold copied-back changes into the pending set, one entry per path. */
+  #remember(
+    filesChanged: SandboxCommandRecord["filesChanged"],
+    notPersisted: NotPersistedChange[],
+  ): void {
+    const entry = (alias: string) => {
+      let pending = this.#pending.get(alias);
+      if (!pending) {
+        pending = { changes: new Map(), notPersisted: new Map() };
+        this.#pending.set(alias, pending);
+      }
+      return pending;
+    };
+    for (const change of filesChanged) {
+      const pending = entry(change.alias).changes;
+      const earlier = pending.get(change.path);
+      const next: WorkspaceChange = {
+        path: change.path,
+        action: change.action,
+        ...(change.size !== undefined ? { size: change.size } : {}),
+        ...(change.sha256 !== undefined ? { sha256: change.sha256 } : {}),
+      };
+      if (earlier?.action === "created" && change.action === "deleted") {
+        pending.delete(change.path); // never existed at the last commit point
+      } else if (earlier?.action === "created") {
+        pending.set(change.path, { ...next, action: "created" });
+      } else if (earlier?.action === "deleted" && change.action === "created") {
+        pending.set(change.path, { ...next, action: "modified" });
+      } else {
+        pending.set(change.path, next);
+      }
+    }
+    for (const item of notPersisted) {
+      entry(item.alias).notPersisted.set(
+        `${item.path}\u0000${item.reason}`,
+        item,
+      );
+    }
   }
 
   /** Stage the helper, every non-attached mount, and the mount index. */
@@ -551,6 +647,7 @@ class ProviderRunSandboxSession implements RunSandboxSession {
           const changes = await this.#syncBack(mount, controller.signal);
           filesChanged += changes.filesChanged.length;
           ignored += changes.ignoredPaths.length;
+          this.#remember(changes.filesChanged, changes.notPersisted);
         }
       } finally {
         clearTimeout(timer);
@@ -614,18 +711,31 @@ class ProviderRunSandboxSession implements RunSandboxSession {
           : undefined;
       },
     });
-    if (this.#commandsUsed >= policy.limits.maxCommandsPerRun) {
+    // The budget is a run limit: reaching it blocks the run for its host.
+    const { runBudget } = this.#input;
+    if (this.#commandsUsed >= runBudget.maxCommands) {
       throw new RunSandboxExecutionError(
         "sandbox_budget_exhausted",
-        `The run has used its ${policy.limits.maxCommandsPerRun}-command sandbox budget.`,
+        `The run has used its ${runBudget.maxCommands}-command sandbox limit.`,
+        {
+          name: "sandbox.maxCommands",
+          used: this.#commandsUsed,
+          value: runBudget.maxCommands,
+        },
       );
     }
-    if (this.#sandboxSecondsUsed >= policy.limits.maxTotalSandboxSeconds) {
+    if (this.#sandboxSecondsUsed >= runBudget.maxSeconds) {
       throw new RunSandboxExecutionError(
         "sandbox_budget_exhausted",
-        `The run has used its ${policy.limits.maxTotalSandboxSeconds}-second sandbox budget.`,
+        `The run has used its ${runBudget.maxSeconds}-second sandbox limit.`,
+        {
+          name: "sandbox.maxSeconds",
+          used: Math.round(this.#sandboxSecondsUsed),
+          value: runBudget.maxSeconds,
+        },
       );
     }
+
     this.#sequence += 1;
     const partialRecord = {
       kind: admitted.kind,
@@ -770,12 +880,15 @@ class ProviderRunSandboxSession implements RunSandboxSession {
     );
     const filesChanged: SandboxCommandRecord["filesChanged"] = [];
     const ignoredPaths: SandboxCommandRecord["ignoredPaths"] = [];
+    const notPersisted: NotPersistedChange[] = [];
     for (const candidate of this.#mounts.values()) {
       if (candidate.workspace.mode !== "read_write") continue;
       const changes = await this.#syncBack(candidate, signal);
       filesChanged.push(...changes.filesChanged);
       ignoredPaths.push(...changes.ignoredPaths);
+      notPersisted.push(...changes.notPersisted);
     }
+    this.#remember(filesChanged, notPersisted);
 
     const record: SandboxCommandRecord = {
       id: commandId,
@@ -819,8 +932,27 @@ class ProviderRunSandboxSession implements RunSandboxSession {
     }
 
     let output: JsonValue | undefined;
+    const unsaved =
+      notPersisted.length > 0
+        ? {
+            notPersisted: notPersisted.map(
+              ({ alias, path, reason, message }) => ({
+                alias,
+                path,
+                reason,
+                message,
+              }),
+            ),
+          }
+        : {};
     if (admitted.expectsJson) {
-      output = this.#parseHelperOutput(stdout, exitCode, stderr, artifacts);
+      const parsed = this.#parseHelperOutput(
+        stdout,
+        exitCode,
+        stderr,
+        artifacts,
+      );
+      output = isJsonObject(parsed) ? { ...parsed, ...unsaved } : parsed;
     } else if (admitted.kind === "code") {
       output = stdout.length > 0 ? stdout : undefined;
     } else {
@@ -832,6 +964,7 @@ class ProviderRunSandboxSession implements RunSandboxSession {
         ...(artifacts.length > 0
           ? { artifacts: artifacts.map((artifact) => artifact.id) }
           : {}),
+        ...unsaved,
       };
     }
     return {
@@ -840,6 +973,7 @@ class ProviderRunSandboxSession implements RunSandboxSession {
       stdout,
       stderr,
       ...(artifacts.length > 0 ? { artifacts } : {}),
+      ...(notPersisted.length > 0 ? { notPersisted } : {}),
     };
   }
 
@@ -991,86 +1125,196 @@ class ProviderRunSandboxSession implements RunSandboxSession {
     return document;
   }
 
+  /**
+   * Copy a read-write mount's changes back to its workspace store. Deletions
+   * apply only when the sandbox listing is complete, and changes that would
+   * grow the workspace beyond the store's advertised file or byte limit are
+   * refused, so the store always stays within the limits it is staged under.
+   */
   async #syncBack(
     mount: MountState,
     signal: AbortSignal | undefined,
   ): Promise<{
     filesChanged: SandboxCommandRecord["filesChanged"];
     ignoredPaths: SandboxCommandRecord["ignoredPaths"];
+    notPersisted: NotPersistedChange[];
   }> {
     const { provider, handle } = this.#input;
     const { workspace } = mount;
     const alias = workspace.alias;
     const filesChanged: SandboxCommandRecord["filesChanged"] = [];
     const ignoredPaths: SandboxCommandRecord["ignoredPaths"] = [];
-    const maxFileBytes = workspace.store.limits?.maxFileBytes ?? 1_048_576;
+    const current = new Map<
+      string,
+      { reason: NotPersistedReason; message: string }
+    >();
+    const limits = workspace.store.limits ?? {};
+    const maxFileBytes = limits.maxFileBytes ?? 1_048_576;
+    const options = signal ? { signal } : undefined;
     const snapshot = await this.#snapshot(mount, signal);
     for (const item of snapshot.ignored) {
       ignoredPaths.push({ alias, path: item.path, reason: item.reason });
+      current.set(
+        item.path,
+        item.reason === "symlink"
+          ? {
+              reason: "symlink",
+              message: "Symbolic links are not saved to the workspace.",
+            }
+          : {
+              reason: "invalid-path",
+              message:
+                "Hidden or unsupported names are never saved to the workspace.",
+            },
+      );
     }
+    const tooLarge = {
+      reason: "too-large" as const,
+      message: `Larger than the workspace's ${maxFileBytes}-byte file limit; not saved.`,
+    };
+    const overLimit = {
+      reason: "workspace-limit" as const,
+      message: `Saving it would exceed the workspace limit (${
+        limits.maxFiles ?? "unlimited"
+      } files, ${limits.maxTotalBytes ?? "unlimited"} bytes); not saved. Delete files to make room.`,
+    };
+
     const seen = new Set<string>();
+    const writes: Array<{
+      path: string;
+      size: number;
+      sha256: string;
+      previous: { size: number; sha256?: string } | undefined;
+    }> = [];
     for (const file of snapshot.files) {
       seen.add(file.path);
       const previous = mount.baseline.get(file.path);
       if (file.sha256 == null || file.size > maxFileBytes) {
         if (!previous || previous.sha256 !== undefined) {
           ignoredPaths.push({ alias, path: file.path, reason: "size" });
+          current.set(file.path, tooLarge);
         }
         continue;
       }
       if (previous && previous.sha256 === file.sha256) continue;
+      writes.push({
+        path: file.path,
+        size: file.size,
+        sha256: file.sha256,
+        previous,
+      });
+    }
+    if (snapshot.truncated) {
+      ignoredPaths.push({ alias, path: "*", reason: "limit" });
+      current.set("*", {
+        reason: "workspace-limit",
+        message: `The mount holds more than the workspace's ${
+          limits.maxFiles ?? 5_000
+        }-file limit. Files beyond the limit were not saved, and no deletions were saved.`,
+      });
+    }
+
+    let totalBytes = 0;
+    for (const entry of mount.baseline.values()) totalBytes += entry.size;
+    let fileCount = mount.baseline.size;
+
+    // An incomplete listing cannot distinguish a deleted file from one that
+    // was not listed, so nothing is deleted.
+    const deletions = snapshot.truncated
+      ? []
+      : [...mount.baseline.keys()].filter((path) => !seen.has(path));
+    for (const previousPath of deletions) {
+      try {
+        await workspace.store.delete!(previousPath, options);
+        totalBytes -= mount.baseline.get(previousPath)?.size ?? 0;
+        fileCount -= 1;
+        mount.baseline.delete(previousPath);
+        filesChanged.push({ alias, path: previousPath, action: "deleted" });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        ignoredPaths.push({
+          alias,
+          path: previousPath,
+          reason: `store: ${message}`,
+        });
+        current.set(previousPath, { reason: "store-rejected", message });
+      }
+    }
+
+    // Changes that do not grow the workspace first, then growth in path order
+    // while it fits.
+    const grows = (write: (typeof writes)[number]) =>
+      !write.previous || write.size > write.previous.size;
+    const ordered = [
+      ...writes.filter((write) => !grows(write)),
+      ...writes
+        .filter(grows)
+        .sort((left, right) =>
+          left.path < right.path ? -1 : left.path > right.path ? 1 : 0,
+        ),
+    ];
+    for (const write of ordered) {
+      const addedFiles = write.previous ? 0 : 1;
+      const addedBytes = write.size - (write.previous?.size ?? 0);
+      if (
+        addedBytes > 0 || addedFiles > 0
+          ? (limits.maxTotalBytes != null &&
+              totalBytes + addedBytes > limits.maxTotalBytes) ||
+            (limits.maxFiles != null &&
+              fileCount + addedFiles > limits.maxFiles)
+          : false
+      ) {
+        ignoredPaths.push({ alias, path: write.path, reason: "limit" });
+        current.set(write.path, overLimit);
+        continue;
+      }
       const data = await provider.readFile(
         handle,
-        assertSandboxPath(`${mount.directory}/${file.path}`),
-        signal ? { signal } : undefined,
+        assertSandboxPath(`${mount.directory}/${write.path}`),
+        options,
       );
       if (data.byteLength > maxFileBytes) {
-        ignoredPaths.push({ alias, path: file.path, reason: "size" });
+        ignoredPaths.push({ alias, path: write.path, reason: "size" });
+        current.set(write.path, tooLarge);
         continue;
       }
       try {
-        await workspace.store.write!(
-          file.path,
-          data,
-          signal ? { signal } : undefined,
-        );
-        mount.baseline.set(file.path, {
+        await workspace.store.write!(write.path, data, options);
+        totalBytes += data.byteLength - (write.previous?.size ?? 0);
+        fileCount += addedFiles;
+        mount.baseline.set(write.path, {
           size: data.byteLength,
           sha256: sha256(data),
         });
         filesChanged.push({
           alias,
-          path: file.path,
-          action: previous ? "modified" : "created",
+          path: write.path,
+          action: write.previous ? "modified" : "created",
           size: data.byteLength,
-          sha256: file.sha256,
+          sha256: write.sha256,
         });
       } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
         ignoredPaths.push({
           alias,
-          path: file.path,
-          reason: `store: ${error instanceof Error ? error.message : String(error)}`,
+          path: write.path,
+          reason: `store: ${message}`,
         });
+        current.set(write.path, { reason: "store-rejected", message });
       }
     }
-    for (const previousPath of [...mount.baseline.keys()]) {
-      if (seen.has(previousPath)) continue;
-      try {
-        await workspace.store.delete!(
-          previousPath,
-          signal ? { signal } : undefined,
-        );
-        mount.baseline.delete(previousPath);
-        filesChanged.push({ alias, path: previousPath, action: "deleted" });
-      } catch (error) {
-        ignoredPaths.push({
-          alias,
-          path: previousPath,
-          reason: `store: ${error instanceof Error ? error.message : String(error)}`,
-        });
-      }
+
+    // Report each unsaved path once per reason; a path that is later saved or
+    // removed is forgotten, so it is reported again if the problem returns.
+    const notPersisted: NotPersistedChange[] = [];
+    for (const [path, detail] of current) {
+      if (mount.reported.get(path) === detail.reason) continue;
+      notPersisted.push({ alias, path, ...detail });
     }
-    return { filesChanged, ignoredPaths };
+    mount.reported = new Map(
+      [...current].map(([path, detail]) => [path, detail.reason]),
+    );
+    return { filesChanged, ignoredPaths, notPersisted };
   }
 
   async #snapshot(
@@ -1079,6 +1323,8 @@ class ProviderRunSandboxSession implements RunSandboxSession {
   ): Promise<{
     files: Array<{ path: string; size: number; sha256?: string }>;
     ignored: Array<{ path: string; reason: string }>;
+    /** The listing stopped at the workspace's file limit; it is incomplete. */
+    truncated: boolean;
   }> {
     const { provider, handle, policy } = this.#input;
     const limits = mount.workspace.store.limits ?? {};
@@ -1162,7 +1408,7 @@ class ProviderRunSandboxSession implements RunSandboxSession {
             : [],
         )
       : [];
-    return { files, ignored };
+    return { files, ignored, truncated: parsed.truncated === true };
   }
 }
 

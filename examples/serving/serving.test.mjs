@@ -16,7 +16,15 @@ test("the serving walkthrough works end to end", async (t) => {
   const directory = await mkdtemp(
     path.join(tmpdir(), "agent-runtime-serving-"),
   );
-  t.after(() => rm(directory, { recursive: true, force: true }));
+  // Retries: on Windows a just-stopped process can still hold its files.
+  t.after(() =>
+    rm(directory, {
+      recursive: true,
+      force: true,
+      maxRetries: 10,
+      retryDelay: 200,
+    }),
+  );
   await cp(here, directory, {
     recursive: true,
     filter: (source) => !source.includes(`${path.sep}.data`),
@@ -82,8 +90,17 @@ test("the serving walkthrough works end to end", async (t) => {
     .map((line) => JSON.parse(line).ledger);
   assert.deepEqual(ledger, ["first-turn", "hit", "hit"]);
 
-  // Ctrl+C finishes active runs and exits cleanly.
+  // Ctrl+C finishes active runs and exits cleanly. Windows cannot send a
+  // child process SIGINT (kill() terminates it), so there the server is only
+  // stopped: the temporary directory is its working directory, and cannot be
+  // removed while it runs.
+  const exited = new Promise((resolve) => server.on("exit", resolve));
+  if (process.platform === "win32") {
+    server.kill();
+    await exited;
+    return;
+  }
   server.kill("SIGINT");
-  assert.equal(await new Promise((resolve) => server.on("exit", resolve)), 0);
+  assert.equal(await exited, 0);
   assert.match(serverLog, /Shutting down/u);
 });

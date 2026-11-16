@@ -375,6 +375,8 @@ describe("durable compaction recovery", () => {
       expect(sizes.length).toBeGreaterThan(1);
       expect(Math.max(...sizes)).toBeLessThanOrEqual(limit);
     },
+    // Summarizing 40 KB of multi-byte material takes many chunked calls.
+    30_000,
   );
 
   it.each(["summarize", "summarize-or-prune"] as const)(
@@ -468,5 +470,178 @@ describe("durable compaction recovery", () => {
       runtime().run({ runId: "calls", resume: true }),
     ).rejects.toThrow("summarizer calls");
     expect(summaries).toBe(3);
+  });
+});
+
+describe("resume notices", () => {
+  it("tells the model once, between turns, that workspace changes were not saved", async () => {
+    const runStore = new MemoryRunStore();
+    const requests: ModelRequest[] = [];
+    let turns = 0;
+    const model: ModelAdapter = {
+      generate: async (request) => {
+        requests.push(structuredClone(request));
+        turns += 1;
+        return turns === 1
+          ? reply(undefined, [{ id: "one", name: "write", input: {} }])
+          : reply("done");
+      },
+    };
+    const tools: ToolAdapter = {
+      listTools: async () => [tool],
+      executeTool: async (call) => ({
+        callId: call.id,
+        name: call.name,
+        output: "written",
+      }),
+    };
+    const controller = new AbortController();
+    const saveCheckpoint = runStore.saveCheckpoint.bind(runStore);
+    runStore.saveCheckpoint = async (checkpoint) => {
+      await saveCheckpoint(checkpoint);
+      // Pause right after the model asked for the tool, before it runs.
+      if (
+        checkpoint.continuation?.phase === "model-completed" &&
+        !controller.signal.aborted
+      )
+        controller.abort(new RunSuspendedError("paused"));
+    };
+    const runtime = () =>
+      new AgentRuntime({
+        runStore,
+        model,
+        tools,
+        stepExecutors: [new PromptStepExecutor()],
+      });
+    const manifest: AgentManifest = {
+      schemaVersion: "1.0",
+      model: modelReference,
+      steps: [{ id: "s", type: "prompt", prompt: "Write", tools: ["write"] }],
+    };
+    await expect(
+      runtime().run({ runId: "notice", manifest, signal: controller.signal }),
+    ).rejects.toBeInstanceOf(RunSuspendedError);
+    // As the runtime records a final sync failure on suspension.
+    runStore.checkpoints.get("notice")!.at(-1)!.metadata = {
+      workspaceSync: { failed: true, error: "disk full" },
+    };
+    await runtime().run({ runId: "notice", resume: true });
+
+    const last = requests.at(-1)!.messages;
+    const roles = last.map((message) => message.role);
+    // The note follows the tool result; it never separates call and result.
+    expect(roles.slice(-3)).toEqual(["assistant", "tool", "user"]);
+    const noteText = JSON.stringify(last.at(-1));
+    expect(noteText).toContain("could not be saved when its sandbox closed");
+    expect(noteText).toContain("disk full");
+    expect(
+      requests
+        .flatMap((request) => request.messages)
+        .filter((message) =>
+          JSON.stringify(message).includes("could not be saved"),
+        ),
+    ).toHaveLength(1);
+  });
+});
+
+describe("turn limit", () => {
+  it("suspends before a turn beyond maxTurnsPerPrompt and continues when more are granted", async () => {
+    const runStore = new MemoryRunStore();
+    let turns = 0;
+    const model: ModelAdapter = {
+      generate: async () => {
+        turns += 1;
+        return turns < 5
+          ? reply(undefined, [
+              { id: `call-${turns}`, name: "write", input: {} },
+            ])
+          : reply("done");
+      },
+    };
+    const tools: ToolAdapter = {
+      listTools: async () => [tool],
+      executeTool: async (call) => ({
+        callId: call.id,
+        name: call.name,
+        output: "ok",
+      }),
+    };
+    const runtime = () =>
+      new AgentRuntime({
+        runStore,
+        model,
+        tools,
+        stepExecutors: [new PromptStepExecutor()],
+      });
+    const manifest: AgentManifest = {
+      schemaVersion: "1.0",
+      model: modelReference,
+      limits: { maxTurnsPerPrompt: 3 },
+      steps: [{ id: "s", type: "prompt", prompt: "Go", tools: ["write"] }],
+    };
+    await expect(
+      runtime().run({ runId: "turns", manifest }),
+    ).rejects.toMatchObject({
+      reason: "blocked",
+      details: {
+        cause: "limit",
+        limit: "maxTurnsPerPrompt",
+        used: 3,
+        value: 3,
+      },
+    });
+    expect(turns).toBe(3);
+    const result = await runtime().run({
+      runId: "turns",
+      resume: true,
+      limits: { maxTurnsPerPrompt: 10 },
+    });
+    expect(result.output).toBe("done");
+    // The three completed turns were not repeated.
+    expect(turns).toBe(5);
+  });
+});
+
+describe("checkpoint volume", () => {
+  it("commits about two checkpoints per tool call", async () => {
+    const runStore = new MemoryRunStore();
+    let saves = 0;
+    const save = runStore.saveCheckpoint.bind(runStore);
+    runStore.saveCheckpoint = async (checkpoint) => {
+      saves += 1;
+      return save(checkpoint);
+    };
+    const calls = 20;
+    let turn = 0;
+    const model: ModelAdapter = {
+      generate: async () =>
+        ++turn <= calls
+          ? reply(undefined, [{ id: `call-${turn}`, name: "write", input: {} }])
+          : reply("done"),
+    };
+    const tools: ToolAdapter = {
+      listTools: async () => [tool],
+      executeTool: async (call) => ({
+        callId: call.id,
+        name: call.name,
+        output: "ok",
+      }),
+    };
+    await new AgentRuntime({
+      runStore,
+      model,
+      tools,
+      stepExecutors: [new PromptStepExecutor()],
+    }).run({
+      manifest: {
+        schemaVersion: "1.0",
+        model: modelReference,
+        limits: { maxToolCallsPerIteration: 100 },
+        steps: [{ id: "s", type: "prompt", prompt: "Go", tools: ["write"] }],
+      },
+    });
+    // One after each model response and one after each tool result, plus the
+    // run's first checkpoint, the final answer, and the step commit.
+    expect(saves).toBeLessThanOrEqual(2 * calls + 4);
   });
 });

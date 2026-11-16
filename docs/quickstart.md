@@ -65,6 +65,9 @@ If the run fails:
 - Permission error: use `--store ./writable-directory` and check its permissions.
 - Node syntax or engine error: check `node --version`; Node.js 22.20.0 or newer is required.
 
+A failed run keeps its progress: after fixing the cause, continue it with
+`npx agent-runtime resume <run-id>`.
+
 The default local files are:
 
 ```text
@@ -74,6 +77,7 @@ The default local files are:
     <run-id>/
       run.json
       checkpoint.json
+      checkpoints/        # completed steps, for agent-runtime restart
   artifacts/
     <artifact-id>/
       data

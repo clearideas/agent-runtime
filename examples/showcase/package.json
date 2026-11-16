@@ -19,12 +19,12 @@
     "test": "npm run type-check && node --test \"test/*.test.ts\""
   },
   "dependencies": {
-    "@clearideas/agent-runtime": "0.9.0",
-    "@clearideas/agent-runtime-sandbox": "0.9.0",
+    "@clearideas/agent-runtime": "file:../../packages/agent-runtime",
+    "@clearideas/agent-runtime-sandbox": "file:../../packages/sandbox",
     "@highlightjs/cdn-assets": "^11.12.0",
     "dompurify": "^3.4.17",
     "marked": "^18.0.12",
-    "@clearideas/consent-analytics": "0.1.1"
+    "@clearideas/consent-analytics": "file:../../vendor/clearideas-consent-analytics-0.1.0-rc.1.tgz"
   },
   "devDependencies": {
     "@types/node": "^26.6.6",

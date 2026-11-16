@@ -9,6 +9,7 @@ import type {
   RunError,
   RunEvent,
   AgentVariableOverride,
+  RunLimits,
   RunResult,
 } from "@clearideas/agent-runtime-contracts";
 
@@ -44,6 +45,8 @@ export interface ExecutionRequest {
   /** Step scheduling selected by the agent run manifest. */
   execution?: AgentRunExecution;
   budget?: AgentRunBudget;
+  /** Raise or lower run limits for this attempt and later ones; host ceilings apply. */
+  limits?: RunLimits;
   /** Conversation history for an agent that declares messages. */
   messages?: ConversationMessageInput[];
   /** The runtime's signature over a leading prefix of `messages`. */

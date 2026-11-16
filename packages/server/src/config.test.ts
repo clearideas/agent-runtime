@@ -221,7 +221,8 @@ describe("single-manifest mode", () => {
       servedModelName: "document-reviewer",
       input: { document: "last-user" },
     });
-    expect(loaded.baseDirectory).toBe("/agents");
+    // Paths are resolved, so on Windows they gain a drive letter.
+    expect(loaded.baseDirectory).toBe(path.resolve("/agents"));
     expect(loaded.config.store.driver).toBe("memory");
     expect(loaded.config.stores.default).toEqual({
       driver: "memory",
@@ -229,7 +230,7 @@ describe("single-manifest mode", () => {
     });
     expect(loaded.config.models[0]).toMatchObject({
       name: "document-reviewer",
-      manifest: "/agents/review.agent.yaml",
+      manifest: path.resolve("/agents/review.agent.yaml"),
       input: { document: "last-user" },
     });
     expect(loaded.config.artifacts.path).toBeUndefined();
@@ -238,6 +239,8 @@ describe("single-manifest mode", () => {
       servedModelName: "document-reviewer",
       ledger: { driver: "sqlite", path: "/state/ledger.sqlite" },
     });
-    expect(durable.config.artifacts.path).toBe("/state/artifacts");
+    expect(durable.config.artifacts.path).toBe(
+      path.resolve("/state/artifacts"),
+    );
   });
 });

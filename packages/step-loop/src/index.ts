@@ -9,12 +9,28 @@ import type {
 } from "@clearideas/agent-runtime-contracts";
 import {
   applyStatePatch,
+  childExecutionKey,
+  createLimitSuspension,
   setVariableAtPath,
   withoutMessagesView,
+  type ChildExecutionFrame,
+  type NestedCheckpointInput,
   type StepExecutionContext,
   type StepExecutionResult,
   type StepExecutor,
 } from "@clearideas/agent-runtime-core";
+
+/**
+ * A child that was mid-step when the loop checkpointed: its continuation,
+ * its variables, and how many trailing transcript items and artifacts of the
+ * loop's checkpoint belong to it.
+ */
+interface LoopChildFrame extends JsonObject {
+  state: VariableState;
+  continuation: JsonObject | null;
+  transcriptCount: number;
+  artifactCount: number;
+}
 
 interface LoopContinuation extends JsonObject {
   type: "loop";
@@ -27,6 +43,8 @@ interface LoopContinuation extends JsonObject {
   finished: boolean;
   goalMet: boolean;
   goalMetAtIteration: number | null;
+  /** Present when the child at childIndex was mid-step. */
+  child?: LoopChildFrame;
 }
 
 const clone = <T>(value: T): T => structuredClone(value);
@@ -100,6 +118,21 @@ const parseItems = (
 const serializeOutput = (value: JsonValue): string =>
   typeof value === "string" ? value : JSON.stringify(value);
 
+const isCount = (value: JsonValue | undefined): value is number =>
+  typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
+
+const isChildFrame = (value: JsonValue | undefined): boolean => {
+  const frame = asObject(value);
+  return (
+    frame !== undefined &&
+    asObject(frame.state) !== undefined &&
+    (frame.continuation === null ||
+      asObject(frame.continuation) !== undefined) &&
+    isCount(frame.transcriptCount) &&
+    isCount(frame.artifactCount)
+  );
+};
+
 const isLoopContinuation = (
   value: JsonObject | undefined,
   stepId: string,
@@ -108,7 +141,14 @@ const isLoopContinuation = (
   value.stepId === stepId &&
   typeof value.iterationIndex === "number" &&
   typeof value.childIndex === "number" &&
-  Array.isArray(value.outputs);
+  Array.isArray(value.outputs) &&
+  (value.child === undefined || isChildFrame(value.child));
+
+/** Split a restored list into the loop's own items and its child's tail. */
+const splitTail = <T>(items: T[], count: number): [T[], T[]] =>
+  count > 0 && count <= items.length
+    ? [items.slice(0, items.length - count), items.slice(items.length - count)]
+    : [items, []];
 
 /** An iteration's variables for `loop.previous`, without runtime-provided views. */
 const snapshotIterationVariables = (
@@ -197,6 +237,15 @@ export class LoopStepExecutor implements StepExecutor<LoopStep> {
     )
       ? context.resume.continuation
       : undefined;
+    if (context.resume?.continuation && !restored) {
+      // Checkpoints written before loops framed their children hold a child's
+      // continuation in place of the loop's; the loop cannot tell where it was.
+      await context.emit("diagnostic", {
+        code: "LOOP_RESUME_STATE_UNRECOGNIZED",
+        message:
+          "The loop's saved position was not recognized; it restarts from its first iteration.",
+      });
+    }
     let state = clone(context.variables as VariableState);
     const outputs: JsonValue[] = clone(restored?.outputs ?? []);
     let previous = clone(restored?.previous ?? null);
@@ -205,10 +254,19 @@ export class LoopStepExecutor implements StepExecutor<LoopStep> {
     let startChild = restored?.childIndex ?? 0;
     let goalMet = restored?.goalMet ?? false;
     let goalMetAtIteration = restored?.goalMetAtIteration ?? null;
-    const transcript: TranscriptItem[] = clone(
-      context.resume?.transcript ?? [],
+    // A mid-step child's transcript and artifacts are the tail of what the
+    // loop restored; they go back to the child, not into the loop's lists.
+    const [transcript, childTranscript] = splitTail<TranscriptItem>(
+      clone(restored ? (context.resume?.transcript ?? []) : []),
+      restored?.child?.transcriptCount ?? 0,
     );
-    const artifacts: ArtifactRef[] = clone(context.resume?.artifacts ?? []);
+    const [artifacts, childArtifacts] = splitTail<ArtifactRef>(
+      clone(restored ? (context.resume?.artifacts ?? []) : []),
+      restored?.child?.artifactCount ?? 0,
+    );
+    let resumingChild: LoopChildFrame | undefined = restored?.child
+      ? clone(restored.child)
+      : undefined;
     /** A child asked to end the run (for example a rejected approval with onReject: complete). */
     let endRun = false;
 
@@ -218,8 +276,20 @@ export class LoopStepExecutor implements StepExecutor<LoopStep> {
         iteration < iterationLimit;
         iteration += 1
       ) {
+        // A runaway guard: the checkpoint after the previous iteration is the
+        // position a raised limit resumes from.
+        const iterationCeiling = context.limits?.maxLoopIterations;
+        if (iterationCeiling !== undefined && iteration >= iterationCeiling) {
+          throw createLimitSuspension({
+            limit: "maxLoopIterations",
+            used: iteration,
+            value: iterationCeiling,
+            stepId: context.step.id,
+          });
+        }
         const resumingIteration =
-          iteration === startIteration && startChild > 0;
+          iteration === startIteration &&
+          (startChild > 0 || resumingChild !== undefined);
         let local = resumingIteration ? clone(state) : clone(state);
         if (!resumingIteration) {
           const itemVariable = config.itemVariable ?? "item";
@@ -284,7 +354,67 @@ export class LoopStepExecutor implements StepExecutor<LoopStep> {
           const child = context.step.steps[childIndex];
           if (!child) continue;
           const childPath = `${stepPath}/${child.id}`;
-          const result = await executeChild(child, local, childPath);
+          const resumed =
+            resumingIteration && childIndex === childStart
+              ? resumingChild
+              : undefined;
+          resumingChild = undefined;
+          const childStartState = clone(local);
+          const frame: ChildExecutionFrame = {
+            key: String(iteration),
+            checkpoint: (nested: NestedCheckpointInput) => ({
+              // The loop resumes from the variables it had when the child began.
+              state: childStartState,
+              cursor: {
+                stepId: child.id,
+                stepPath: childPath,
+                loopIteration: iteration + 1,
+                childIndex,
+                ...(nested.cursor ?? {}),
+              },
+              continuation: {
+                ...continuation({
+                  stepId: context.step.id,
+                  iterationIndex: iteration,
+                  childIndex,
+                  outputs,
+                  previous,
+                  lastOutput,
+                  finished: false,
+                  goalMet,
+                  goalMetAtIteration,
+                }),
+                child: {
+                  state: clone(nested.state),
+                  continuation: nested.continuation
+                    ? clone(nested.continuation)
+                    : null,
+                  transcriptCount: nested.transcript?.length ?? 0,
+                  artifactCount: nested.artifacts?.length ?? 0,
+                },
+              },
+              transcript: [...transcript, ...(nested.transcript ?? [])],
+              artifacts: [...artifacts, ...(nested.artifacts ?? [])],
+              ...(nested.boundary ? { boundary: nested.boundary } : {}),
+            }),
+            ...(resumed
+              ? {
+                  resume: {
+                    ...(resumed.continuation
+                      ? { continuation: resumed.continuation }
+                      : {}),
+                    transcript: childTranscript,
+                    artifacts: childArtifacts,
+                  },
+                }
+              : {}),
+          };
+          const result = await executeChild(
+            child,
+            resumed ? clone(resumed.state) : local,
+            childPath,
+            frame,
+          );
           local = applyStatePatch(local, result.statePatch);
           transcript.push(...(result.transcript ?? []));
           artifacts.push(...(result.artifacts ?? []));
@@ -297,6 +427,15 @@ export class LoopStepExecutor implements StepExecutor<LoopStep> {
           const nextChildIndex = childIndex + 1;
           const nextChild = context.step.steps[nextChildIndex];
           await checkpoint({
+            // The child completed: a step commit point and a restart point.
+            boundary: {
+              stepPath: childPath,
+              executionKey: childExecutionKey(
+                context.executionKey ?? stepPath,
+                child.id,
+                { key: String(iteration) },
+              ),
+            },
             state: local,
             cursor: {
               stepId: nextChild?.id ?? context.step.id,
