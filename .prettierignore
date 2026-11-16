@@ -8,3 +8,4 @@ examples/**/.data/
 package-lock.json
 LICENSE
 docs/public/
+examples/**/.data-python/

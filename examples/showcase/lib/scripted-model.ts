@@ -10,6 +10,8 @@
  * Text is streamed in small paced chunks so the browser can animate it; the
  * pace is a multiplier where 0 means "as fast as possible" (used by tests).
  */
+import { appendFileSync } from "node:fs";
+
 import type {
   JsonValue,
   ModelAdapter,
@@ -111,6 +113,24 @@ const toolResultsOf = (request: ModelRequest): ToolResult[] =>
 const estimateTokens = (text: string) =>
   Math.max(1, Math.ceil(text.length / 4));
 
+/**
+ * Tests only: with SHOWCASE_RECORD_MODEL_REQUESTS set to a file path, append
+ * every request the scripted model receives, one JSON line each. The
+ * cross-runtime parity test compares them with the Python showcase's.
+ */
+const recordRequest = (request: ModelRequest) => {
+  const file = process.env.SHOWCASE_RECORD_MODEL_REQUESTS;
+  if (!file) return;
+  appendFileSync(
+    file,
+    `${JSON.stringify({
+      messages: request.messages,
+      tools: (request.tools ?? []).map((tool) => tool.name),
+      outputSchema: request.outputSchema ?? null,
+    })}\n`,
+  );
+};
+
 /** Split text into word-sized chunks so streaming reads naturally. */
 const chunks = (text: string): string[] => text.match(/\s*\S+\s*/gu) ?? [text];
 
@@ -138,6 +158,7 @@ export class ScriptedModelAdapter implements ModelAdapter {
   }
 
   async *stream(request: ModelRequest): AsyncIterable<ModelEvent> {
+    recordRequest(request);
     const results = toolResultsOf(request);
     // A real model might keep going after the sandbox itself breaks; the
     // script stops so the failure is visible where it happened.

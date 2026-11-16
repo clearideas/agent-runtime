@@ -10,6 +10,20 @@ export const getJson = async (url, options) => {
   return body;
 };
 
+/**
+ * The Python showcase server (server.py) reports which runtime serves the
+ * demos; show it next to the sandbox chip. server.ts reports none.
+ */
+export const runtimeChip = (beside, environment) => {
+  if (environment.runtime?.language !== "python" || !beside) return;
+  const existing = document.getElementById("runtime-chip");
+  const chip =
+    existing ?? h("span.chip.ok#runtime-chip", {}, h("i"), "Runtime: Python");
+  chip.title =
+    `Agent Runtime for Python ${environment.runtime.version ?? ""}`.trim();
+  if (!existing) beside.after(chip);
+};
+
 /** Reflect server capabilities in the top bar and the model selector. */
 export const applyEnvironment = (environment) => {
   const { sandbox, live } = environment;
@@ -24,6 +38,7 @@ export const applyEnvironment = (environment) => {
         : "No sandbox",
   );
   chip.title = sandbox.detail;
+  runtimeChip(chip, environment);
   isolationBanner(document.getElementById("isolation-banner"), environment);
 
   const liveInput = document.querySelector('input[name="mode"][value="live"]');
@@ -169,8 +184,10 @@ export const createSourceViewer = async (demoId, sources) => {
       }),
     ),
   );
+  // The integration code first: host.ts, or host.py on the Python server.
   const initial =
-    sources.find((source) => source.path.endsWith("host.ts")) ?? sources[0];
+    sources.find((source) => /\/host\.(ts|py)$/u.test(source.path)) ??
+    sources[0];
   if (initial) await show(initial);
 };
 

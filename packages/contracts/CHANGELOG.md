@@ -1,5 +1,9 @@
 # @clearideas/agent-runtime-contracts
 
+## 1.0.0
+
+No changes in this release.
+
 ## 0.10.0
 
 ### Minor Changes

@@ -1,0 +1,17 @@
+# Lint settings for the Python showcase (server.py, lib/*.py, demos/*/*.py).
+# `make test-showcase` at the repository root runs ruff with this file.
+line-length = 120
+target-version = "py311"
+src = ["."]
+# The demos' fixture repositories are the agents' data, not showcase code.
+extend-exclude = ["**/demos/*/fixture"]
+
+[lint]
+select = ["E", "F", "W", "I", "B", "UP", "RUF"]
+# Long literals (taglines, captions) mirror the TypeScript showcase verbatim.
+# Demo classes declare their gallery text and sources as plain class attributes.
+ignore = ["E501", "RUF001", "RUF002", "RUF003", "RUF012"]
+
+[lint.isort]
+known-first-party = ["lib", "demos", "server"]
+known-third-party = ["clearideas_agent_runtime"]

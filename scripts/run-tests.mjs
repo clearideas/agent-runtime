@@ -80,7 +80,102 @@ const discoverSuites = () => {
       script: examples,
     });
   }
+  // A local opt-in to include Python interop in the npm test summary.
+  if (
+    process.env.AGENT_RUNTIME_TEST_PYTHON_INTEROP === "1" &&
+    existsSync(path.join(repository, "python", ".venv")) &&
+    uvCommand()
+  ) {
+    suites.push({
+      name: "python-interop",
+      directory: path.join(repository, "python"),
+      label: "python/tests/interop",
+      script: "pytest tests/interop",
+    });
+  }
   return suites;
+};
+
+// uv on PATH, or the private copy `make test` installs into python/.bootstrap.
+const uvCommand = () =>
+  ["uv", path.join(repository, "python", ".bootstrap", "bin", "uv")].find(
+    (command) =>
+      spawnSync(command, ["--version"], { encoding: "utf8" }).status === 0,
+  );
+
+const decodeXml = (text) =>
+  text
+    .replace(/&lt;/gu, "<")
+    .replace(/&gt;/gu, ">")
+    .replace(/&quot;/gu, '"')
+    .replace(/&apos;/gu, "'")
+    .replace(/&#10;/gu, "\n")
+    .replace(/&amp;/gu, "&");
+
+const runPytest = (suite, scratch) => {
+  const report = path.join(scratch, "python-interop.xml");
+  const started = Date.now();
+  const child = spawnSync(
+    uvCommand(),
+    [
+      "run",
+      "--frozen",
+      "pytest",
+      ...suite.script.replace(/^pytest\s*/u, "").split(/\s+/u),
+      "-q",
+      `--junitxml=${report}`,
+    ],
+    { cwd: suite.directory, encoding: "utf8", maxBuffer: 64 * 1024 * 1024 },
+  );
+  const durationMs = Date.now() - started;
+  const output = stripAnsi(`${child.stdout}\n${child.stderr}`);
+  if (!existsSync(report)) {
+    return {
+      suite,
+      durationMs,
+      files: 0,
+      passed: 0,
+      failed: 0,
+      skipped: 0,
+      failures: [],
+      error: output.trim(),
+    };
+  }
+  const xml = readFileSync(report, "utf8");
+  const attribute = (name) =>
+    Number(
+      new RegExp(`<testsuite[^>]*\\s${name}="(\\d+)"`, "u").exec(xml)?.[1] ?? 0,
+    );
+  const failures = [];
+  const files = new Set();
+  for (const match of xml.matchAll(
+    /<testcase classname="([^"]*)" name="([^"]*)"[^>]*?(?:\/>|>([\s\S]*?)<\/testcase>)/gu,
+  )) {
+    const parts = match[1].split(".");
+    const module = parts.findIndex((part) => part.startsWith("test_"));
+    files.add(module < 0 ? match[1] : parts.slice(0, module + 1).join("."));
+    const failure = /<(failure|error) message="([^"]*)"/u.exec(match[3] ?? "");
+    if (failure) {
+      failures.push({
+        title: `${match[1]}::${decodeXml(match[2])}`,
+        message: decodeXml(failure[2]),
+      });
+    }
+  }
+  const failed = attribute("failures") + attribute("errors");
+  const skipped = attribute("skipped");
+  return {
+    suite,
+    durationMs,
+    files: files.size,
+    passed: attribute("tests") - failed - skipped,
+    failed,
+    skipped,
+    failures,
+    ...(child.status !== 0 && failures.length === 0
+      ? { error: output.trim() }
+      : {}),
+  };
 };
 
 const resolveVitest = (directory) => {
@@ -286,9 +381,11 @@ const main = () => {
   const results = [];
   try {
     for (const suite of suites) {
-      const result = suite.script.startsWith("vitest")
-        ? runVitest(suite, scratch)
-        : runNodeTest(suite);
+      const result = suite.script.startsWith("pytest")
+        ? runPytest(suite, scratch)
+        : suite.script.startsWith("vitest")
+          ? runVitest(suite, scratch)
+          : runNodeTest(suite);
       results.push(result);
       const mark = result.error || result.failed > 0 ? "✖" : "✓";
       process.stdout.write(

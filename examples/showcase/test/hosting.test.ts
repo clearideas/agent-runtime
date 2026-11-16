@@ -3,9 +3,8 @@ import { readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import test from "node:test";
 
-import { createShowcaseApp } from "../server.ts";
 import { parseOrigin } from "../lib/hosting.ts";
-import { startShowcase } from "./helpers.ts";
+import { createShowcaseApp, startShowcase } from "./helpers.ts";
 
 test("readiness exposes a boot ID, permits only declared parents, and creates no session", async (context) => {
   const { baseURL } = await startShowcase(context, {

@@ -3,3 +3,10 @@ node_modules
 .env*
 test
 launcher
+# The Python edition (server.py, lib/*.py, demos/*/*.py) is not part of this image.
+.data-python
+test_py
+**/__pycache__
+.ruff_cache
+lib/*.py
+demos/*/*.py

@@ -1,0 +1,117 @@
+[project]
+name = "clearideas-agent-runtime"
+version = "1.0.0"
+description = "Python implementation of Clear Ideas Agent Runtime, interoperable with the TypeScript runtime."
+readme = "README.md"
+license = "Apache-2.0"
+authors = [{ name = "Clear Ideas Incorporated" }]
+requires-python = ">=3.11"
+classifiers = [
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "License :: OSI Approved :: Apache Software License",
+  "Typing :: Typed",
+]
+dependencies = [
+  "pydantic>=2.12,<3",
+  "pyjexl-extended==0.2.6",
+  "ruamel.yaml>=0.19.1,<0.20",
+  "rfc8785>=0.1.4,<0.2",
+  "pyicu-wheels>=2.15.2,<2.16",
+  "ada-url>=4.0,<5",
+  "cryptography>=44",
+  "httpx>=0.28,<1",
+]
+
+[project.optional-dependencies]
+providers = ["pydantic-ai-slim[openai,anthropic,google,groq,cohere,xai]>=2.66,<2.67"]
+mcp = ["mcp>=2.3,<3"]
+otel = ["opentelemetry-api>=1.28,<2"]
+all = ["clearideas-agent-runtime[providers,mcp,otel]"]
+
+[project.scripts]
+agent-runtime-py = "clearideas_agent_runtime.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/clearideas/agent-runtime"
+Repository = "https://github.com/clearideas/agent-runtime"
+
+[dependency-groups]
+# The Python showcase server (examples/showcase/server.py); not needed by the runtime.
+showcase = ["starlette>=0.46", "uvicorn>=0.34"]
+dev = [
+  "pytest>=8.3",
+  "pytest-asyncio>=1.0",
+  "hypothesis>=6.100",
+  "ruff>=0.8",
+  "pyright>=1.1.390",
+  "opentelemetry-sdk>=1.28,<2",
+]
+
+[tool.uv]
+default-groups = ["dev", "showcase"]
+
+[build-system]
+requires = ["hatchling>=1.25"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/clearideas_agent_runtime"]
+
+[tool.hatch.build.targets.sdist]
+only-include = ["src", "tests", "README.md", "PORTING_NOTES.md", "pyproject.toml"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+# Every warning fails the suite, except these deprecations raised inside third-party
+# packages at their latest releases (nothing in this package triggers them directly):
+# - cohere 7.3.1 reads pydantic's deprecated `__fields__` when parsing every response;
+# - google-genai subclasses aiohttp.ClientSession (imported because xai-sdk installs aiohttp);
+# - invalid escape sequences in installed packages, reported when a module is first compiled
+#   (ruff's W605 covers this package).
+filterwarnings = [
+  "error",
+  "ignore::SyntaxWarning:.*site-packages.*",
+  "ignore:invalid escape sequence:DeprecationWarning",
+  "ignore:The `__fields__` attribute is deprecated:DeprecationWarning:cohere\\.core\\.unchecked_base_model",
+  "ignore:Inheritance class AiohttpClientSession from ClientSession is discouraged:DeprecationWarning:google\\.genai\\._api_client",
+]
+
+[tool.ruff]
+line-length = 120
+target-version = "py311"
+src = ["src", "tests"]
+# The workspace helper is shared byte-for-byte with the TypeScript package.
+extend-exclude = ["src/clearideas_agent_runtime/sandbox/assets"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "ASYNC", "RUF"]
+ignore = ["E501", "RUF001", "RUF002", "RUF003", "B008"]
+
+[tool.ruff.lint.per-file-ignores]
+"__init__.py" = ["F401", "F403", "F405"]
+"tests/**" = ["ASYNC230", "ASYNC240", "ASYNC251"]
+# Local stores use synchronous filesystem calls (small, local, development-oriented I/O).
+"src/clearideas_agent_runtime/stores/local/*.py" = ["ASYNC230", "ASYNC240"]
+# Local sandbox providers use synchronous filesystem calls on their own directories.
+"src/clearideas_agent_runtime/sandbox/*.py" = ["ASYNC230", "ASYNC240"]
+# pydantic copies field defaults; configuration files are small local reads.
+"src/clearideas_agent_runtime/config/schema.py" = ["RUF012", "ASYNC240"]
+# The command line reads local files before and after runs.
+"src/clearideas_agent_runtime/cli.py" = ["ASYNC230", "ASYNC240"]
+
+[tool.pyright]
+include = ["src"]
+pythonVersion = "3.11"
+typeCheckingMode = "standard"
+reportMissingModuleSource = false
+# Optional narrowing: many values are validated by the contract schemas before
+# use (mirroring TypeScript non-null assertions); pyright cannot see that.
+reportOptionalMemberAccess = false
+reportOptionalOperand = false
+reportOptionalSubscript = false
+reportOptionalIterable = false

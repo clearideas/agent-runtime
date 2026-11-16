@@ -14,6 +14,59 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  python:
+    name: Python runtime on ${{ matrix.python }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        python:
+          - "3.11"
+          - "3.13"
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install sandbox test dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes bubblewrap
+          # Enable user namespaces on this disposable runner for isolation tests.
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+
+      - name: Test the Python runtime
+        env:
+          UV_PYTHON: ${{ matrix.python }}
+        run: make test
+
+  showcase-python:
+    name: Python showcase HTTP smoke test
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          cache: npm
+      - run: make install
+      - run: npm ci
+        working-directory: examples/showcase
+      - name: Test Python server routes and a complete demo
+        run: node --test test/server.test.ts test/document-library.test.ts
+        working-directory: examples/showcase
+        env:
+          SHOWCASE_RUNTIME: python
+          SHOWCASE_SANDBOX: unisolated
+
   validate:
     name: Validate on Node.js ${{ matrix.node }}
     runs-on: ubuntu-latest

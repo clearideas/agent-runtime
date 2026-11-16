@@ -235,5 +235,10 @@ export const liveModel = (
       } as never;
     },
   });
-  return new AiSdkModelAdapter({ resolveModel: () => model as never });
+  // The Python showcase tests answer the same mock over HTTP
+  // (python-live-provider.ts), so the mock travels with the adapter.
+  return Object.assign(
+    new AiSdkModelAdapter({ resolveModel: () => model as never }),
+    { languageModel: model },
+  );
 };

@@ -1,2 +1,4 @@
 .data/
-node_modules/
+.data-python/
+node_modules
+__pycache__/

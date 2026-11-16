@@ -1,6 +1,6 @@
 # Agent Runtime Showcase
 
-Interactive examples of Clear Ideas Agent Runtime 0.10, available locally or
+Interactive examples of Clear Ideas Agent Runtime 1.0, available locally or
 on a hosted server. Each demo executes an agent manifest and visualizes the
 runtime's event stream. Every page also shows the manifest, host configuration,
 and integration code used by the example.
@@ -16,8 +16,7 @@ and integration code used by the example.
 | **Data Chat**          | A chat, one run per message: moderation, data read and charts rendered in the sandbox, and a signed history the browser keeps     |
 | **Document Chat**      | A chat about a Word document: each revision is a real .docx written in the sandbox, kept in a workspace per conversation, by turn |
 
-The example targets Agent Runtime **0.10** and uses a separate lockfile. Until
-0.10.0 is published, it installs the runtime from this repository
+The example targets Agent Runtime **1.0** and uses a separate lockfile. It installs the runtime from this repository
 (`file:../../packages/...`), so build the repository first: run `npm ci` and
 `npm run build` at the repository root, then `npm ci` here.
 
@@ -52,6 +51,30 @@ model-provider calls:
 export OPENAI_API_KEY="..."
 npm start
 ```
+
+## Run it on the Python runtime
+
+Every demo also runs on [Agent Runtime for Python](../../python/README.md):
+`server.py` serves the same pages and API as `server.ts`, and each demo's
+`host.py` and `script.py` sit beside its `host.ts` and `script.ts`, using the
+same `agent.yaml`, `runtime.config.yaml`, and fixtures. The top bar shows
+**Runtime: Python**, and "How it's built" shows the Python sources.
+
+Requirements: [uv](https://docs.astral.sh/uv/) (it installs Python 3.11+ and
+the runtime from `../../python`), plus this example's `npm ci` for the browser
+libraries.
+
+```sh
+cd examples/showcase
+npm ci
+npm run start:python         # uv run --project ../../python python server.py
+npm run doctor:python        # the doctor, on the Python runtime
+```
+
+It listens on the same port and reads the same `SHOWCASE_*` variables; its
+default data directory is `.data-python/`. Both servers can run at once on
+different ports. Use separate `SHOWCASE_DATA` directories when running both
+servers at once. Durable Runs uses the same manifest on both runtimes.
 
 ## Windows with Docker
 
@@ -365,8 +388,7 @@ What to watch:
 4. **Hidden data.** `customers.csv` holds contact details. The host's
    visibility rules keep it out of the sandbox, so the agent never sees it.
 
-Data Chat uses the conversation history support included in the pinned
-Agent Runtime 0.9.0 packages.
+Data Chat uses the conversation history support included in Agent Runtime 1.0.
 
 ### Files
 
@@ -435,7 +457,9 @@ lib/docx.ts             reads a .docx for the page's preview
 
 ```text
 server.ts                        HTTP wiring: static files, JSON endpoints, NDJSON run streams
-demos/<name>/                    one folder per demo (agent.yaml, runtime.config.yaml, host.ts, script.ts)
+server.py                        the same server on the Python runtime (Starlette + uvicorn)
+demos/<name>/                    one folder per demo (agent.yaml, runtime.config.yaml, host.ts,
+                                 script.ts, and their Python editions host.py and script.py)
 lib/catalog.ts                   the list of demos
 lib/environment.ts               sandbox detection and the Scripted/Live mode policy
 lib/scripted-model.ts            a paced, deterministic ModelAdapter
@@ -449,6 +473,7 @@ public/assets/lib/stage.js       the shared stage: agent → policy → sandbox 
 public/assets/lib/demo-page.js   page wiring shared by every demo
 public/assets/lib/context-state.js  model-input + context.reduced → context chart state (DOM-free)
 public/assets/<demo>.js          what each page adds (attack board, graph, decision panel, context chart)
+lib/*.py                         the Python editions of lib/*.ts (scripted_model.py, host_kit.py, …)
 ```
 
 `model.tool.*` events carry tool names, never payloads. To show inputs and
@@ -489,6 +514,29 @@ logic, and run every demo end to end through the HTTP API with the scripted
 model and whichever sandbox the machine provides. Force a sandbox with
 `SHOWCASE_SANDBOX=unisolated npm test`.
 
+The same HTTP tests run against the Python server, together with the parity
+tests that compare the two servers:
+
+```sh
+npm run test:python   # every test/*.test.ts against server.py, and test/parity.python.ts
+```
+
+With `SHOWCASE_RUNTIME=python`, `test/helpers.ts` starts `server.py` in the
+repository's Python environment (`python/.venv`, created with uv when
+missing) instead of `server.ts`. Live-mode tests reach the Python server's
+real OpenAI adapter through a local stand-in endpoint
+(`test/python-live-provider.ts`) answered by the same demo scripts.
+
+The parity tests (`test/parity.python.ts`) run every demo on both servers
+and require the same browser stream, host state, model requests, and stored
+run records and checkpoints, after normalizing IDs, times, ports, and
+measured durations. In Live mode, the provider must receive the same requests
+from both runtimes' OpenAI adapters. They also resume runs and continue chats
+across the two runtimes. This parity gate currently fails until the Python
+port adopts the TypeScript 0.10 durability behavior. From the repository
+root, `make test-showcase` runs this gate, and `make test` runs the Python host
+library's unit tests (`test_py/`).
+
 ## Notes
 
 - **Developing against unreleased runtime changes.** `package.json` uses the
@@ -502,9 +550,8 @@ model and whichever sandbox the machine provides. Force a sandbox with
   npm ci
   ```
 
-  The `use-local-runtime` script remains available for older
-  published-package installs; the package file references now make it
-  unnecessary.
+  The `use-local-runtime` script is retained for older published-package
+  installs; the package file references now make it unnecessary.
 
 - The unisolated fallback runs the interpreter that `python3` resolves to
   when the server starts, so pyenv or asdf shims and the macOS developer-tools

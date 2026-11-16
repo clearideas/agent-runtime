@@ -40,6 +40,9 @@ npm install @clearideas/agent-runtime
 
 See [embedding](https://agent-runtime.clearideas.com/embedding) for a minimal host.
 
+The [Python runtime](python/README.md) implements the same 1.0.0 runtime and
+checkpoint contract 1.1. Runs can resume across TypeScript and Python hosts.
+
 ## Run the showcase
 
 Explore eight end-to-end demos with workspaces, sandbox commands, approvals,

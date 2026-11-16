@@ -1,0 +1,12 @@
+{
+  "include": ["server.py", "doctor.py", "lib", "demos", "test_py"],
+  "exclude": ["demos/*/fixture", "node_modules", "**/__pycache__"],
+  "pythonVersion": "3.11",
+  "typeCheckingMode": "standard",
+  "venvPath": "../../python",
+  "venv": ".venv",
+  "extraPaths": ["../../python/src"],
+  "reportMissingModuleSource": false,
+  "reportOptionalMemberAccess": false,
+  "reportOptionalSubscript": false
+}
