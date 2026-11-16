@@ -6,10 +6,10 @@
  * instead of the published versions in package.json. Use it to try demos that
  * need runtime changes that are not released yet.
  *
- * It removes the published @clearideas packages from this example's
+ * It removes only the published runtime packages from this example's
  * node_modules, so Node resolves them from the repository root's workspace
- * links (node_modules/@clearideas/* → packages/*). Nothing tracked changes.
- * Run `npm ci` here to return to the published packages.
+ * links. Other @clearideas dependencies stay installed. Nothing tracked changes.
+ * Run `npm ci` here to restore this example's package links.
  */
 import { existsSync, readFileSync, rmSync } from "node:fs";
 import { createRequire } from "node:module";
@@ -55,10 +55,11 @@ if (!existsSync(path.join(showcase, "node_modules")))
     "This example's dependencies are not installed. In examples/showcase, run:\n    npm ci",
   );
 
-rmSync(path.join(showcase, "node_modules", "@clearideas"), {
-  recursive: true,
-  force: true,
-});
+for (const name of ["agent-runtime", "agent-runtime-sandbox"])
+  rmSync(path.join(showcase, "node_modules", "@clearideas", name), {
+    recursive: true,
+    force: true,
+  });
 
 const entry = createRequire(path.join(showcase, "package.json")).resolve(
   "@clearideas/agent-runtime",
@@ -81,5 +82,5 @@ console.log(`
 ✓ The showcase now uses this repository's Agent Runtime, built from source
   (package version ${version}, ${path.join(repository, "packages")}).
   Rebuild with \`npm run build\` at the repository root after changing runtime code.
-  To return to the published packages, run \`npm ci\` in examples/showcase.
+  To restore this example's package links, run \`npm ci\` in examples/showcase.
 `);
