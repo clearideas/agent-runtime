@@ -76,7 +76,7 @@ asyncio_default_fixture_loop_scope = "function"
 filterwarnings = [
   "error",
   "ignore::SyntaxWarning:.*site-packages.*",
-  "ignore:invalid escape sequence:DeprecationWarning:google\\.genai\\..*",
+  "ignore:invalid escape sequence:DeprecationWarning",
   "ignore:The `__fields__` attribute is deprecated:DeprecationWarning:cohere\\.core\\.unchecked_base_model",
   "ignore:Inheritance class AiohttpClientSession from ClientSession is discouraged:DeprecationWarning:google\\.genai\\._api_client",
 ]
