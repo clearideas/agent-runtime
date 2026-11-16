@@ -574,6 +574,39 @@ async def test_executes_in_the_run_sandbox_when_workspaces_are_declared_and_reco
         )
 
 
+async def test_reports_an_interrupted_run_sandbox_code_step_before_reexecution():
+    step = {"id": "code-run", "type": "code", "language": "python", "code": "print('ok')", "sandbox": "run"}
+    checkpoints = []
+    session = Session({"record": RECORD, "output": "ok\n", "stdout": "ok\n", "stderr": ""})
+    sandbox_starts = 0
+
+    async def checkpoint(value):
+        checkpoints.append(value)
+
+    async def run_sandbox():
+        nonlocal sandbox_starts
+        sandbox_starts += 1
+        return session
+
+    executor = CodeStepExecutor()
+    await executor.execute(context(step, run_sandbox=run_sandbox, checkpoint=checkpoint))
+    assert checkpoints == [{"state": {}, "continuation": {"type": "code", "stepId": "code-run", "phase": "started"}}]
+    assert sandbox_starts == 1
+
+    with pytest.raises(RunSuspendedError) as raised:
+        await executor.execute(
+            context(
+                step,
+                run_sandbox=run_sandbox,
+                checkpoint=checkpoint,
+                resume={"continuation": checkpoints[-1]["continuation"]},
+            )
+        )
+    assert raised.value.details["error"]["code"] == "STEP_INTERRUPTED_IN_DOUBT"
+    assert checkpoints[-1]["continuation"]["phase"] == "reported"
+    assert sandbox_starts == 1
+
+
 async def test_forwards_explicit_environment_values_only_to_the_sandbox():
     step = {
         "id": "code-environment",

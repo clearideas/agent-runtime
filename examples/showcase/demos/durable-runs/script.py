@@ -19,6 +19,10 @@ def money(value: float) -> str:
     return f"${to_locale_string(value)}"
 
 
+def thousands(value: float) -> str:
+    return f"${int(value / 1000 + 0.5)}K"
+
+
 def percent(value: float) -> str:
     return f"{'+' if value >= 0 else '−'}{to_fixed(abs(value), 1)}%"
 
@@ -32,7 +36,9 @@ def parse_csv(content: str | None = None) -> dict[str, float]:
     return rows
 
 
-def draft_report(quarter: str, previous: str, current: dict[str, float], prior: dict[str, float]) -> dict[str, str]:
+def draft_report(
+    quarter: str, previous: str, current: dict[str, float], prior: dict[str, float], money_format=money
+) -> dict[str, str]:
     """Build the draft from the two quarters the sandbox returned."""
 
     def change(now: float, before: float) -> float:
@@ -56,17 +62,17 @@ def draft_report(quarter: str, previous: str, current: dict[str, float], prior: 
             f"| Region | {previous} | {quarter} | Change |",
             "| --- | ---: | ---: | ---: |",
             *(
-                f"| {row['region']} | {money(row['before'])} | {money(row['revenue'])} | {percent(row['change'])} |"
+                f"| {row['region']} | {money_format(row['before'])} | {money_format(row['revenue'])} | {percent(row['change'])} |"
                 for row in rows
             ),
-            f"| **Total** | {money(prior_total)} | {money(total)} | **{percent(change(total, prior_total))}** |",
+            f"| **Total** | {money_format(prior_total)} | {money_format(total)} | **{percent(change(total, prior_total))}** |",
             "",
             f"{best['region']} grew fastest ({percent(best['change'])})."
             + (f" {worst['region']} declined ({percent(worst['change'])})." if worst["change"] < 0 else ""),
             "",
         ]
     )
-    summary = f"Draft written to {quarter}-draft.md: revenue {money(total)}, {percent(change(total, prior_total))} on {previous}."
+    summary = f"Draft written to {quarter}-draft.md: revenue {money_format(total)}, {percent(change(total, prior_total))} on {previous}."
     return {"content": content, "summary": summary}
 
 
@@ -89,7 +95,9 @@ def draft(request: ScriptRequest) -> ScriptTurn:
         }
     current = parse_csv((output_of(request.results[1]) or {}).get("content"))
     prior = parse_csv((output_of(request.results[2]) or {}).get("content"))
-    report = draft_report(quarter, previous, current, prior)
+    report = draft_report(
+        quarter, previous, current, prior, thousands if "nearest thousand" in request.system else money
+    )
     if request.turn == 3:
         return {
             "say": "Comparing the quarters and writing the draft.",
@@ -111,6 +119,17 @@ def published(request: ScriptRequest) -> dict[str, str]:
         response["reviewer"] if isinstance(response, dict) and response.get("reviewer") is not None else "the reviewer"
     )
     content = draft_text.replace("**Status:** Draft, awaiting approval", f"**Status:** Approved by {reviewer}", 1)
+    if "one-line summary" in request.system:
+        total = re.search(r"\| \*\*Total\*\* \| [^|]+ \| ([^|]+) \| \*\*([^*]+)\*\* \|", draft_text)
+        if total:
+            content = re.sub(
+                r"^(# .+\n)",
+                lambda match: (
+                    f"{match[1]}\n> Revenue {js.trim(total[1])}, {js.trim(total[2])} on the previous quarter.\n"
+                ),
+                content,
+                count=1,
+            )
     return {"reviewer": reviewer, "content": f"{js.trim_end(content)}\n"}
 
 

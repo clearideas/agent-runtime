@@ -42,8 +42,6 @@ jobs:
           # Enable user namespaces on this disposable runner for isolation tests.
           sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
 
-      # The Python 0.9 port's unit suite is separate from the TypeScript 0.10
-      # cross-language durability gate (`make interop`).
       - name: Test the Python runtime
         env:
           UV_PYTHON: ${{ matrix.python }}

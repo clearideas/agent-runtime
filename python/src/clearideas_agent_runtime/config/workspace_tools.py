@@ -13,6 +13,7 @@ from typing import Any
 
 from .._js import json as js_json
 from .._js.errors import Error, error_message
+from ..core.errors import create_limit_suspension
 from ..core.runtime import resolve_agent_workspaces
 from .mcp_tools import runtime_tool_name
 
@@ -174,6 +175,11 @@ class WorkspaceToolAdapter:
         try:
             result = await session.execute(request)
         except Exception as error:
+            limit = getattr(error, "limit", None)
+            if isinstance(limit, dict) and isinstance(limit.get("name"), str):
+                raise create_limit_suspension(
+                    limit=limit["name"], used=limit["used"], value=limit["value"], step_id=context.step_id
+                ) from error
             return {
                 "callId": call["id"],
                 "name": call["name"],

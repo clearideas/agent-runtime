@@ -1,3 +1,3 @@
 """Runtime version, kept equal to the TypeScript packages' version."""
 
-RUNTIME_VERSION = "0.9.0"
+RUNTIME_VERSION = "1.0.0"

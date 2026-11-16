@@ -281,7 +281,7 @@ class LoopStepExecutor:
                             **({"boundary": nested["boundary"]} if nested.get("boundary") else {}),
                         }
 
-                    frame: JsonObject = {"key": str(iteration), "checkpoint": frame_checkpoint}
+                    frame: JsonObject = {"key": str(iteration), "checkpoint": frame_checkpoint}  # pyright: ignore[reportGeneralTypeIssues]
                     if resumed is not None:
                         frame["resume"] = {
                             **({"continuation": resumed["continuation"]} if resumed.get("continuation") else {}),

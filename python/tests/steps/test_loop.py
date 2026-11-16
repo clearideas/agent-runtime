@@ -299,6 +299,33 @@ async def test_resumes_a_child_from_its_framed_checkpoint():
     )
 
 
+async def test_loop_iteration_limit_resumes_with_a_higher_grant():
+    seen = []
+    store = MemoryRunStore()
+    loop = {
+        "id": "each",
+        "type": "loop",
+        "loop": {"source": "items", "itemVariable": "item"},
+        "steps": [prompt("work", "result")],
+    }
+
+    def child(context):
+        seen.append(context.variables["item"])
+        return {"output": context.variables["item"]}
+
+    runner = create_runner(store, executor("prompt", child))
+    with pytest.raises(RunSuspendedError) as blocked:
+        await runner.run(
+            run_id="capped-loop",
+            manifest={**manifest(loop, {"items": ["a", "b", "c"]}), "limits": {"maxLoopIterations": 2}},
+        )
+    assert blocked.value.details["limit"] == "maxLoopIterations"
+    assert seen == ["a", "b"]
+    result = await runner.run(run_id="capped-loop", resume=True, limits={"maxLoopIterations": 3})
+    assert seen == ["a", "b", "c"]
+    assert result["stepResults"][0]["output"] == ["a", "b", "c"]
+
+
 async def test_ends_the_loop_and_the_run_when_a_child_returns_end_run():
     ran = []
 

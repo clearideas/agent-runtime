@@ -290,12 +290,14 @@ class TestPolicyLayering:
         host = {
             "context": {"strategy": "prune", "trigger": {"contextRatio": 0.7}, "variables": {"doc": {"keep": True}}},
             "modelRetry": {"maxAttempts": 5},
+            "onFailure": "pause",
         }
         manifest_policies = {
             "context": {"strategy": "summarize-or-prune", "summarizer": {"model": {"ref": "fast"}}},
             "onError": "continue",
         }
         step_policies = {
+            "onFailure": "fail",
             "context": {
                 "trigger": {"toolRounds": 4},
                 "variables": {"doc": {"maxBytes": 100}},
@@ -317,6 +319,7 @@ class TestPolicyLayering:
             },
             "modelRetry": {"maxAttempts": 5, "initialDelayMs": 10},
             "onError": "continue",
+            "onFailure": "fail",
         }
 
     async def test_passes_resolved_policies_to_the_executor(self):

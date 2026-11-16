@@ -378,7 +378,7 @@ class LongInvestigation(ShowcaseDemo):
                 emit({"kind": "event", "event": event})
 
         runtime = AgentRuntime(
-            policies={"context": {"strategy": strategy}},
+            policies={"context": {"strategy": strategy}, "onFailure": "fail"},
             summarizer=ReportingSummarizer(),
             model=model,
             tools=ObservedToolAdapter(composed.tools, mirror),

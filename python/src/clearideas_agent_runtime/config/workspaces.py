@@ -26,6 +26,10 @@ class _WithoutAttachment:
             self.write = store.write
         if getattr(store, "delete", None) is not None:
             self.delete = store.delete
+        if getattr(store, "commit", None) is not None:
+            self.commit = store.commit
+        if getattr(store, "version", None) is not None:
+            self.version = store.version
 
     async def entries(self, signal: Any = None) -> list[JsonObject]:
         return await self._store.entries(signal=signal)

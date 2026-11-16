@@ -84,7 +84,7 @@ def resolve_run_limits(
     return effective
 
 
-def transcript_tokens(transcript: list[JsonObject]) -> int:
+def transcript_tokens(transcript: list[JsonObject]) -> float:
     total = 0
     for item in transcript:
         usage = item.get("usage") or {}
@@ -220,7 +220,7 @@ class RunLedgerTracker:
         if key is None or (self._step and self._step["key"] == key):
             self._step = None
 
-    def set_step_tokens(self, key: str, tokens: int) -> None:
+    def set_step_tokens(self, key: str, tokens: float) -> None:
         if self._step and self._step["key"] == key:
             self._step["tokens"] = tokens
 
@@ -233,7 +233,7 @@ class RunLedgerTracker:
         return self._sandbox
 
     @property
-    def tokens(self) -> int:
+    def tokens(self) -> float:
         return self._tokens
 
     @property
@@ -241,7 +241,7 @@ class RunLedgerTracker:
         return self._cost
 
     @property
-    def step_tokens(self) -> int:
+    def step_tokens(self) -> float:
         return self._step["tokens"] if self._step else 0
 
     @property

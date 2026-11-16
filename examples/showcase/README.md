@@ -1,6 +1,6 @@
 # Agent Runtime Showcase
 
-Interactive examples of Clear Ideas Agent Runtime 0.10, available locally or
+Interactive examples of Clear Ideas Agent Runtime 1.0, available locally or
 on a hosted server. Each demo executes an agent manifest and visualizes the
 runtime's event stream. Every page also shows the manifest, host configuration,
 and integration code used by the example.
@@ -16,8 +16,7 @@ and integration code used by the example.
 | **Data Chat**          | A chat, one run per message: moderation, data read and charts rendered in the sandbox, and a signed history the browser keeps     |
 | **Document Chat**      | A chat about a Word document: each revision is a real .docx written in the sandbox, kept in a workspace per conversation, by turn |
 
-The example targets Agent Runtime **0.10** and uses a separate lockfile. Until
-0.10.0 is published, it installs the runtime from this repository
+The example targets Agent Runtime **1.0** and uses a separate lockfile. It installs the runtime from this repository
 (`file:../../packages/...`), so build the repository first: run `npm ci` and
 `npm run build` at the repository root, then `npm ci` here.
 
@@ -74,11 +73,8 @@ npm run doctor:python        # the doctor, on the Python runtime
 
 It listens on the same port and reads the same `SHOWCASE_*` variables; its
 default data directory is `.data-python/`. Both servers can run at once on
-different ports. Keep their `SHOWCASE_DATA` directories separate: the Python
-port uses checkpoint contract 1.0 while the TypeScript durability update uses
-1.1, so cross-runtime resume is not yet supported. Durable Runs uses
-`agent.python.yaml` on the Python server because the TypeScript manifest has
-new 0.10 policy fields.
+different ports. Use separate `SHOWCASE_DATA` directories when running both
+servers at once. Durable Runs uses the same manifest on both runtimes.
 
 ## Windows with Docker
 
@@ -392,8 +388,7 @@ What to watch:
 4. **Hidden data.** `customers.csv` holds contact details. The host's
    visibility rules keep it out of the sandbox, so the agent never sees it.
 
-Data Chat uses the conversation history support included in the pinned
-Agent Runtime 0.9.0 packages.
+Data Chat uses the conversation history support included in Agent Runtime 1.0.
 
 ### Files
 

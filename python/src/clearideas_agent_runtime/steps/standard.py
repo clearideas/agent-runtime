@@ -24,6 +24,7 @@ from ..core import (
     compile_prompt_template,
     without_messages_view,
 )
+from ..core.errors import create_error_suspension, create_limit_suspension
 
 JsonObject = dict[str, Any]
 FetchLike = Callable[[str, JsonObject], Awaitable[Any]]
@@ -732,6 +733,32 @@ class CodeStepExecutor:
                 "workspaces": list(step.get("workspaces") or []),
             },
         )
+        checkpoint = context.checkpoint
+        report_interruption = (context.policies or {}).get("onFailure") != "fail" and checkpoint is not None
+        saved = (context.resume or {}).get("continuation") or {}
+        own_saved = saved.get("phase") if saved.get("type") == "code" and saved.get("stepId") == step["id"] else None
+        if report_interruption and checkpoint is not None and own_saved == "started":
+            await checkpoint(
+                {
+                    "state": {**context.variables},
+                    "continuation": {"type": "code", "stepId": step["id"], "phase": "reported"},
+                }
+            )
+            raise create_error_suspension(
+                error={
+                    "code": "STEP_INTERRUPTED_IN_DOUBT",
+                    "message": f"Code step {step['id']} was interrupted while it ran in the run sandbox; its workspace changes may be partly applied. Inspect the workspace, then resume to run it again, or restart the run from the previous step.",
+                    "retryable": True,
+                },
+                step_id=step["id"],
+            )
+        if report_interruption and checkpoint is not None:
+            await checkpoint(
+                {
+                    "state": {**context.variables},
+                    "continuation": {"type": "code", "stepId": step["id"], "phase": "started"},
+                }
+            )
         session = await context.run_sandbox()
         arguments: JsonObject = {"language": step["language"], "code": step["code"], "variables": {**context.variables}}
         if step.get("environment"):
@@ -746,9 +773,15 @@ class CodeStepExecutor:
         except Exception as error:
             if getattr(error, "code", None) == "sandbox_command_timeout":
                 raise SandboxTimeoutError(timeout_ms) from error
+            limit = getattr(error, "limit", None)
+            if isinstance(limit, dict) and isinstance(limit.get("name"), str):
+                raise create_limit_suspension(
+                    limit=limit["name"], used=limit["used"], value=limit["value"], step_id=step["id"]
+                ) from error
             raise
         record = result["record"]
         artifact_count = len(result.get("artifacts") or [])
+        not_persisted = js_json.to_json_value(result["notPersisted"]) if result.get("notPersisted") else None
         await context.emit(
             "code.execution.completed",
             {
@@ -760,6 +793,15 @@ class CodeStepExecutor:
                 "commandId": record["id"],
             },
         )
+        if not_persisted is not None:
+            await context.emit(
+                "diagnostic",
+                {
+                    "code": "WORKSPACE_CHANGES_NOT_SAVED",
+                    "message": f"Code step {step['id']} changed workspace files that were not saved.",
+                    "notPersisted": not_persisted,
+                },
+            )
         if record["exitCode"] != 0:
             raise SandboxExecutionError(step["id"], record["exitCode"])
         output = result.get("output", UNDEFINED)
@@ -779,6 +821,7 @@ class CodeStepExecutor:
             "hasOutput": output is not UNDEFINED,
             "sandbox": "run",
             "command": js_json.to_json_value(record),
+            **({"notPersisted": not_persisted} if not_persisted is not None else {}),
         }
         return executed
 

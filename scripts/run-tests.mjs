@@ -80,8 +80,7 @@ const discoverSuites = () => {
       script: examples,
     });
   }
-  // Cross-language compatibility is an explicit gate while the Python 0.9
-  // port is being updated for the TypeScript 0.10 durability contract.
+  // A local opt-in to include Python interop in the npm test summary.
   if (
     process.env.AGENT_RUNTIME_TEST_PYTHON_INTEROP === "1" &&
     existsSync(path.join(repository, "python", ".venv")) &&

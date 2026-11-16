@@ -1,6 +1,6 @@
 [project]
 name = "clearideas-agent-runtime"
-version = "0.9.0"
+version = "1.0.0"
 description = "Python implementation of Clear Ideas Agent Runtime, interoperable with the TypeScript runtime."
 readme = "README.md"
 license = "Apache-2.0"

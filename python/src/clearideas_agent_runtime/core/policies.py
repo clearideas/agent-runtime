@@ -41,6 +41,8 @@ def merge_execution_policies(*layers: dict[str, Any] | None) -> dict[str, Any]:
             next_policies["toolCallLimit"] = layer["toolCallLimit"]
         if "onError" in layer:
             next_policies["onError"] = layer["onError"]
+        if "onFailure" in layer:
+            next_policies["onFailure"] = layer["onFailure"]
         if layer.get("modelRetry") is not None:
             next_policies["modelRetry"] = {**(result.get("modelRetry") or {}), **copy.deepcopy(layer["modelRetry"])}
         if layer.get("outputRepair") is not None:

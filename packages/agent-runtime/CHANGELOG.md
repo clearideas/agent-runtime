@@ -1,5 +1,27 @@
 # @clearideas/agent-runtime
 
+## 1.0.0
+
+### Major Changes
+
+- Release Agent Runtime 1.0.0 with a Python implementation of the 1.1 checkpoint
+  contract. Both runtimes support durable run limits, blocked runs, restart
+  points, workspace commit points, and cross-language resume.
+
+### Patch Changes
+
+- @clearideas/agent-runtime-condition-jexl@1.0.0
+  - @clearideas/agent-runtime-contracts@1.0.0
+  - @clearideas/agent-runtime-core@1.0.0
+  - @clearideas/agent-runtime-execution@1.0.0
+  - @clearideas/agent-runtime-model-ai-sdk@1.0.0
+  - @clearideas/agent-runtime-config@1.0.0
+  - @clearideas/agent-runtime-sandbox@1.0.0
+  - @clearideas/agent-runtime-step-loop@1.0.0
+  - @clearideas/agent-runtime-step-prompt@1.0.0
+  - @clearideas/agent-runtime-step-standard@1.0.0
+  - @clearideas/agent-runtime-store-local@1.0.0
+
 ## 0.10.0
 
 ### Patch Changes

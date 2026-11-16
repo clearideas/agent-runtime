@@ -539,7 +539,7 @@ wheels = [
 
 [[package]]
 name = "clearideas-agent-runtime"
-version = "0.9.0"
+version = "1.0.0"
 source = { editable = "." }
 dependencies = [
     { name = "ada-url" },

@@ -1,5 +1,5 @@
 # Dependencies
-node_modules/
+node_modules
 .npm-cache/
 
 # Compiled output and caches
@@ -39,7 +39,7 @@ yarn-error.log*
 *.swp
 
 # Python
-.venv/
+.venv
 __pycache__/
 *.py[cod]
 .pytest_cache/

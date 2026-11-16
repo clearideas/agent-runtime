@@ -296,7 +296,17 @@ async def _run(command: str, args: list[str], io: CliIo) -> None:
     allowed = (
         _RUN_OPTIONS
         if command in ("run", "run-manifest")
-        else {"max-total-tokens", "limits", "config", "store", "store-driver", "events", "artifacts", "runtime-module", "format"}
+        else {
+            "max-total-tokens",
+            "limits",
+            "config",
+            "store",
+            "store-driver",
+            "events",
+            "artifacts",
+            "runtime-module",
+            "format",
+        }
     )
     parsed = parse_options(args, allowed)
     output_format = parsed.options.get("format", "json")

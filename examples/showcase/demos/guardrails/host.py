@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Any
 
 from clearideas_agent_runtime import (
+    RUN_BLOCKED_REASON,
     AgentRuntime,
     ComposeRuntimeOptions,
     FileAgentManifestSource,
@@ -28,6 +29,7 @@ from clearideas_agent_runtime import (
     WorkspaceCompositionOptions,
     compose_runtime,
     discover_mcp_connection_tools,
+    is_run_suspended_error,
     load_agent_runtime_config,
     validate_runtime_configuration,
 )
@@ -421,14 +423,24 @@ class Guardrails(ShowcaseDemo):
                     "sandbox": context.environment["sandbox"]["kind"],
                 }
             )
-            result = await runtime.run(
-                manifest=manifest,
-                run_id=run_id,
-                variables=[{"key": "canaryUrl", "value": canary.url}],
-                signal=signal,
-            )
-            emit({"kind": "canary", "hit": hit, "url": canary.url})
-            emit({"kind": "result", "result": summarize_result(result)})
+            try:
+                result = await runtime.run(
+                    manifest=manifest,
+                    run_id=run_id,
+                    variables=[{"key": "canaryUrl", "value": canary.url}],
+                    signal=signal,
+                )
+                emit({"kind": "canary", "hit": hit, "url": canary.url})
+                emit({"kind": "result", "result": summarize_result(result)})
+            except Exception as error:
+                if (
+                    not is_run_suspended_error(error)
+                    or error.reason != RUN_BLOCKED_REASON
+                    or (error.details or {}).get("cause") != "limit"
+                ):
+                    raise
+                emit({"kind": "canary", "hit": hit, "url": canary.url})
+                emit({"kind": "result", "result": to_json({"runId": run_id, "output": None, "blocked": error.details})})
         finally:
             await canary.close()
             await vendor.close()

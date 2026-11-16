@@ -247,7 +247,14 @@ class StreamParser:
             self.safety = response.get("safety_identifier")
             if kind == "response.incomplete":
                 reason = (response.get("incomplete_details") or {}).get("reason")
-                self.finish = {"unified": "length" if reason == "max_output_tokens" else finish_reason(reason) if reason else "other", "raw": reason or "incomplete"}
+                self.finish = {
+                    "unified": "length"
+                    if reason == "max_output_tokens"
+                    else finish_reason(reason)
+                    if reason
+                    else "other",
+                    "raw": reason or "incomplete",
+                }
             elif response.get("status"):
                 self.finish = {
                     "unified": "tool-calls" if self.has_function_call else finish_reason(response["status"]),

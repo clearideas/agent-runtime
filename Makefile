@@ -1,8 +1,7 @@
 # Python runtime tasks. The TypeScript workspace keeps using npm scripts.
 #
 #   make test        set up everything that is missing, then lint, type-check, and
-#                    run the Python unit suite (the TypeScript 0.10 interop gate
-#                    is separate until the Python durability port is complete)
+#                    run the Python unit and cross-language compatibility suites
 #                    (and the unit tests of the Python showcase's host library)
 #   make test-showcase
 #                    the showcase's HTTP tests against the Python showcase server,
@@ -103,7 +102,7 @@ typecheck: python-env
 	cd $(SHOWCASE_DIR) && $(SHOWCASE_UV) pyright
 
 pytest: install
-	$(RUN) pytest -rs tests --ignore=tests/interop $(PYTEST_ARGS)
+	$(RUN) pytest -rs tests $(PYTEST_ARGS)
 	$(RUN) pytest -rs ../$(SHOWCASE_DIR)/test_py
 
 # The showcase's browser libraries and test tools (its own npm project). The

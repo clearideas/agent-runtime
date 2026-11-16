@@ -273,7 +273,12 @@ const UUID = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gu;
 const TIME = /\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d+)?Z/gu;
 const SHA256 = /(?<![0-9a-f])[0-9a-f]{64}(?![0-9a-f])/gu;
 /** Measured, not computed: never equal across two runs. */
-const MEASURED = new Set(["durationMs", "sandboxSecondsUsed", "pid"]);
+const MEASURED = new Set([
+  "durationMs",
+  "sandboxSecondsUsed",
+  "activeMs",
+  "pid",
+]);
 /**
  * Sizes that include measured durations: compared within a tolerance. So is
  * `bytesPerToken`, the token estimate a checkpoint keeps, which is computed
@@ -284,6 +289,7 @@ const SIZES = new Set([
   "outputTokens",
   "totalTokens",
   "consumedTokens",
+  "tokens",
   "bytes",
   "bytesBefore",
   "bytesAfter",
@@ -312,6 +318,13 @@ const normalize = (
   key = "",
 ): unknown => {
   if (typeof value === "string") return normalizeText(value, dataDirectory);
+  if (
+    key === "sandbox" &&
+    value &&
+    typeof value === "object" &&
+    !Array.isArray(value)
+  )
+    return { ...value, seconds: 0 };
   if (typeof value === "number" && MEASURED.has(key)) return 0;
   if (Array.isArray(value))
     return value.map((item) => normalize(item, dataDirectory));
@@ -361,7 +374,7 @@ const differences = (
     !Array.isArray(left) &&
     !Array.isArray(right)
   ) {
-    const keys = (value: object) => Object.keys(value).join(",");
+    const keys = (value: object) => Object.keys(value).sort().join(",");
     if (keys(left) !== keys(right))
       found.push(`${at}: keys {${keys(left)}} ≠ {${keys(right)}}`);
     for (const [name, item] of Object.entries(left))

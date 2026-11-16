@@ -81,9 +81,10 @@ def bundled_helper_path() -> str:
 class RunSandboxExecutionError(Error):
     name = "RunSandboxExecutionError"
 
-    def __init__(self, code: str, message: str) -> None:
+    def __init__(self, code: str, message: str, limit: JsonObject | None = None) -> None:
         super().__init__(message)
         self.code = code
+        self.limit = limit
 
 
 def _sha256(data: bytes) -> str:
@@ -546,12 +547,22 @@ class ProviderRunSandboxSession:
         if self._commands_used >= self._run_budget["maxCommands"]:
             raise RunSandboxExecutionError(
                 "sandbox_budget_exhausted",
-                f"The run has used its {self._run_budget['maxCommands']}-command sandbox budget.",
+                f"The run has used its {self._run_budget['maxCommands']}-command sandbox limit.",
+                {
+                    "name": "sandbox.maxCommands",
+                    "used": self._commands_used,
+                    "value": self._run_budget["maxCommands"],
+                },
             )
         if self._sandbox_seconds_used >= self._run_budget["maxSeconds"]:
             raise RunSandboxExecutionError(
                 "sandbox_budget_exhausted",
-                f"The run has used its {self._run_budget['maxSeconds']}-second sandbox budget.",
+                f"The run has used its {self._run_budget['maxSeconds']}-second sandbox limit.",
+                {
+                    "name": "sandbox.maxSeconds",
+                    "used": round(self._sandbox_seconds_used),
+                    "value": self._run_budget["maxSeconds"],
+                },
             )
         self._sequence += 1
         partial: JsonObject = {"kind": admitted.kind, "name": admitted.name}

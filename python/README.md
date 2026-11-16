@@ -1,10 +1,9 @@
 # Clear Ideas Agent Runtime (Python)
 
-`clearideas-agent-runtime` ports the TypeScript 0.9 runtime in `packages/`.
-This checkout also contains TypeScript durability changes for 0.10. The Python
-port still writes checkpoint contract 1.0 and rejects 1.1; it does not yet
-implement run limits, blocked runs, restart points, or manifest reconciliation.
-Use separate run stores for the two runtimes until `make interop` passes.
+`clearideas-agent-runtime` is the Python implementation of Agent Runtime 1.0.0.
+It writes checkpoint contract 1.1 and supports durable run limits, blocked
+runs, restart points, workspace commit points, and cross-language resume with
+the TypeScript runtime.
 
 ## Install
 
@@ -41,10 +40,10 @@ async def main() -> None:
 asyncio.run(main())
 ```
 
-Like the 0.9 `@clearideas/agent-runtime`, the top-level package re-exports the
+Like `@clearideas/agent-runtime`, the top-level package re-exports the
 public API of every subpackage (`AgentRuntime`, `compose_runtime`,
-`FileRunStore`, `PromptStepExecutor`, `AbortController`, …). The 0.10 additions
-are tracked by `tests/interop/test_api_surface.py`. The pydantic-ai adapter
+`FileRunStore`, `PromptStepExecutor`, `AbortController`, …). API parity is
+tracked by `tests/interop/test_api_surface.py`. The pydantic-ai adapter
 (`PydanticAIModelAdapter`, the counterpart of `AiSdkModelAdapter`) is loaded
 on first use, since it needs the `providers` extra.
 
@@ -146,9 +145,8 @@ all seven drivers: provider HTTP requests (about 300 cases, including every
 supported provider option and replayed history), the complete `ModelResult`
 or streamed event sequence, failed calls (error, message, attempts), and
 whole manifest runs through the production adapters
-(`test_scenarios_providers.py`). These tests currently fail against the 0.10
-TypeScript durability changes. `AGENT_RUNTIME_TEST_PYTHON_INTEROP=1 npm test`
-also runs them when `python/.venv` exists; `python -m
+(`test_scenarios_providers.py`). `make test` runs them as part of the Python
+gate; `python -m
 tests.interop.wire_diff [driver] [case]` prints a provider difference.
 
 `make test-showcase` runs the showcase's HTTP test suite against the Python

@@ -1069,8 +1069,9 @@ class AgentRuntime:
         await self._preflight(manifest)
         fingerprints = await fingerprint_manifest(manifest)
         self._run_fingerprints[run_id] = fingerprints
+        restarted_step: str | None = None
         if latest is not None:
-            latest, _ = _reconcile_manifest_change(
+            latest, restarted_step = _reconcile_manifest_change(
                 run_id,
                 manifest,
                 latest,
@@ -1235,6 +1236,16 @@ class AgentRuntime:
                     "compaction": "pending" if prepared.compaction == "pending" else "none",
                 }
             await self._emit(run_id, "run.resumed" if resume else "run.started", started)
+            if restarted_step is not None:
+                await self._emit(
+                    run_id,
+                    "diagnostic",
+                    {
+                        "code": "STEP_RESTARTED_AFTER_MANIFEST_CHANGE",
+                        "message": f"Step {restarted_step} changed while it was in progress; it runs again from its start.",
+                    },
+                    restarted_step,
+                )
             for workspace in workspaces:
                 bound: JsonObject = {
                     "workspace": workspace.binding["ref"],
@@ -2356,7 +2367,8 @@ class AgentRuntime:
             "checkpoint.saved",
             {"checkpointId": checkpoint["id"], "nextStepIndex": checkpoint["cursor"]["stepIndex"]},
         )
-        self._enforce_usage_limits(run_id, checkpoint["cursor"].get("stepId"))
+        step_id = checkpoint["cursor"].get("stepId")
+        self._enforce_usage_limits(run_id, step_id if isinstance(step_id, str) else None)
 
     async def _commit_checkpoint_copy(self, run_id: str, blocked: JsonObject | None = None) -> None:
         last = await self._deps.run_store.load_latest_checkpoint(run_id)

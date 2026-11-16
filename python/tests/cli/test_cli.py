@@ -92,7 +92,9 @@ async def test_rejects_run_options_that_an_agent_run_manifest_declares(tmp_path)
     capture = Capture()
     code = await run_cli(["run-manifest", str(tmp_path / "release.run.yaml"), "--run-id", "x"], capture.io)
     assert code == 1
-    assert "".join(capture.err).startswith("Error: --variables, --run-id, --max-total-tokens, and --limits cannot be combined")
+    assert "".join(capture.err).startswith(
+        "Error: --variables, --run-id, --max-total-tokens, and --limits cannot be combined"
+    )
     capture = Capture()
     code = await run_cli(["run-manifest", str(tmp_path / "release.run.yaml"), "--messages", "m.json"], capture.io)
     assert code == 1

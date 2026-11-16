@@ -5,6 +5,7 @@
   "typeCheckingMode": "standard",
   "venvPath": "../../python",
   "venv": ".venv",
+  "extraPaths": ["../../python/src"],
   "reportMissingModuleSource": false,
   "reportOptionalMemberAccess": false,
   "reportOptionalSubscript": false
