@@ -172,10 +172,12 @@ jobs:
                   raise SystemExit('Wheel metadata has the wrong version')
               if 'clearideas_agent_runtime/__init__.py' not in names:
                   raise SystemExit('Wheel is missing the runtime package')
+              if not any(name.endswith('/LICENSE') for name in names) or not any(name.endswith('/NOTICE') for name in names):
+                  raise SystemExit('Wheel is missing LICENSE or NOTICE')
           with tarfile.open(sdist, 'r:gz') as archive:
               names = archive.getnames()
-              if not any(name.endswith('/LICENSE') for name in names):
-                  raise SystemExit('Source distribution is missing LICENSE')
+              if not any(name.endswith('/LICENSE') for name in names) or not any(name.endswith('/NOTICE') for name in names):
+                  raise SystemExit('Source distribution is missing LICENSE or NOTICE')
           PY
 
       - name: Test installed wheel and CLI
