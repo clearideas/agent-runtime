@@ -213,7 +213,7 @@ jobs:
 
   publish-python:
     name: Publish Python distribution to PyPI
-    if: ${{ github.ref == 'refs/heads/main' && (inputs.release_enabled || inputs.publish_python_only) }}
+    if: ${{ always() && !cancelled() && github.ref == 'refs/heads/main' && (inputs.release_enabled || inputs.publish_python_only) && needs.build-python.result == 'success' }}
     needs: build-python
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -232,6 +232,24 @@ jobs:
         uses: pypa/gh-action-pypi-publish@7245906fb61fa33a13554f9d5fb856fe61758086 # release/v1
         with:
           skip-existing: true
+
+  verify-python-only:
+    name: Verify Python-only publication ran
+    if: ${{ always() && inputs.publish_python_only }}
+    needs: publish-python
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions: {}
+
+    steps:
+      - name: Require successful PyPI publish job
+        env:
+          PUBLISH_RESULT: ${{ needs.publish-python.result }}
+        run: |
+          if [ "$PUBLISH_RESULT" != "success" ]; then
+            echo "PyPI publication did not complete: $PUBLISH_RESULT" >&2
+            exit 1
+          fi
 
   documentation:
     name: Build and deploy documentation
