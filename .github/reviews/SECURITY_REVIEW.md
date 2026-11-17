@@ -4,7 +4,7 @@
 
 Reviewed: November 3, 2026
 
-Status: patched dependencies prepared for review; merge and release pending.
+Status: merged into the main branch on November 5, 2026.
 
 The workspace audit reported 21 affected packages, including three critical
 and ten high-severity results. Require MCP SDK 1.32.2, Zod 4.6.6, and the
@@ -32,7 +32,7 @@ checks cover legitimate workflows and compatibility.
 
 Integration reviewed: November 3, 2026
 
-Status: remediation prepared on a review branch; merge and release pending.
+Status: merged into the main branch on November 5, 2026.
 
 Scope: `@clearideas/agent-runtime-config` (`ConfiguredMcpToolAdapter`) and
 `@clearideas/agent-runtime-cli`. No advisory; internal review.
