@@ -225,6 +225,8 @@ builds and checks the Python wheel and source distribution, then publishes them
 to PyPI through the `pypi-production` trusted publisher. It publishes the
 TypeScript packages to npm and can deploy documentation in the same run.
 Publishing requires the protected GitHub workflow; local checks do not publish.
+For a Python-only backfill, dispatch the workflow with `publish_python_only=true`;
+this skips npm publishing and documentation deployment.
 See [Contributing](CONTRIBUTING.md) for release validation.
 
 ## Project policies
