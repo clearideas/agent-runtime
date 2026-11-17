@@ -15,6 +15,7 @@ from gateway import proxy_handler
 
 APP_NAME = "agent-runtime-showcase"
 PORT = 4178
+SHOWCASE_WORKDIR = "/opt/agent-runtime/examples/showcase"
 app = modal.App(APP_NAME)
 data = modal.Volume.from_name("agent-runtime-showcase-data", create_if_missing=True, version=2)
 # deploy.py builds this immutable image before registering the HTTP host. A
@@ -58,7 +59,7 @@ class Web:
         public_origin = os.environ.get("SHOWCASE_PUBLIC_ORIGIN") or modal.Server.from_name(APP_NAME, "Web").get_url()
         self.sandbox = modal.Sandbox.create(
             "node", "server.ts",
-            app=app, image=image, runtime="vm", workdir="/opt/showcase",
+            app=app, image=image, runtime="vm", workdir=SHOWCASE_WORKDIR,
             cpu=1, memory=2048,
             timeout=24 * 60 * 60,
             idle_timeout=180,
@@ -109,7 +110,7 @@ def check():
     """Run the existing showcase doctor in the same VM image before deploying."""
     sandbox = modal.Sandbox.create(
         "node", "doctor.ts", app=app, image=image, runtime="vm",
-        workdir="/opt/showcase", timeout=300, cpu=1, memory=2048,
+        workdir=SHOWCASE_WORKDIR, timeout=300, cpu=1, memory=2048,
         env={"SHOWCASE_SANDBOX": "bubblewrap", "SHOWCASE_SESSIONS": "0"},
     )
     try:
