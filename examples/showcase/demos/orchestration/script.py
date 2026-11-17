@@ -29,7 +29,7 @@ def orchestration_script(request: ScriptRequest) -> ScriptTurn:
     prompt = request.prompt
     if prompt.startswith("Write a two-sentence launch brief"):
         return {
-            "output": "Agent Runtime 0.9.0 lets agents work on real files inside an isolated sandbox under host policy. Runs pause for people or budgets and resume later without losing work."
+            "output": "Agent Runtime 1.0.0 lets agents work on real files inside an isolated sandbox under host policy. Runs pause for people or budgets and resume later without losing work."
         }
     if prompt.startswith("Who is the primary audience"):
         return {"output": "platform teams adding agents to their products"}
@@ -54,7 +54,7 @@ def orchestration_script(request: ScriptRequest) -> ScriptTurn:
         return {"output": pitches.get(channel[1], f"A {channel[1]} pitch for the launch.")}
     if prompt.startswith("Write a launch headline"):
         first_try = after(prompt, "Previous feedback") == "No review yet."
-        return {"output": "Agent Runtime 0.9.0 is here" if first_try else "Give your agents a workspace, not the keys"}
+        return {"output": "Agent Runtime 1.0.0 is here" if first_try else "Give your agents a workspace, not the keys"}
     if prompt.startswith("Critique this headline"):
         headline = after(prompt, "Critique this headline strictly")
         return {
