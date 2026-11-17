@@ -8,9 +8,12 @@ the TypeScript runtime.
 ## Install
 
 ```sh
-# from the repository root
-make install          # uv sync --all-extras into python/.venv
+pip install clearideas-agent-runtime
+# Optional provider and MCP integrations:
+pip install 'clearideas-agent-runtime[providers,mcp]'
 ```
+
+To work from the repository checkout instead, run `make install` at the root.
 
 Requires Python 3.11+. Extras:
 
@@ -61,7 +64,7 @@ The CLI is `agent-runtime-py` and accepts the same arguments as the TypeScript
 
 | TypeScript package                          | Python module                                                             |
 | ------------------------------------------- | ------------------------------------------------------------------------- |
-| `@clear-ideas/agent-runtime`                | `clearideas_agent_runtime` (`create_agent_runtime`, `define_agent`)       |
+| `@clearideas/agent-runtime`                 | `clearideas_agent_runtime` (`create_agent_runtime`, `define_agent`)       |
 | `contracts`                                 | `contracts` (pydantic models with Zod 4 semantics, identical issues)      |
 | `core`                                      | `core` (`AgentRuntime`, hashing, signing, messages, tool policy)          |
 | `condition-jexl`                            | `conditions` (jexl's grammar, evaluated by pyjexl with JavaScript rules)  |

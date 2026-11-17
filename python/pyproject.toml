@@ -4,6 +4,7 @@ version = "1.0.0"
 description = "Python implementation of Clear Ideas Agent Runtime, interoperable with the TypeScript runtime."
 readme = "README.md"
 license = "Apache-2.0"
+license-files = ["LICENSE"]
 authors = [{ name = "Clear Ideas Incorporated" }]
 requires-python = ">=3.11"
 classifiers = [
@@ -61,7 +62,7 @@ build-backend = "hatchling.build"
 packages = ["src/clearideas_agent_runtime"]
 
 [tool.hatch.build.targets.sdist]
-only-include = ["src", "tests", "README.md", "PORTING_NOTES.md", "pyproject.toml"]
+only-include = ["src", "tests", "README.md", "PORTING_NOTES.md", "pyproject.toml", "LICENSE", "NOTICE"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

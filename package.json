@@ -27,7 +27,7 @@
     "docs:check": "npm run check:docs",
     "validate": "npm run format:check && npm run check:metadata && npm run check:boundaries && npm run build && npm test && npm run check:docs && npm run check:tarballs",
     "changeset": "changeset",
-    "version-packages": "changeset version && node scripts/generate-runtime-version.mjs",
+    "version-packages": "changeset version && node scripts/generate-runtime-version.mjs && node scripts/sync-python-version.mjs",
     "release:check": "npm run validate",
     "release:packages": "changeset publish",
     "test:examples": "node --test examples/patterns/patterns.test.mjs examples/patterns/anthropic-compatibility.test.mjs examples/serving/serving.test.mjs",

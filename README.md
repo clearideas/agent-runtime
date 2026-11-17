@@ -219,9 +219,13 @@ npm run changeset
 npm run version-packages
 ```
 
-Releases use generated package changelogs and GitHub release notes. Publishing
-remains manually approved through the protected GitHub workflow; local checks
-do not publish. See [Contributing](CONTRIBUTING.md) for release validation.
+`version-packages` also keeps the Python distribution version in sync with the
+TypeScript packages. The manual [release workflow](.github/workflows/release.yml)
+builds and checks the Python wheel and source distribution, then publishes them
+to PyPI through the `pypi-production` trusted publisher. It publishes the
+TypeScript packages to npm and can deploy documentation in the same run.
+Publishing requires the protected GitHub workflow; local checks do not publish.
+See [Contributing](CONTRIBUTING.md) for release validation.
 
 ## Project policies
 
