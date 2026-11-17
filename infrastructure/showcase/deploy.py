@@ -10,7 +10,8 @@ import httpx
 import modal
 
 HERE = Path(__file__).resolve().parent
-SOURCE = HERE.parents[1] / "examples" / "showcase"
+REPOSITORY = HERE.parents[1]
+SOURCE = REPOSITORY / "examples" / "showcase"
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument("--check-only", action="store_true", help="Build and run doctor without replacing the deployment")
 args = parser.parse_args()
@@ -48,7 +49,12 @@ def verify_host(url):
 with modal.enable_output():
     app = modal.App.lookup("agent-runtime-showcase", create_if_missing=True)
     image = (
-        modal.Image.from_dockerfile(SOURCE / "Dockerfile", context_dir=SOURCE, add_python="3.12")
+        modal.Image.from_dockerfile(
+            SOURCE / "Dockerfile",
+            context_dir=REPOSITORY,
+            add_python="3.12",
+            ignore=["**/node_modules", "**/.venv", "**/__pycache__", "**/.git"],
+        )
         .pip_install("httpx==0.28.1")
         .add_local_file(HERE / "gateway.py", "/root/gateway.py", copy=True)
         .build(app)
