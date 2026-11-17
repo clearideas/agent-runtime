@@ -41,4 +41,4 @@ responsible for:
 
 See [production guidance](docs/production.md) for deployment considerations.
 Reviewed dependency advisories and their dispositions are recorded in
-[SECURITY_REVIEW.md](SECURITY_REVIEW.md).
+[security review record](.github/reviews/SECURITY_REVIEW.md).
