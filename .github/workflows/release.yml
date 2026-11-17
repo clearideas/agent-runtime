@@ -1,6 +1,7 @@
 name: Release packages
 
-# A dispatch with release_enabled=false validates packages without publishing.
+# A dispatch with both publishing inputs disabled validates packages without publishing.
+# publish_python_only bypasses npm validation and publishing for a Python backfill.
 # Publishing additionally requires:
 # 1. a manual dispatch with release_enabled=true;
 # 2. repository variable NPM_RELEASES_ENABLED=true;
@@ -15,6 +16,11 @@ on:
     inputs:
       release_enabled:
         description: Publish approved npm and PyPI package versions
+        required: true
+        type: boolean
+        default: false
+      publish_python_only:
+        description: Publish Python only; skip npm and documentation
         required: true
         type: boolean
         default: false
@@ -33,7 +39,7 @@ concurrency:
 
 jobs:
   readiness:
-    if: ${{ github.ref == 'refs/heads/main' }}
+    if: ${{ github.ref == 'refs/heads/main' && !inputs.publish_python_only }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     environment: npm-production
@@ -67,7 +73,7 @@ jobs:
         run: npm run docs:build
 
   release:
-    if: ${{ github.ref == 'refs/heads/main' && inputs.release_enabled && vars.NPM_RELEASES_ENABLED == 'true' }}
+    if: ${{ github.ref == 'refs/heads/main' && inputs.release_enabled && !inputs.publish_python_only && vars.NPM_RELEASES_ENABLED == 'true' }}
     needs: readiness
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -117,7 +123,7 @@ jobs:
 
   build-python:
     name: Build Python distribution
-    if: ${{ github.ref == 'refs/heads/main' && inputs.release_enabled }}
+    if: ${{ always() && !cancelled() && github.ref == 'refs/heads/main' && (inputs.publish_python_only || (inputs.release_enabled && needs.readiness.result == 'success')) }}
     needs: readiness
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -207,7 +213,7 @@ jobs:
 
   publish-python:
     name: Publish Python distribution to PyPI
-    if: ${{ github.ref == 'refs/heads/main' && inputs.release_enabled }}
+    if: ${{ github.ref == 'refs/heads/main' && (inputs.release_enabled || inputs.publish_python_only) }}
     needs: build-python
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -229,7 +235,7 @@ jobs:
 
   documentation:
     name: Build and deploy documentation
-    if: ${{ always() && !cancelled() && (needs.release.outputs.published == 'true' || inputs.deploy_documentation) }}
+    if: ${{ always() && !cancelled() && !inputs.publish_python_only && (needs.release.outputs.published == 'true' || inputs.deploy_documentation) }}
     needs: release
     runs-on: ubuntu-latest
     timeout-minutes: 20
